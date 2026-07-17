@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window backgrounds, kept in sync with the Compose theme to avoid a launch flash. -->
+    <color name="window_background">#F5F3EC</color>
+</resources>

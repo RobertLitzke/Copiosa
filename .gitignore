@@ -1,0 +1,32 @@
+*.iml
+.gradle/
+.kotlin/
+.claude/
+build/
+/local.properties
+local.properties
+/.idea/
+.DS_Store
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# Vendored sherpa-onnx TTS AAR — large native binary, fetched by the downloadSherpaOnnxAar Gradle task.
+/app/libs/*.aar
+
+# Dictionary packs — built by tools/build_dictionary.py; the .gz ships via GitHub Releases, not git.
+/dist/
+
+# Raw Wiktextract source dumps and other bulk inputs for the dictionary build.
+/data/
+
+# Local device-database pulls and scratch output.
+/dbpull/
+
+# Python tooling caches.
+__pycache__/
+*.pyc

@@ -1,0 +1,405 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Copiosa</string>
+
+    <string name="nav_library">Biblioteca</string>
+    <string name="nav_lexicon">Léxico</string>
+    <string name="nav_audio">Audio</string>
+    <string name="nav_routines">Rutinas</string>
+    <string name="nav_settings">Ajustes</string>
+
+    <!-- Routines -->
+    <string name="routines_title">Rutinas</string>
+    <string name="routine_bedtime_title">Rutina para dormir</string>
+    <string name="routine_bedtime_desc">Una secuencia tranquila que te lleva al sueño, terminando con un cuento suave.</string>
+    <string name="routine_duration_label">¿Cuánto tiempo esta noche?</string>
+    <string name="routine_minutes">%1$d min</string>
+    <string name="routine_topic_label">Tema (opcional)</string>
+    <string name="routine_topic_hint">Un tema relajante para incluir…</string>
+    <string name="routine_suggestions_label">De lo que has estado explorando</string>
+    <string name="routine_start">Empezar</string>
+    <string name="routines_empty">Aún no hay rutinas.</string>
+    <string name="routine_preparing">Preparando tu rutina…</string>
+    <string name="routine_failed">No se pudo preparar la rutina.</string>
+    <string name="routine_retry">Reintentar</string>
+    <string name="routine_exit">Salir</string>
+    <string name="routine_show_answer">Ver respuesta</string>
+    <string name="routine_continue">Continuar</string>
+    <string name="routine_finish">Terminar</string>
+    <string name="routine_done_title">Buenas noches</string>
+    <string name="routine_done_body">Rutina completa. Que descanses.</string>
+    <string name="routine_guess_prompt">Recuérdalo y luego voltea.</string>
+    <string name="routine_flip">Voltear</string>
+    <string name="routine_pi_prompt">¿Quién o cuándo?</string>
+    <string name="routine_cloze_prompt">Elige la forma correcta.</string>
+    <string name="routine_affective_prompt">¿Cuál es verdad para ti?</string>
+    <string name="routine_story_tap_hint">Toca para encender la pantalla.</string>
+    <string name="routine_mc_cloze_prompt">Elige la palabra que encaja.</string>
+    <string name="routine_recognition_prompt">¿Recuerdas esta palabra?</string>
+    <string name="routine_recognition_reveal">Ver significado</string>
+    <string name="routine_swipe_prompt">Desliza cada palabra a su género.</string>
+    <string name="routine_swipe_masculine">el (m.)</string>
+    <string name="routine_swipe_feminine">la (f.)</string>
+    <string name="routine_cognate_prompt">Toca cada palabra — ¿cuáles significan lo que parecen y cuáles son falsos amigos?</string>
+    <string name="routine_cognate_true">Un cognado verdadero — significa lo que parece.</string>
+    <string name="routine_cognate_false_friend">Falso amigo — en realidad significa: %1$s</string>
+    <!-- Routine status / comfort levels -->
+    <string name="routine_status_title">Nivel de comodidad</string>
+    <string name="routine_status_open">Nivel de comodidad</string>
+    <string name="routine_status_legend">Qué tan cómodo cree la app que estás con cada ejercicio de gramática en español. A medida que sube tu comodidad, lo hace un poco más difícil y lo muestra menos para mantener el reto.</string>
+    <string name="routine_status_spanish_only">Por ahora los ejercicios de gramática adaptativos son solo para español, así que no hay nada que mostrar para tu idioma actual.</string>
+    <string name="routine_status_group_cloze">Contraste gramatical</string>
+    <string name="routine_status_group_referential">PI referencial</string>
+    <string name="routine_status_group_mc_cloze">Opción múltiple</string>
+    <string name="routine_status_group_affective">PI afectivo</string>
+    <string name="routine_status_affective_note">Sin puntuación: su dificultad sigue tu nivel elegido (%1$s).</string>
+    <string name="routine_status_band_new">Aún sin practicar</string>
+    <string name="routine_status_band_building">Progresando</string>
+    <string name="routine_status_band_comfortable">Cómodo</string>
+    <string name="routine_status_band_mastered">Dominado</string>
+    <string name="routine_status_tier_baseline">Base</string>
+    <string name="routine_status_tier_harder">Más difícil</string>
+    <string name="routine_status_tier_hardest">Lo más difícil</string>
+    <string name="routine_status_freq_often">aparece a menudo</string>
+    <string name="routine_status_freq_sometimes">aparece a veces</string>
+    <string name="routine_status_freq_rarely">aparece rara vez</string>
+    <string name="routine_status_last_practiced">última práctica %1$s</string>
+    <plurals name="routine_status_attempts">
+        <item quantity="one">%1$d intento</item>
+        <item quantity="other">%1$d intentos</item>
+    </plurals>
+    <string name="action_search">Buscar</string>
+    <string name="new_chat">Nueva conversación</string>
+    <string name="add_text">Añadir un texto</string>
+
+    <string name="new_title">Nueva sesión</string>
+    <string name="mode_conversation">Conversación</string>
+    <string name="mode_url">Traducir una URL</string>
+    <string name="label_level">Nivel</string>
+    <string name="label_country">País</string>
+    <string name="label_subject">Tema</string>
+    <string name="label_url">URL del artículo</string>
+    <string name="hint_subject">p. ej. Historia de China</string>
+    <string name="hint_url">https://…</string>
+    <string name="action_generate">Generar</string>
+    <string name="provider_label">Usando %1$s · %2$s</string>
+
+    <string name="chat_hint">Escribe o pega un enlace…</string>
+    <string name="action_send">Enviar</string>
+    <string name="action_stop">Detener</string>
+    <string name="action_translate">Traducir</string>
+    <string name="action_explain">Explicar</string>
+    <string name="action_copy">Copiar</string>
+    <string name="action_save_word">Guardar</string>
+    <string name="action_save_as">Guardar «%1$s»</string>
+    <string name="action_save_form_instead">Guardar «%1$s» tal cual</string>
+    <string name="explain_prompt">Traduce \"%1$s\" y explica brevemente cómo se usa aquí.</string>
+    <string name="translating">Traduciendo…</string>
+    <string name="translate_unavailable">Traducción sin conexión no disponible. Toca Explicar para una explicación en contexto.</string>
+    <string name="dict_download">Descargar diccionario sin conexión (~85 MB)</string>
+    <string name="dict_downloading">Descargando diccionario…</string>
+    <string name="dict_loading">Buscando…</string>
+    <string name="thinking">Pensando…</string>
+    <string name="save_as_flashcard">Guardar como tarjeta</string>
+    <string name="saved">Guardado</string>
+
+    <!-- Menú de modelo en el chat -->
+    <string name="model_menu_model">Modelo</string>
+    <string name="model_menu_level">Nivel (MCER)</string>
+    <string name="model_menu_variant">Variante</string>
+    <string name="model_menu_more">Más ajustes</string>
+
+    <!-- Traducciones (textos importados/pegados para leer) -->
+    <string name="texts_empty">Aún no hay traducciones. Mantén pulsado el botón + para añadir una.</string>
+    <string name="text_status_importing">Importando…</string>
+    <string name="text_status_translating">Traduciendo…</string>
+    <string name="text_failed">No se pudo importar: toca para reintentar</string>
+    <string name="text_source_pasted">Texto pegado</string>
+    <string name="text_reading_minutes">%1$s · %2$d min</string>
+
+    <!-- Entrada de texto (el botón + en Textos) -->
+    <string name="text_entry_title">Nuevo texto</string>
+    <string name="text_entry_helper">Pega un enlace o escribe un texto que quieras leer.</string>
+    <string name="text_tab_link">Enlace</string>
+    <string name="text_tab_paste">Pegar texto</string>
+    <string name="text_url_valid">Parece un enlace válido</string>
+    <string name="text_paste_hint">Pega aquí el texto que quieras leer…</string>
+    <string name="text_entry_detect">Detectamos el idioma automáticamente.</string>
+    <string name="text_import_action">Importar texto</string>
+
+    <!-- Lectura de texto -->
+    <string name="text_view_translation">Traducción</string>
+    <string name="text_view_original">Original</string>
+    <string name="text_discuss">Conversar sobre el texto</string>
+    <string name="text_importing">Importando…</string>
+    <string name="text_translating">Traduciendo…</string>
+    <string name="text_translating_progress">Traduciendo… %1$d/%2$d</string>
+    <string name="text_open_source">Abrir enlace original</string>
+    <string name="text_continue">Seguir traduciendo</string>
+    <string name="text_partial_error">La traducción se detuvo a medias. Tu progreso está guardado.</string>
+
+    <string name="library_title">Biblioteca</string>
+    <string name="library_empty">Aún no hay charlas. Empieza una con el botón +.</string>
+    <string name="library_empty_all">Aún no hay nada. Toca + para empezar una charla o mantén pulsado para traducir un texto.</string>
+    <string name="search_hint">Buscar…</string>
+    <string name="filter_all">Todo</string>
+    <string name="filter_chats">Charlas</string>
+    <string name="filter_translations">Traducciones</string>
+
+    <!-- Charlas por lotes (mantén pulsado el botón +) -->
+    <string name="fab_new_chat">Nueva conversación</string>
+    <string name="fab_many_chats">Varias conversaciones</string>
+    <string name="batch_chats_title">Charlas nuevas a partir de temas</string>
+    <string name="batch_chats_helper">Un tema por línea. Cada uno se convierte en su propia charla, generada en segundo plano.</string>
+    <string name="batch_chats_hint">Historia de México\nEl ciclo del agua\nMis planes del fin de semana</string>
+    <string name="batch_generating">Generando…</string>
+    <string name="batch_queued">En cola</string>
+    <string name="batch_failed">No se pudo generar: toca para reintentar</string>
+    <string name="action_retry">Reintentar</string>
+    <plurals name="batch_generate">
+        <item quantity="one">Generar %1$d charla</item>
+        <item quantity="other">Generar %1$d charlas</item>
+    </plurals>
+    <plurals name="batch_in_progress">
+        <item quantity="one">Generando %1$d charla…</item>
+        <item quantity="other">Generando %1$d charlas…</item>
+    </plurals>
+    <plurals name="library_show_more">
+        <item quantity="one">Mostrar %1$d más</item>
+        <item quantity="other">Mostrar %1$d más</item>
+    </plurals>
+
+    <string name="flashcards_title">Léxico</string>
+    <string name="tab_review">Repasar</string>
+    <string name="tab_browse">Explorar</string>
+    <string name="review_done">Nada pendiente. ¡Bien hecho!</string>
+    <string name="show_answer">Mostrar respuesta</string>
+    <string name="rating_again">Otra vez</string>
+    <string name="rating_hard">Difícil</string>
+    <string name="rating_good">Bien</string>
+    <string name="rating_easy">Fácil</string>
+    <string name="cards_due">%1$d pendientes</string>
+    <string name="vocab_count">%1$d palabras</string>
+    <string name="vocab_empty">Aún no hay palabras. Guarda palabras mientras conversas para crear tu léxico.</string>
+    <string name="action_more">Más</string>
+    <string name="action_fill_explanations">Rellenar explicaciones</string>
+    <string name="fill_progress">Explicando… %1$d/%2$d</string>
+    <string name="vocab_example_label">Ejemplo</string>
+    <string name="vocab_saved_label">En tu léxico</string>
+    <string name="action_view_details">Abrir</string>
+    <string name="vocab_seen_in_chat">Visto en tu charla «%1$s»</string>
+    <string name="vocab_return_to_context">Toca para volver al contexto</string>
+    <string name="action_generate_explanation">Explicar esta palabra</string>
+    <string name="vocab_delete">Eliminar palabra</string>
+    <string name="vocab_delete_message">¿Eliminar esta palabra de tu léxico? No se puede deshacer.</string>
+    <string name="vocab_search_hint">Buscar palabras…</string>
+
+    <!-- Filtros de la lista de léxico -->
+    <string name="filter_marked">Solo marcadas</string>
+    <string name="filter_due_all">Todas</string>
+    <string name="filter_due_today">Para hoy</string>
+    <string name="filter_due_week">Para esta semana</string>
+
+    <!-- Acciones de la tarjeta de repaso -->
+    <string name="review_mark">Marcar tarjeta</string>
+    <string name="review_unmark">Quitar marca</string>
+
+    <!-- Edición de tarjetas -->
+    <string name="action_edit">Editar</string>
+    <string name="edit_card_title">Editar tarjeta</string>
+    <string name="edit_card_front">Palabra</string>
+    <string name="edit_card_back">Traducción</string>
+    <string name="edit_card_context">Oración de ejemplo</string>
+    <string name="edit_card_pos">Categoría gramatical</string>
+    <string name="edit_card_type">Tipo de tarjeta</string>
+    <string name="edit_card_direction">Dirección de repaso</string>
+    <string name="edit_card_marked">Marcada</string>
+    <string name="edit_card_image">Imagen</string>
+    <string name="pos_none">Ninguna</string>
+    <string name="pos_unknown">Desconocida</string>
+    <string name="card_kind_vocab">Vocabulario</string>
+    <string name="card_kind_phrase">Frase</string>
+    <string name="card_kind_sentence">Oración</string>
+    <string name="card_kind_conjugation">Conjugación</string>
+    <string name="card_kind_grammar">Gramática</string>
+    <string name="card_kind_cloze">Cloze</string>
+    <string name="review_direction_both">Ambas direcciones</string>
+    <string name="review_direction_first">%1$s primero</string>
+
+    <!-- Imágenes de tarjetas (búsqueda en Openverse) -->
+    <string name="action_add_images">Añadir imágenes</string>
+    <string name="add_images_title">Añadir imágenes</string>
+    <string name="add_images_done">Todo listo: cada palabra tiene imagen.</string>
+    <string name="image_search_hint">Buscar imágenes</string>
+    <string name="image_search_button">Buscar</string>
+    <string name="image_search_none">No se encontraron imágenes.</string>
+    <string name="image_search_error">No se pudieron cargar las imágenes. Revisa tu conexión e inténtalo de nuevo.</string>
+    <string name="image_search_add">Añadir imagen</string>
+    <string name="image_search_change">Cambiar imagen</string>
+    <string name="action_remove_image">Quitar</string>
+    <string name="action_skip">Omitir</string>
+
+    <!-- Tarjetas cloze -->
+    <string name="cloze_answer_label">Respuesta: %1$s</string>
+
+    <!-- Congelar tarjeta (la función «suspender» de Anki) -->
+    <string name="action_freeze">Congelar</string>
+    <string name="action_unfreeze">Descongelar</string>
+
+    <!-- Selector de tamaño de la sesión de repaso -->
+    <string name="review_size_title">¿Cuántas repasar?</string>
+    <string name="review_size_all">Todas las pendientes (%1$d)</string>
+    <string name="review_progress">%1$d / %2$d</string>
+
+    <!-- Estado de la tarjeta (derivado de la programación) -->
+    <string name="card_status_new">Nueva</string>
+    <string name="card_status_learning">Aprendiendo</string>
+    <string name="card_status_young">Reciente</string>
+    <string name="card_status_mature">Consolidada</string>
+    <string name="card_status_frozen">Congelada</string>
+
+    <!-- Metadatos de la tarjeta -->
+    <string name="card_details_label">Detalles de la tarjeta</string>
+    <string name="card_meta_status">Estado</string>
+    <string name="card_meta_direction">Dirección</string>
+    <string name="card_meta_added">Añadida</string>
+    <string name="card_meta_reviews">Repasos</string>
+    <string name="card_meta_due">Vence</string>
+    <string name="card_meta_due_now">Pendiente ahora</string>
+    <string name="card_meta_interval">Intervalo</string>
+    <string name="card_meta_last_reviewed">Último repaso</string>
+    <string name="card_meta_never">Nunca</string>
+    <string name="card_meta_interval_days">%1$d días</string>
+    <string name="card_meta_interval_day">1 día</string>
+
+    <!-- Categorías gramaticales (claves normalizadas que devuelve el modelo) -->
+    <string name="pos_noun">Sustantivo</string>
+    <string name="pos_verb">Verbo</string>
+    <string name="pos_adjective">Adjetivo</string>
+    <string name="pos_adverb">Adverbio</string>
+    <string name="pos_phrase">Frase</string>
+    <string name="pos_expression">Expresión</string>
+    <string name="pos_grammar">Gramática</string>
+    <string name="pos_other">Otro</string>
+
+    <!-- Acciones comunes -->
+    <string name="action_delete">Eliminar</string>
+    <string name="action_cancel">Cancelar</string>
+
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_model_menu">Modelo</string>
+    <string name="settings_model_menu_desc">Claves API, modelo e instrucciones</string>
+    <string name="settings_model_title">Modelo</string>
+    <string name="settings_language_section">Idioma</string>
+    <string name="settings_appearance_section">Apariencia</string>
+    <string name="settings_theme">Tema</string>
+    <string name="theme_system">Sistema</string>
+    <string name="theme_light">Claro</string>
+    <string name="theme_dark">Oscuro</string>
+    <string name="settings_persona">Personaje</string>
+    <string name="settings_theme_country">País del tema</string>
+    <string name="theme_persona_unstyled">Sin estilo</string>
+    <string name="theme_persona_unstyled_blurb">El aspecto estándar de la aplicación, sin personaje ni disfraz.</string>
+    <string name="theme_country_none">Ninguno</string>
+    <string name="theme_country_none_blurb">Mantener la paleta estándar.</string>
+    <string name="theme_country_tutor">Con %1$s · %2$s</string>
+    <string name="settings_reading_font">Fuente de lectura</string>
+    <string name="settings_text_size">Tamaño del texto</string>
+    <string name="reading_sample">El veloz murciélago hindú comía feliz cardillo.</string>
+    <string name="font_serif">Source Serif</string>
+    <string name="font_slab">Literata</string>
+    <string name="font_sans">Plus Jakarta</string>
+    <string name="size_small">Pequeño</string>
+    <string name="size_medium">Mediano</string>
+    <string name="size_large">Grande</string>
+    <string name="size_xlarge">Muy grande</string>
+    <string name="action_back">Atrás</string>
+    <string name="settings_provider">Proveedor LLM</string>
+    <string name="settings_gemini_key">Clave API de Gemini</string>
+    <string name="settings_openrouter_key">Clave API de OpenRouter</string>
+    <string name="settings_model">Modelo</string>
+    <string name="settings_openrouter_model">ID de modelo de OpenRouter</string>
+    <string name="settings_use_provider">Usar %1$s</string>
+    <string name="settings_provider_in_use">En uso actualmente</string>
+    <string name="settings_provider_not_in_use">Sin usar actualmente</string>
+    <string name="settings_native_lang">Idioma nativo</string>
+    <string name="settings_target_lang">Idioma de estudio</string>
+    <string name="settings_default_level">Nivel predeterminado</string>
+    <string name="settings_default_country">País predeterminado</string>
+    <string name="settings_app_language">Idioma de la app</string>
+    <string name="settings_key_set">Clave establecida</string>
+    <string name="settings_key_not_set">Sin establecer</string>
+    <string name="settings_api_key_shared">Compartida entre todos los perfiles de idioma</string>
+    <string name="settings_add_language">Añadir idioma…</string>
+    <string name="settings_add_language_title">Nuevo idioma</string>
+    <string name="settings_add_language_hint">Empieza a aprender otro idioma. Sus tarjetas, textos y ajustes se guardan por separado.</string>
+    <string name="settings_add_language_create">Añadir</string>
+    <string name="action_save">Guardar</string>
+
+    <string name="error_no_key">No hay clave API para el proveedor seleccionado. Añádela en Ajustes.</string>
+    <string name="error_network">Error de red. Revisa tu conexión.</string>
+    <string name="error_auth">Fallo de autenticación. Revisa tu clave API.</string>
+    <string name="error_rate_limit">Límite de uso alcanzado. Inténtalo pronto.</string>
+    <string name="error_unknown">Algo salió mal: %1$s</string>
+    <string name="error_extraction">No se pudo leer esta página. Prueba con la pestaña Pegar texto.</string>
+
+    <!-- Menús de contexto / opciones (charlas y textos) -->
+    <string name="action_star">Destacar</string>
+    <string name="action_unstar">Quitar destacado</string>
+    <string name="action_mark_read">Marcar como leído</string>
+    <string name="action_mark_unread">Marcar como no leído</string>
+    <string name="cd_more_options">Más opciones</string>
+    <string name="cd_starred">Destacado</string>
+    <string name="chat_failed_reply">No se pudo obtener una respuesta.</string>
+
+    <!-- Eliminar -->
+    <string name="delete_conversation_title">¿Eliminar conversación?</string>
+    <string name="delete_conversation_message">¿Eliminar «%1$s»? No se puede deshacer.</string>
+    <string name="delete_conversation_confirm">¿Eliminar esta conversación? No se puede deshacer.</string>
+    <string name="delete_text_title">¿Eliminar texto?</string>
+    <string name="delete_text_message">¿Eliminar «%1$s»? No se puede deshacer.</string>
+    <string name="delete_text_confirm">¿Eliminar este texto? No se puede deshacer.</string>
+
+    <!-- Audio (lista de escucha) -->
+    <string name="audio_empty">Aún no hay audio. Usa «Enviar a audio» en un texto o una respuesta para añadir escucha aquí.</string>
+    <string name="audio_play_all">Reproducir lista</string>
+    <string name="audio_play">Reproducir</string>
+    <string name="audio_pause">Pausar</string>
+    <string name="audio_next">Siguiente</string>
+    <string name="audio_previous">Anterior</string>
+    <string name="audio_reorder">Reordenar</string>
+    <string name="audio_options">Opciones</string>
+    <string name="audio_mark_unlistened">Marcar como no escuchado</string>
+    <string name="audio_delete_played">Eliminar escuchados</string>
+    <string name="audio_delete_all_played_q">¿Eliminar todo el audio escuchado?</string>
+    <string name="audio_status_waiting">Esperando la descarga de la voz</string>
+    <string name="audio_status_queued">En cola</string>
+    <string name="audio_status_generating">Generando…</string>
+    <string name="audio_status_failed">No se pudo generar: toca para reintentar</string>
+    <string name="audio_tts_needed_title">Voz local no instalada</string>
+    <string name="audio_tts_needed_body">Descarga la voz en el dispositivo (~100 MB) para generar y reproducir audio. Funciona sin conexión una vez instalada.</string>
+    <string name="audio_download_tts">Descargar TTS local</string>
+    <string name="audio_downloading">Descargando voz… %1$d%%</string>
+    <string name="audio_downloading_indeterminate">Descargando voz…</string>
+    <string name="audio_added">Añadido a Audio</string>
+    <string name="audio_send_to">Enviar a audio</string>
+    <string name="action_generate_audio">Generar audio</string>
+    <string name="audio_tts_prompt_title">¿Descargar la voz para escuchar?</string>
+    <string name="audio_tts_prompt_body">La escucha usa una voz en el dispositivo (~100 MB, descarga única). Se pondrá en cola y comenzará cuando la voz esté lista.</string>
+    <string name="audio_not_now">Ahora no</string>
+    <!-- Ajustes: voz en el dispositivo -->
+    <string name="settings_speech_section">Voz (texto a voz)</string>
+    <string name="settings_tts_title">Voz en el dispositivo</string>
+    <string name="settings_tts_not_downloaded">No instalada. Descárgala para habilitar la escucha (pestaña Audio).</string>
+    <string name="settings_tts_ready">Voz instalada. La escucha está habilitada.</string>
+    <string name="settings_tts_remove">Eliminar</string>
+    <string name="settings_tts_failed">Error de descarga: %1$s</string>
+    <string name="settings_tts_voice">Voz</string>
+    <string name="settings_tts_voice_n">Voz %1$d</string>
+    <string name="settings_tts_preview">Escuchar</string>
+    <string name="settings_tts_speed">Velocidad</string>
+    <string name="settings_tts_speed_value">%1$d%%</string>
+    <string name="settings_audio_retention">Borrar audio reproducido</string>
+    <string name="settings_audio_retention_off">Nunca</string>
+    <string name="settings_audio_retention_days">Despu&#233;s de %1$d d&#237;as</string>
+</resources>

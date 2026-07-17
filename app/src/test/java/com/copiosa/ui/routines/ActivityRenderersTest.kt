@@ -1,0 +1,45 @@
+package com.copiosa.ui.routines
+
+import com.copiosa.domain.routine.ActivityContent
+import com.copiosa.domain.routine.AffectivePiContent
+import com.copiosa.domain.routine.BedtimeStoryContent
+import com.copiosa.domain.routine.CognateHuntContent
+import com.copiosa.domain.routine.ContrastClozeContent
+import com.copiosa.domain.routine.GuessThenFlipContent
+import com.copiosa.domain.routine.MultipleChoiceClozeContent
+import com.copiosa.domain.routine.NarrowReadingContent
+import com.copiosa.domain.routine.RapidFireContent
+import com.copiosa.domain.routine.RecognitionCardsContent
+import com.copiosa.domain.routine.ReferentialPiContent
+import com.copiosa.domain.routine.SerialStoryContent
+import com.copiosa.domain.routine.SwipeSortContent
+import com.copiosa.ui.routines.activities.ActivityRenderers
+import org.junit.Assert.assertEquals
+import org.junit.Test
+import kotlin.reflect.KClass
+
+/**
+ * The player dispatches on this registry instead of an exhaustive when-over-content, so this test is
+ * what catches a content kind that was added without a renderer (formerly a compile error).
+ */
+class ActivityRenderersTest {
+
+    @Test
+    fun `every content kind has a registered renderer`() {
+        val allContentClasses: Set<KClass<out ActivityContent>> = setOf(
+            GuessThenFlipContent::class,
+            ReferentialPiContent::class,
+            ContrastClozeContent::class,
+            NarrowReadingContent::class,
+            AffectivePiContent::class,
+            BedtimeStoryContent::class,
+            RecognitionCardsContent::class,
+            MultipleChoiceClozeContent::class,
+            SwipeSortContent::class,
+            CognateHuntContent::class,
+            SerialStoryContent::class,
+            RapidFireContent::class,
+        )
+        assertEquals(allContentClasses, ActivityRenderers.byContent.keys)
+    }
+}
