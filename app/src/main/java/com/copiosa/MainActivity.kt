@@ -14,6 +14,7 @@ import com.copiosa.data.settings.AppSettings
 import com.copiosa.data.settings.SettingsRepository
 import com.copiosa.domain.model.ThemeMode
 import com.copiosa.ui.navigation.CopiosaNavGraph
+import com.copiosa.ui.navigation.LaunchAction
 import com.copiosa.ui.theme.CopiosaTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -31,6 +32,9 @@ class MainActivity : AppCompatActivity() {
         // out from under imePadding); without this the keyboard double-shifts the input bar.
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // A share or launcher shortcut carries a destination; parsed once here, performed by the nav
+        // graph (guarded there so an activity recreation doesn't re-run the import).
+        val launchAction = LaunchAction.from(intent)
         setContent {
             val settings by settingsRepo.settings.collectAsState(initial = AppSettings())
             val darkTheme = when (settings.themeMode) {
@@ -56,7 +60,7 @@ class MainActivity : AppCompatActivity() {
                 themeCountry = settings.themeCountry,
                 profileLanguage = settings.targetLanguage,
             ) {
-                CopiosaNavGraph()
+                CopiosaNavGraph(launchAction = launchAction)
             }
         }
     }

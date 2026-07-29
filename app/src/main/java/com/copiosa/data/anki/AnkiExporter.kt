@@ -87,7 +87,7 @@ data class ExportCollection(
  * Cards that came from Anki (carrying [FlashcardEntity.ankiNoteGuid] etc.) are reconstructed losslessly:
  * a note's forward/reverse cards collapse back into one note + two card rows, the original fields are
  * restored from [FlashcardEntity.ankiFieldsJson], and the structured `la:*` tags are regenerated so a
- * re-import rebuilds the same gender/region/kind/altForms. App-created cards get a synthesized note type
+ * re-import rebuilds the same gender/country/kind/altForms. App-created cards get a synthesized note type
  * and a stable guid. Every transform the importer applies (SM-2 factor/interval, day-offset due dates,
  * revlog ease/type) is inverted, so scheduling and history round-trip. Pure (no I/O) and JVM-testable.
  */
@@ -278,7 +278,7 @@ class AnkiExporter {
 
     /**
      * The note's Anki tags: the preserved passthrough tags plus regenerated `la:*` tags so a re-import
-     * rebuilds the structured columns. Tag tokens can't contain whitespace, so a multi-word region/pos
+     * rebuilds the structured columns. Tag tokens can't contain whitespace, so a multi-word country/pos
      * (rare) is skipped rather than corrupting the tag string.
      */
     private fun buildTags(rep: FlashcardEntity, group: List<FlashcardEntity>): List<String> {
@@ -288,7 +288,7 @@ class AnkiExporter {
         if (group.any { it.marked }) out.add("marked")
         out.add("la:kind:${rep.cardKind.name.lowercase()}")
         rep.gender?.let { if (it.isNotBlank() && it.noWhitespace()) out.add("la:gender:${it.lowercase()}") }
-        rep.region?.let { if (it.isNotBlank() && it.noWhitespace()) out.add("la:region:$it") }
+        rep.country?.let { if (it.isNotBlank() && it.noWhitespace()) out.add("la:country:$it") }
         rep.partOfSpeech?.let { if (it.isNotBlank() && it.noWhitespace()) out.add("la:pos:$it") }
         out.add("la:tgt:${targetFieldIndex(group)}")
         return out.distinct()

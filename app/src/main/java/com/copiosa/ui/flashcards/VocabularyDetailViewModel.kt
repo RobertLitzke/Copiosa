@@ -74,10 +74,14 @@ class VocabularyDetailViewModel @Inject constructor(
                 c.id,
                 edits.front,
                 edits.back,
+                edits.altForms,
                 edits.partOfSpeech,
                 edits.cardKind,
                 edits.reviewDirection,
                 edits.contextSentence,
+                edits.gender,
+                edits.country,
+                edits.usageNote,
             )
             repo.setMarked(c.id, edits.marked)
         }
@@ -102,6 +106,12 @@ class VocabularyDetailViewModel @Inject constructor(
     fun toggleSuspended() {
         val c = card.value ?: return
         viewModelScope.launch { repo.setSuspended(c.id, !c.suspended) }
+    }
+
+    /** Toggles this card's "marked" flag (Anki "marked"). The observed card flow re-emits the new value. */
+    fun toggleMarked() {
+        val c = card.value ?: return
+        viewModelScope.launch { repo.setMarked(c.id, !c.marked) }
     }
 
     fun delete(onDeleted: () -> Unit) {

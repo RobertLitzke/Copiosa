@@ -24,11 +24,15 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -36,6 +40,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.MarkChatUnread
@@ -82,8 +87,11 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -97,7 +105,9 @@ import com.copiosa.domain.model.Cefr
 import com.copiosa.domain.model.ProviderId
 import com.copiosa.domain.model.Role
 import com.copiosa.domain.prompt.StructuredReplyParser
+import com.copiosa.domain.stats.FocusActivityType
 import com.copiosa.ui.components.SectionLabel
+import com.copiosa.ui.components.TrackFocusTime
 import com.copiosa.ui.components.SelectableMessage
 import com.copiosa.ui.components.TranslationCard
 import com.copiosa.ui.audio.TtsDownloadPrompt
@@ -129,6 +139,8 @@ fun ConversationScreen(
     val starred by viewModel.starred.collectAsState()
     val conversationTitle by viewModel.title.collectAsState()
     val highlightTargets by viewModel.highlightTargets.collectAsState()
+    val translate by viewModel.translate.collectAsState()
+    val savedNotice by viewModel.savedNotice.collectAsState()
     val nextTopics by viewModel.nextTopics.collectAsState()
     val isTextMode by viewModel.isTextMode.collectAsState()
     // An imported text seeds the conversation with a hidden leading user turn; drop it from the chat
@@ -175,6 +187,8 @@ fun ConversationScreen(
     // resume (Android otherwise re-shows the IME for the still-focused input field).
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { focusManager.clearFocus(force = true) }
 
+    TrackFocusTime(FocusActivityType.READING)
+
     LaunchedEffect(errorText) {
         if (errorText != null) {
             snackbarHost.showSnackbar(errorText)
@@ -182,8 +196,8 @@ fun ConversationScreen(
         }
     }
     // The "Saved" confirmation is a transient top banner (see below), not a snackbar — it auto-hides.
-    LaunchedEffect(ui.savedNotice) {
-        if (ui.savedNotice) {
+    LaunchedEffect(savedNotice) {
+        if (savedNotice) {
             delay(1800)
             viewModel.consumeSavedNotice()
         }
@@ -326,7 +340,7 @@ fun ConversationScreen(
         // "Saved" confirmation: a small themed pill at the top, below the chat bar so it doesn't
         // cover the chat or the input. ~56dp clears the top bar's height.
         AnimatedVisibility(
-            visible = ui.savedNotice,
+            visible = savedNotice,
             enter = slideInVertically { -it } + fadeIn(),
             exit = slideOutVertically { -it } + fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp),
@@ -379,18 +393,21 @@ fun ConversationScreen(
         )
     }
 
-    ui.translate?.let { t ->
+    translate?.let { t ->
         val explainText = stringResource(R.string.explain_prompt, t.original)
         TranslationCard(
             original = t.original,
             translation = t.translation,
+            translationOf = t.translationOf,
             loading = t.loading,
             definition = t.definition,
             canExplain = activeId != 0L,
             anchorYPx = t.anchorY,
             savedCard = t.savedCard,
             lemmaSuggestion = t.saveLemma,
+            savePos = t.savePos,
             onSave = { viewModel.saveCurrentTranslation(it) },
+            onSelectEntry = viewModel::selectSaveEntry,
             onExplain = { viewModel.explain(explainText) },
             onDownloadDictionary = viewModel::downloadDictionary,
             onOpenSaved = { t.savedCard?.let { onOpenVocab(it.id) } },
@@ -714,8 +731,9 @@ private fun MetaPill(label: String) {
 
 /**
  * Bottom sheet revealing the settings that produced a reply (country, model, level) plus target-word
- * debug info: the saved words we injected into the prompt, and the model's own report of which it wove
- * in or couldn't fit. Sections with no data are omitted — older replies predate injected-word tracking.
+ * debug info: the saved words we injected into the prompt, which of them actually appeared in the reply
+ * (a ground-truth scan, not the model's guess), and — for recent chats — the raw model output. Sections
+ * with no data are omitted, so older replies predate injected-word tracking and raw capture.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -738,6 +756,52 @@ private fun MessageMetaSheet(message: MessageEntity, onDismiss: () -> Unit) {
             MetaWordsRow(stringResource(R.string.message_meta_used), meta.vocabUsed)
             MetaWordsRow(stringResource(R.string.message_meta_unused), meta.vocabUnused)
             MetaWordsRow(stringResource(R.string.message_meta_distinctive), meta.distinctive)
+            RawResponseRow(message.rawResponse)
+        }
+    }
+}
+
+/**
+ * The unparsed model output for this reply (body + trailing metadata block), shown as a debug aid.
+ * Scrollable and selectable, with a copy button; kept only for recent chats, so it's absent (renders
+ * nothing) on older or user turns.
+ */
+@Composable
+private fun RawResponseRow(raw: String?) {
+    if (raw.isNullOrBlank()) return
+    val clipboard = LocalClipboardManager.current
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                stringResource(R.string.message_meta_raw),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            IconButton(onClick = { clipboard.setText(AnnotatedString(raw)) }, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Filled.ContentCopy,
+                    contentDescription = stringResource(R.string.action_copy),
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+            SelectionContainer {
+                Text(
+                    raw,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .heightIn(max = 260.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(12.dp),
+                )
+            }
         }
     }
 }

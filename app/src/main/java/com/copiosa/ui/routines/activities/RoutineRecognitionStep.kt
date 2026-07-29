@@ -11,7 +11,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.copiosa.R
 import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.domain.routine.RecognitionCardsContent
+import com.copiosa.ui.components.ProgressBar
 import com.copiosa.ui.routines.RoutinePlayerViewModel
 
 /**
@@ -67,7 +67,7 @@ internal fun RoutineRecognitionStep(
     val meaning = if (card.frontIsTarget) card.back else card.front
 
     Column(Modifier.fillMaxSize()) {
-        LinearProgressIndicator(progress = { (index + 1f) / total }, modifier = Modifier.fillMaxWidth())
+        ProgressBar(progress = { (index + 1f) / total }, modifier = Modifier.fillMaxWidth())
         Column(
             Modifier.fillMaxSize().padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,

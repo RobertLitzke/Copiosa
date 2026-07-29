@@ -26,8 +26,6 @@ data class ChatSkin(
     val tutorName: String,
     /** Persona chat body style (chat font, size, line height). */
     val chatTextStyle: TextStyle,
-    /** Small uppercase-style label for message kickers ("JONAS", "DER PENDLER"). */
-    val kickerStyle: TextStyle,
     /** Header title style in the persona's title font. */
     val titleStyle: TextStyle,
 )
@@ -49,12 +47,6 @@ fun rememberChatSkin(): ChatSkin? {
                 fontSize = spec.chatSize,
                 lineHeight = spec.chatLineHeight,
                 color = skin.palette.text,
-            ),
-            kickerStyle = TextStyle(
-                fontFamily = spec.uiFont,
-                fontSize = 10.sp,
-                letterSpacing = 1.2.sp,
-                fontWeight = FontWeight.SemiBold,
             ),
             titleStyle = TextStyle(
                 fontFamily = spec.titleFont,

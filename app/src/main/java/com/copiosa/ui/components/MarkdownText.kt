@@ -15,6 +15,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
@@ -88,36 +89,113 @@ private fun isHorizontalRule(line: String): Boolean {
         (marks.all { it == '*' } || marks.all { it == '-' } || marks.all { it == '_' })
 }
 
-/** Parses inline **bold** and *italic* into an [AnnotatedString], tinting saved words via [colorizer]. */
+/**
+ * Parses inline emphasis into an [AnnotatedString], tinting saved words via [colorizer]. Handles
+ * `**bold**`/`__bold__`, `*italic*`/`_italic_`, `` `code` ``, and backslash escapes (`\*` → literal
+ * `*`). Underscore emphasis only fires at a word boundary, so `snake_case` and `el/la_x` survive.
+ * An unterminated marker is emitted literally rather than swallowing the rest of the line.
+ */
 private fun inline(text: String, colorizer: WordColorizer? = null): AnnotatedString = buildAnnotatedString {
     var i = 0
     while (i < text.length) {
+        val c = text[i]
         when {
+            c == '\\' && i + 1 < text.length -> {
+                appendColored(text[i + 1].toString(), colorizer); i += 2
+            }
             text.startsWith("**", i) -> {
                 val end = text.indexOf("**", i + 2)
-                if (end > 0) {
+                if (end > i + 1) {
                     withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { appendColored(text.substring(i + 2, end), colorizer) }
                     i = end + 2
-                } else {
-                    appendColored(text.substring(i), colorizer); i = text.length
-                }
+                } else { appendColored("**", colorizer); i += 2 }
             }
-            text[i] == '*' -> {
+            text.startsWith("__", i) && atWordStart(text, i) -> {
+                val end = text.indexOf("__", i + 2)
+                if (end > i + 1) {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { appendColored(text.substring(i + 2, end), colorizer) }
+                    i = end + 2
+                } else { appendColored("__", colorizer); i += 2 }
+            }
+            c == '*' -> {
                 val end = text.indexOf('*', i + 1)
-                if (end > 0) {
+                if (end > i + 1) {
                     withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { appendColored(text.substring(i + 1, end), colorizer) }
                     i = end + 1
-                } else {
-                    appendColored(text.substring(i), colorizer); i = text.length
-                }
+                } else { appendColored("*", colorizer); i += 1 }
+            }
+            c == '_' && atWordStart(text, i) -> {
+                val end = text.indexOf('_', i + 1)
+                if (end > i + 1) {
+                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { appendColored(text.substring(i + 1, end), colorizer) }
+                    i = end + 1
+                } else { appendColored("_", colorizer); i += 1 }
+            }
+            c == '`' -> {
+                val end = text.indexOf('`', i + 1)
+                if (end > i + 1) {
+                    withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append(text.substring(i + 1, end)) }
+                    i = end + 1
+                } else { appendColored("`", colorizer); i += 1 }
             }
             else -> {
-                val nextStar = text.indexOf('*', i).let { if (it == -1) text.length else it }
-                appendColored(text.substring(i, nextStar), colorizer)
-                i = nextStar
+                var j = i
+                while (j < text.length && text[j] !in "*_`\\") j++
+                if (j == i) j = i + 1
+                appendColored(text.substring(i, j), colorizer)
+                i = j
             }
         }
     }
+}
+
+/** True when the marker at [i] begins at a word boundary (start of line or after a non-alphanumeric). */
+private fun atWordStart(text: String, i: Int): Boolean = i == 0 || !text[i - 1].isLetterOrDigit()
+
+/**
+ * Removes the inline-Markdown emphasis this app understands (`**bold**`/`__bold__`, `*italic*`/`_italic_`,
+ * `` `code` ``, backslash escapes) down to plain text, keeping the inner content. Used to keep a
+ * vocabulary card's headword and translation markup-free — those fields must read as plain words; only
+ * the usage note and example sentence carry formatting. Mirrors [inline]'s tokenizer (same word-boundary
+ * rules, same "emit an unterminated marker literally" behavior) so what it strips matches what would
+ * otherwise render.
+ */
+fun stripInlineMarkdown(text: String): String {
+    val out = StringBuilder(text.length)
+    var i = 0
+    while (i < text.length) {
+        val c = text[i]
+        when {
+            c == '\\' && i + 1 < text.length -> { out.append(text[i + 1]); i += 2 }
+            text.startsWith("**", i) -> {
+                val end = text.indexOf("**", i + 2)
+                if (end > i + 1) { out.append(text, i + 2, end); i = end + 2 } else { out.append("**"); i += 2 }
+            }
+            text.startsWith("__", i) && atWordStart(text, i) -> {
+                val end = text.indexOf("__", i + 2)
+                if (end > i + 1) { out.append(text, i + 2, end); i = end + 2 } else { out.append("__"); i += 2 }
+            }
+            c == '*' -> {
+                val end = text.indexOf('*', i + 1)
+                if (end > i + 1) { out.append(text, i + 1, end); i = end + 1 } else { out.append('*'); i += 1 }
+            }
+            c == '_' && atWordStart(text, i) -> {
+                val end = text.indexOf('_', i + 1)
+                if (end > i + 1) { out.append(text, i + 1, end); i = end + 1 } else { out.append('_'); i += 1 }
+            }
+            c == '`' -> {
+                val end = text.indexOf('`', i + 1)
+                if (end > i + 1) { out.append(text, i + 1, end); i = end + 1 } else { out.append('`'); i += 1 }
+            }
+            else -> {
+                var j = i
+                while (j < text.length && text[j] !in "*_`\\") j++
+                if (j == i) j = i + 1
+                out.append(text, i, minOf(j, text.length)); i = j
+            }
+        }
+    }
+    return out.toString()
 }
 
 /**

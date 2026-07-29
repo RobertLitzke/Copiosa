@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -34,16 +35,21 @@ import com.copiosa.data.repository.ImageCandidate
 import com.copiosa.domain.model.CardKind
 import com.copiosa.domain.model.ReviewDirection
 import com.copiosa.ui.components.LabeledDropdown
+import com.copiosa.ui.components.stripInlineMarkdown
 import java.util.Locale
 
-/** The user's edits to a card's text, part of speech, card type, review direction, and marked flag. */
+/** The user's edits to a card's text, alternate forms, part of speech, card type, review direction, gender, country, usage note, and marked flag. */
 data class CardEdits(
     val front: String,
     val back: String,
+    val altForms: String?,
     val contextSentence: String?,
     val partOfSpeech: String?,
     val cardKind: CardKind,
     val reviewDirection: ReviewDirection,
+    val gender: String?,
+    val country: String?,
+    val usageNote: String?,
     val marked: Boolean,
 )
 
@@ -60,16 +66,47 @@ fun EditCardDialog(
     onAttachImage: suspend (ImageCandidate) -> String,
     onRemoveImage: () -> Unit,
     onDismiss: () -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
-    var front by remember { mutableStateOf(card.front) }
-    var back by remember { mutableStateOf(card.back) }
+    // The headword and translation must stay plain — strip any stored inline Markdown so the fields
+    // show (and re-save) clean text. Only the usage note / example sentence keep formatting.
+    var front by remember { mutableStateOf(stripInlineMarkdown(card.front)) }
+    var back by remember { mutableStateOf(stripInlineMarkdown(card.back)) }
+    var altForms by remember { mutableStateOf(card.altForms.orEmpty()) }
     var context by remember { mutableStateOf(card.contextSentence.orEmpty()) }
+    var usageNote by remember { mutableStateOf(card.usageNote.orEmpty()) }
     var pos by remember { mutableStateOf(card.partOfSpeech?.lowercase()?.ifBlank { null } ?: "unknown") }
     var kind by remember { mutableStateOf(card.cardKind) }
     var direction by remember { mutableStateOf(card.reviewDirection) }
+    var gender by remember { mutableStateOf(card.gender?.uppercase()?.ifBlank { null }) }
+    // Countries are stored whitespace-free (underscore-joined) for Anki round-tripping; edit them as
+    // readable spaced text and re-slug on save.
+    var country by remember { mutableStateOf(card.country?.let { countryLabel(it) }.orEmpty()) }
     var marked by remember { mutableStateOf(card.marked) }
     var imageFile by remember { mutableStateOf(card.imageFile) }
     var showPicker by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    val genderChoices = remember(card.targetLanguage) { genderOptions(card.targetLanguage) }
+    // Keep an unrecognized stored code selectable so editing never silently drops it.
+    val genderChoicesWithCurrent = (genderChoices + gender).distinct()
+    val genderNone = stringResource(R.string.gender_none)
+    val genderNames = mapOf(
+        "M" to stringResource(R.string.gender_masculine),
+        "F" to stringResource(R.string.gender_feminine),
+        "N" to stringResource(R.string.gender_neuter),
+        "MF" to stringResource(R.string.gender_common),
+        "MPL" to stringResource(R.string.gender_masculine_plural),
+        "FPL" to stringResource(R.string.gender_feminine_plural),
+    )
+    val genderLabel: (String?) -> String = { code ->
+        if (code == null) {
+            genderNone
+        } else {
+            val name = genderNames[code] ?: code
+            genderArticle(code, card.targetLanguage)?.let { "$it — $name" } ?: name
+        }
+    }
 
     val posLabels = mapOf(
         "" to stringResource(R.string.pos_none),
@@ -121,7 +158,7 @@ fun EditCardDialog(
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedTextField(
                     value = front,
@@ -134,6 +171,14 @@ fun EditCardDialog(
                     onValueChange = { back = it },
                     label = { Text(stringResource(R.string.edit_card_back)) },
                     modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = altForms,
+                    onValueChange = { altForms = it },
+                    label = { Text(stringResource(R.string.edit_card_alt_forms)) },
+                    supportingText = { Text(stringResource(R.string.edit_card_alt_forms_hint)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
                 )
                 OutlinedTextField(
                     value = context,
@@ -163,6 +208,30 @@ fun EditCardDialog(
                     optionLabel = dirLabel,
                     onSelect = { direction = it },
                 )
+                // Grammatical gender only applies to nouns; hide the picker otherwise (it defaults to None).
+                if (pos == "noun") {
+                    LabeledDropdown(
+                        label = stringResource(R.string.edit_card_gender),
+                        options = genderChoicesWithCurrent,
+                        selected = gender,
+                        optionLabel = genderLabel,
+                        onSelect = { gender = it },
+                    )
+                }
+                OutlinedTextField(
+                    value = country,
+                    onValueChange = { country = it },
+                    label = { Text(stringResource(R.string.edit_card_country)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = usageNote,
+                    onValueChange = { usageNote = it },
+                    label = { Text(stringResource(R.string.edit_card_usage_note)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                )
 
                 Row(
                     modifier = Modifier.fillMaxWidth().clickable { marked = !marked },
@@ -176,17 +245,12 @@ fun EditCardDialog(
                     )
                     Text(
                         stringResource(R.string.edit_card_marked),
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(start = 8.dp).weight(1f),
                     )
                     Switch(checked = marked, onCheckedChange = { marked = it })
                 }
 
-                Text(
-                    stringResource(R.string.edit_card_image),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 if (showPicker) {
                     ImagePickerContent(
                         initialQuery = defaultQuery,
@@ -201,7 +265,7 @@ fun EditCardDialog(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         if (imageFile != null) {
-                            CardImage(imageFile, modifier = Modifier.weight(1f), maxHeight = 144.dp)
+                            CardImage(imageFile, modifier = Modifier.weight(1f), maxHeight = 96.dp)
                         }
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { showPicker = true }) {
@@ -229,10 +293,15 @@ fun EditCardDialog(
                         CardEdits(
                             front,
                             back,
+                            altForms.trim().ifBlank { null },
                             context.trim().ifBlank { null },
                             pos.ifBlank { null },
                             kind,
                             direction,
+                            // Only nouns carry a gender; a non-noun clears any stale value.
+                            if (pos == "noun") gender else null,
+                            countrySlug(country),
+                            usageNote.trim().ifBlank { null },
                             marked,
                         ),
                     )
@@ -242,7 +311,31 @@ fun EditCardDialog(
             ) { Text(stringResource(R.string.action_save)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onDelete != null) {
+                    TextButton(
+                        onClick = { confirmDelete = true },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    ) { Text(stringResource(R.string.action_delete)) }
+                }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+            }
         },
     )
+
+    if (confirmDelete && onDelete != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(R.string.vocab_delete)) },
+            text = { Text(stringResource(R.string.vocab_delete_message)) },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; onDelete(); onDismiss() }) {
+                    Text(stringResource(R.string.action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.action_cancel)) }
+            },
+        )
+    }
 }

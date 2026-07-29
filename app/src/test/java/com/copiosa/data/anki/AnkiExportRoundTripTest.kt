@@ -127,7 +127,7 @@ class AnkiExportRoundTripTest {
     fun appCreatedCardRebuildsStructuredFields() {
         val card = FlashcardEntity(
             id = 7, front = "perro", back = "dog", altForms = "can",
-            gender = "M", region = "mx", partOfSpeech = "noun", cardKind = CardKind.VOCAB,
+            gender = "M", country = "Costa_Rica", partOfSpeech = "noun", cardKind = CardKind.VOCAB,
             frontIsTarget = true, targetLanguage = "es", nativeLanguage = "en",
             createdAt = now, dueAt = now, state = FlashcardState.NEW,
         )
@@ -137,7 +137,7 @@ class AnkiExportRoundTripTest {
         assertEquals("dog", c.back)
         assertEquals("can", c.altForms)
         assertEquals("M", c.gender)
-        assertEquals("mx", c.region)
+        assertEquals("Costa_Rica", c.country)
         assertEquals("noun", c.partOfSpeech)
         assertEquals(CardKind.VOCAB, c.cardKind)
         assertTrue(c.frontIsTarget)

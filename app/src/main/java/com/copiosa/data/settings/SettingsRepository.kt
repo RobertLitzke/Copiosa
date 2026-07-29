@@ -5,6 +5,8 @@ import androidx.datastore.core.DataMigration
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -20,9 +22,12 @@ import com.copiosa.domain.model.ReadingFont
 import com.copiosa.domain.model.ReadingTextSize
 import com.copiosa.domain.model.ThemeCountry
 import com.copiosa.domain.model.ThemeMode
+import com.copiosa.data.maintenance.ProfileSettingsSource
+import com.copiosa.domain.srs.SpacedRepetitionScheduler
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -42,7 +47,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
 @Singleton
 class SettingsRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-) {
+) : ProfileSettingsSource {
     internal object Keys {
         val ACTIVE_PROFILE = stringPreferencesKey("active_profile")
         val PROFILES = stringSetPreferencesKey("profiles")
@@ -64,6 +69,13 @@ class SettingsRepository @Inject constructor(
         fun ttsVoiceSid(tag: String) = intPreferencesKey("p.$tag.tts_voice_sid")
         fun ttsSpeed(tag: String) = floatPreferencesKey("p.$tag.tts_speed")
         fun autoDeletePlayedAfterDays(tag: String) = intPreferencesKey("p.$tag.auto_delete_played_days")
+        fun backgroundLlmTasks(tag: String) = booleanPreferencesKey("p.$tag.background_llm_tasks")
+        fun reviewReminders(tag: String) = booleanPreferencesKey("p.$tag.review_reminders")
+        fun bookAutoReadAhead(tag: String) = booleanPreferencesKey("p.$tag.book_auto_read_ahead")
+        fun bookFrontierHintDismissed(tag: String) = booleanPreferencesKey("p.$tag.book_frontier_hint_dismissed")
+        fun desiredRetention(tag: String) = doublePreferencesKey("p.$tag.desired_retention")
+        fun dailyGoalMinutes(tag: String) = intPreferencesKey("p.$tag.daily_goal_minutes")
+        fun conjugationDrill(tag: String) = stringPreferencesKey("p.$tag.conjugation_drill")
     }
 
     private val securePrefs by lazy {
@@ -147,6 +159,7 @@ class SettingsRepository @Inject constructor(
             defaultLevel = p[Keys.defaultLevel(tag)]?.let { runCatching { Cefr.valueOf(it) }.getOrNull() }
                 ?: d.defaultLevel,
             defaultCountry = p[Keys.defaultCountry(tag)] ?: d.defaultCountry,
+            conjugationDrillConfigJson = p[Keys.conjugationDrill(tag)] ?: d.conjugationDrillConfigJson,
             corePrompt = p[Keys.corePrompt(tag)] ?: d.corePrompt,
             customInstructions = p[Keys.customInstructions(tag)] ?: d.customInstructions,
             appLanguage = p[Keys.appLanguage(tag)] ?: d.appLanguage,
@@ -163,6 +176,15 @@ class SettingsRepository @Inject constructor(
             ttsVoiceSid = p[Keys.ttsVoiceSid(tag)] ?: d.ttsVoiceSid,
             ttsSpeed = p[Keys.ttsSpeed(tag)] ?: d.ttsSpeed,
             autoDeletePlayedAfterDays = p[Keys.autoDeletePlayedAfterDays(tag)] ?: d.autoDeletePlayedAfterDays,
+            backgroundLlmTasks = p[Keys.backgroundLlmTasks(tag)] ?: d.backgroundLlmTasks,
+            reviewReminders = p[Keys.reviewReminders(tag)] ?: d.reviewReminders,
+            bookAutoReadAhead = p[Keys.bookAutoReadAhead(tag)] ?: d.bookAutoReadAhead,
+            bookFrontierHintDismissed =
+                p[Keys.bookFrontierHintDismissed(tag)] ?: d.bookFrontierHintDismissed,
+            desiredRetention = (p[Keys.desiredRetention(tag)] ?: d.desiredRetention)
+                .coerceIn(SpacedRepetitionScheduler.MIN_RETENTION, SpacedRepetitionScheduler.MAX_RETENTION),
+            dailyGoalMinutes = (p[Keys.dailyGoalMinutes(tag)] ?: d.dailyGoalMinutes)
+                .coerceIn(AppSettings.DAILY_GOAL_MIN, AppSettings.DAILY_GOAL_MAX),
         )
     }
 
@@ -174,6 +196,7 @@ class SettingsRepository @Inject constructor(
         // No target-language key: the tag itself is the profile identity.
         this[Keys.defaultLevel(tag)] = s.defaultLevel.name
         this[Keys.defaultCountry(tag)] = s.defaultCountry
+        s.conjugationDrillConfigJson?.let { this[Keys.conjugationDrill(tag)] = it }
         this[Keys.corePrompt(tag)] = s.corePrompt
         this[Keys.customInstructions(tag)] = s.customInstructions
         this[Keys.appLanguage(tag)] = s.appLanguage
@@ -185,7 +208,25 @@ class SettingsRepository @Inject constructor(
         this[Keys.ttsVoiceSid(tag)] = s.ttsVoiceSid
         this[Keys.ttsSpeed(tag)] = s.ttsSpeed
         this[Keys.autoDeletePlayedAfterDays(tag)] = s.autoDeletePlayedAfterDays
+        this[Keys.backgroundLlmTasks(tag)] = s.backgroundLlmTasks
+        this[Keys.reviewReminders(tag)] = s.reviewReminders
+        this[Keys.bookAutoReadAhead(tag)] = s.bookAutoReadAhead
+        this[Keys.bookFrontierHintDismissed(tag)] = s.bookFrontierHintDismissed
+        this[Keys.desiredRetention(tag)] =
+            s.desiredRetention.coerceIn(SpacedRepetitionScheduler.MIN_RETENTION, SpacedRepetitionScheduler.MAX_RETENTION)
+        this[Keys.dailyGoalMinutes(tag)] =
+            s.dailyGoalMinutes.coerceIn(AppSettings.DAILY_GOAL_MIN, AppSettings.DAILY_GOAL_MAX)
     }
+
+    // --- ProfileSettingsSource: point reads for background maintenance ---
+
+    override suspend fun activeTag(): String = activeProfileTag.first()
+
+    override suspend fun allTags(): List<String> = profiles.first()
+
+    /** Settings of an arbitrary profile — maintenance runs for profiles that aren't active. */
+    override suspend fun settingsFor(tag: String): AppSettings =
+        readProfile(context.dataStore.data.first(), tag)
 
     // --- API keys (encrypted, global across profiles) ---
 
@@ -196,7 +237,7 @@ class SettingsRepository @Inject constructor(
         securePrefs.edit().putString(keyName(provider), key.trim()).apply()
     }
 
-    fun hasApiKey(provider: ProviderId): Boolean = !getApiKey(provider).isNullOrBlank()
+    override fun hasApiKey(provider: ProviderId): Boolean = !getApiKey(provider).isNullOrBlank()
 
     private fun keyName(provider: ProviderId) = "api_key_${provider.name}"
 

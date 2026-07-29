@@ -1,10 +1,10 @@
 package com.copiosa.ui.routines.activities
 
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.copiosa.domain.routine.GuessThenFlipContent
+import com.copiosa.ui.components.ProgressBar
 import com.copiosa.ui.flashcards.ReviewScreen
 
 /**
@@ -25,7 +25,7 @@ internal fun RoutineReviewStep(
         limit = content.cardLimit,
         onFinished = onComplete,
         topFrame = {
-            LinearProgressIndicator(
+            ProgressBar(
                 progress = { (index + 1f) / total },
                 modifier = Modifier.fillMaxWidth(),
             )

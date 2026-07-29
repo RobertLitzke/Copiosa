@@ -38,4 +38,14 @@ data class CountryPalette(
     val accent2Ink: Color,
     /** Elevation shadow tint. */
     val shadow: Color,
+    /**
+     * Soft paragraph-correspondence tints for the book reader, cycled by paragraph ord. Two core
+     * hues with three variations each, interleaved so consecutive paragraphs alternate cores —
+     * repetition is the point: a handful of related washes reads as one palette, where six
+     * independent hues would read as a rainbow. Opaque fills painted *under* body text, so they
+     * sit within a few percent of [bg] in lightness. Deliberately their own family rather than
+     * shades of [accent]/[accent2] — those are UI colors, and a paragraph wearing one would read
+     * as a highlight rather than as a correspondence marker.
+     */
+    val tints: List<Color>,
 )

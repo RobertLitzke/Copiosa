@@ -82,26 +82,59 @@ class LocalDictionary @Inject constructor(
      * always contains at least the word's own normalized form. Returns an empty map when the pack for
      * [lang] isn't downloaded, letting callers fall back to plain exact matching.
      *
+     * Each word maps to the `lemmas.pos` values it may expand through, or null for "unknown, allow
+     * any". The filter matters because a key can be a *homograph*: Spanish "son" is both a noun (the
+     * music genre) and the third-person plural of "ser", so an unfiltered expansion of the noun hops
+     * through the `forms` table into "ser" and drags back soy/eres/es/… Rows with a NULL pos are
+     * always allowed — the pack, not the card, is the uncertain party there.
+     *
      * The `forms` table is indexed on `key` but not `lemma_id`, so the final gather is a table scan;
      * we keep it to one scan per chunk (not one per word) by resolving all lemma ids first. This runs
      * only when the saved-card set changes, off the main thread.
      */
-    suspend fun inflectedFormsFor(words: Collection<String>, lang: String): Map<String, Set<String>> =
+    suspend fun inflectedFormsFor(words: Map<String, Set<String>?>, lang: String): Map<String, Set<String>> =
         withContext(Dispatchers.IO) {
             val db = database(lang) ?: return@withContext emptyMap()
             // Original word -> normalized key; distinct keys each seeded with themselves.
-            val wordKeys = words.associateWith { normalize(it) }.filterValues { it.isNotEmpty() }
+            val wordKeys = words.keys.associateWith { normalize(it) }.filterValues { it.isNotEmpty() }
             if (wordKeys.isEmpty()) return@withContext emptyMap()
             val keyForms = HashMap<String, MutableSet<String>>()
             for (key in wordKeys.values.toSet()) keyForms[key] = mutableSetOf(key)
+            // Two cards can share a key with different parts of speech: union their allowances, and
+            // let a single unrestricted word make the key unrestricted.
+            val keyPos = HashMap<String, Set<String>?>()
+            val unrestricted = HashSet<String>()
+            for ((word, key) in wordKeys) {
+                val pos = words[word]
+                if (pos == null) {
+                    unrestricted += key
+                    keyPos[key] = null
+                } else if (key !in unrestricted) {
+                    keyPos[key] = keyPos[key].orEmpty() + pos
+                }
+            }
 
             // Resolve each key to its lemma id(s): a key can be a headword and/or an inflected form.
             val lemmaIdToKeys = HashMap<Long, MutableSet<String>>()
             for (key in keyForms.keys) {
-                db.rawQuery("SELECT id FROM lemmas WHERE key = ?", arrayOf(key)).use { c ->
-                    while (c.moveToNext()) lemmaIdToKeys.getOrPut(c.getLong(0)) { mutableSetOf() }.add(key)
+                val pos = keyPos[key]?.takeIf { it.isNotEmpty() }
+                val posArgs = pos?.toTypedArray() ?: emptyArray()
+                // With no filter the queries stay exactly the plain indexed lookups they were.
+                val posClause = { alias: String ->
+                    pos?.let { " AND ($alias.pos IS NULL OR $alias.pos IN (${it.joinToString(",") { "?" }}))" }
+                        .orEmpty()
                 }
-                db.rawQuery("SELECT lemma_id FROM forms WHERE key = ?", arrayOf(key)).use { c ->
+                db.rawQuery("SELECT id FROM lemmas WHERE key = ?" + posClause("lemmas"), arrayOf(key) + posArgs)
+                    .use { c ->
+                        while (c.moveToNext()) lemmaIdToKeys.getOrPut(c.getLong(0)) { mutableSetOf() }.add(key)
+                    }
+                val formSql = if (pos == null) {
+                    "SELECT lemma_id FROM forms WHERE key = ?"
+                } else {
+                    "SELECT f.lemma_id FROM forms f JOIN lemmas l ON l.id = f.lemma_id WHERE f.key = ?" +
+                        posClause("l")
+                }
+                db.rawQuery(formSql, arrayOf(key) + posArgs).use { c ->
                     while (c.moveToNext()) lemmaIdToKeys.getOrPut(c.getLong(0)) { mutableSetOf() }.add(key)
                 }
             }
@@ -138,16 +171,26 @@ class LocalDictionary @Inject constructor(
                 entries += DictionaryEntry(c.getString(1), c.stringOrNull(2), sensesOf(db, id), null)
             }
         }
-        // Inflected-form matches → resolve to the lemma's entry and note the inflection.
+        // Inflected-form matches → resolve to the lemma's entry and note the inflection. The pack
+        // carries several rows per form: a bare "form-of" beside the one that actually names the
+        // inflection, in no fixed order. Keep the informative one, or "maceran" reports itself as a
+        // "form-of of macerar" instead of the third-person plural present it is.
+        val tagsByLemma = LinkedHashMap<Long, String?>()
         db.rawQuery("SELECT lemma_id, tags FROM forms WHERE key = ?", arrayOf(key)).use { c ->
             while (c.moveToNext()) {
                 val id = c.getLong(0)
-                if (!seen.add(id)) continue
-                val lemma = lemmaById(db, id) ?: continue
-                val defs = sensesOf(db, id)
-                if (defs.isNotEmpty()) {
-                    entries += DictionaryEntry(lemma.first, lemma.second, defs, inflectionNote(c.stringOrNull(1), lemma.first))
+                val tags = c.stringOrNull(1)
+                if (id !in tagsByLemma || (tagsByLemma[id].isGenericTag() && !tags.isGenericTag())) {
+                    tagsByLemma[id] = tags
                 }
+            }
+        }
+        for ((id, tags) in tagsByLemma) {
+            if (!seen.add(id)) continue
+            val lemma = lemmaById(db, id) ?: continue
+            val defs = sensesOf(db, id)
+            if (defs.isNotEmpty()) {
+                entries += DictionaryEntry(lemma.first, lemma.second, defs, inflectionNote(tags, lemma.first))
             }
         }
         return entries
@@ -211,8 +254,13 @@ class LocalDictionary @Inject constructor(
                 .trim('¿', '?', '¡', '!', '.', ',', ';', ':', '"', '\'', '«', '»', '(', ')', '—', '–')
                 .lowercase()
 
+        /** The pack's placeholder tag, which says nothing the note can use. */
+        const val GENERIC_FORM_TAG = "form-of"
+
+        fun String?.isGenericTag(): Boolean = isNullOrBlank() || this == GENERIC_FORM_TAG
+
         fun inflectionNote(tags: String?, lemma: String): String =
-            if (tags.isNullOrBlank()) "form of $lemma" else "$tags of $lemma"
+            if (tags.isGenericTag()) "form of $lemma" else "$tags of $lemma"
     }
 }
 

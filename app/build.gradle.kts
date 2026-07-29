@@ -64,6 +64,14 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests {
+            // Stub android.util.Log and friends instead of throwing, so JVM tests can cover code
+            // that logs (e.g. MaintenanceRunner's per-task failure isolation).
+            isReturnDefaultValues = true
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -97,9 +105,18 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
 
+    // Background maintenance tasks; hilt-work supplies the @HiltWorker factory.
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.compiler)
+
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
+    // Book reader: paged paragraph rows so a whole novel is never resident at once.
+    implementation(libs.androidx.room.paging)
+    implementation(libs.androidx.paging.runtime.ktx)
+    implementation(libs.androidx.paging.compose)
 
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.security.crypto)

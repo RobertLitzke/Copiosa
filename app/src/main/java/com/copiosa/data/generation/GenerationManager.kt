@@ -4,6 +4,8 @@ import com.copiosa.data.remote.LlmError
 import com.copiosa.data.remote.LlmException
 import com.copiosa.data.repository.ConversationRepository
 import com.copiosa.data.settings.SettingsRepository
+import com.copiosa.di.AppScope
+import com.copiosa.domain.prompt.VocabHint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,8 +41,8 @@ enum class GenPhase { QUEUED, GENERATING }
 class GenerationManager @Inject constructor(
     private val conversationRepo: ConversationRepository,
     private val settingsRepo: SettingsRepository,
+    @AppScope private val scope: CoroutineScope,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val jobs = ConcurrentHashMap<Long, Job>()
 
     private val _active = MutableStateFlow<Map<Long, GenPhase>>(emptyMap())
@@ -62,7 +64,7 @@ class GenerationManager @Inject constructor(
      * [vocab] is an optional pre-chosen vocabulary slice (batch generation hands each chat a distinct
      * one); null falls back to a fresh per-turn sample.
      */
-    fun generateReply(id: Long, vocab: List<Pair<String, String>>? = null): Job = launchGeneration(id) {
+    fun generateReply(id: Long, vocab: List<VocabHint>? = null): Job = launchGeneration(id) {
         conversationRepo.generateFirstReply(id, rollbackOnError = false, vocabOverride = vocab)
     }
 

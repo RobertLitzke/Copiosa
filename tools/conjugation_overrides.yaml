@@ -1,0 +1,362 @@
+# Curated adjudication for tools/build_conjugations.py.
+#
+# The generator sources forms and classifies deviations mechanically. This file carries everything
+# that needs a human: English glosses, deliberate frequency damping, which cards a defective verb may
+# appear in, and corrections for deviations the classification cascade can't place.
+#
+# Per verb:
+#   gloss          English gloss shown beside the infinitive on a produce prompt.
+#   weight         Selection multiplier applied after the frequency curve. 1.0 = neutral.
+#   default_class  Class for any cell the cascade leaves unclassified. For wholly irregular verbs,
+#                  this replaces twenty near-identical per-cell corrections.
+#   classes        Per-cell correction, keyed "<tense>.<person>" (e.g. "pres.1s"). A single class or
+#                  a list. `sub_imp` is rejected: that tense is derived from the preterite at runtime.
+#   suppress_naive Cells whose regular counterpart shouldn't be shown struck through. The engine
+#                  already suppresses suppletive verbs and stems under two characters; this is for
+#                  anything those miss.
+#   alternates     A second form that coexists with the canonical one. Shown in the reference tables,
+#                  never used as a drill prompt or answer.
+#   restriction    Limits which cards the verb appears in: directions / tenses / persons.
+
+# Lemmas the frequency roll-up floats into the top 200 that nobody would drill. Each is a real
+# Wiktionary verb entry whose count comes almost entirely from a homograph that survived the
+# non-verb filter -- either another verb's forms, or an accented word the corpus writes unaccented.
+exclude:
+  - tar         # essentially unused; count comes from noise
+  - dolar       # "to plane wood"; the corpus's unaccented spelling of dólar
+  - podar       # "to prune"; collides with poder's subjunctive (podamos, podas)
+  - vengar      # "to avenge"; collides with venir's subjunctive (venga, vengas, vengamos)
+  - casar       # "to marry off"; collides with casa and with the far commoner reflexive casarse
+  - parir       # "to give birth"; collides across parar's and parecer's paradigms
+  - coser       # "to sew"; collides with cocer and is rare in the corpus
+
+# English glosses shown beside the infinitive on a produce prompt. Kept flat because they are
+# one-liners; a verb block below may override its own.
+glosses:
+  tener: to have
+  poder: to be able
+  saber: to know (a fact)
+  hacer: to do, to make
+  querer: to want
+  decir: to say
+  creer: to believe
+  deber: to owe, must
+  ver: to see
+  crear: to create
+  sentir: to feel
+  sentar: to seat
+  necesitar: to need
+  hablar: to speak
+  pensar: to think
+  venir: to come
+  dejar: to leave, to let
+  parecer: to seem
+  gustar: to be pleasing
+  volver: to return
+  encontrar: to find
+  llevar: to carry, to wear
+  pasar: to pass, to happen
+  esperar: to wait, to hope
+  conocer: to know (a person)
+  salir: to go out
+  llamar: to call
+  llegar: to arrive
+  poner: to put
+  entender: to understand
+  morir: to die
+  tomar: to take, to drink
+  importar: to matter
+  trabajar: to work
+  suponer: to suppose
+  entrar: to enter
+  acabar: to finish
+  perder: to lose
+  empezar: to begin
+  quedar: to remain
+  matar: to kill
+  mirar: to look at
+  recordar: to remember
+  ayudar: to help
+  traer: to bring
+  escuchar: to listen
+  terminar: to finish
+  comer: to eat
+  preocupar: to worry
+  pedir: to ask for
+  significar: to mean
+  preguntar: to ask
+  cambiar: to change
+  buscar: to look for
+  dormir: to sleep
+  intentar: to try
+  regresar: to go back
+  suceder: to happen
+  ganar: to win, to earn
+  olvidar: to forget
+  vivir: to live
+  tratar: to treat, to try
+  jugar: to play
+  ocurrir: to occur
+  funcionar: to work (function)
+  abrir: to open
+  comprar: to buy
+  pagar: to pay
+  usar: to use
+  encantar: to delight
+  mantener: to maintain
+  comenzar: to begin
+  leer: to read
+  escribir: to write
+  sacar: to take out
+  contar: to count, to tell
+  enviar: to send
+  confiar: to trust
+  caer: to fall
+  correr: to run
+  sonar: to sound
+  disparar: to shoot
+  prometer: to promise
+  mover: to move
+  subir: to go up
+  disculpar: to excuse
+  decidir: to decide
+  recibir: to receive
+  permitir: to allow
+  echar: to throw, to pour
+  coger: to take, to grab
+  cerrar: to close
+  desear: to wish
+  robar: to steal
+  romper: to break
+  perdonar: to forgive
+  aprender: to learn
+  servir: to serve
+  imaginar: to imagine
+  vender: to sell
+  temer: to fear
+  meter: to put in
+  salvar: to save
+  convertir: to convert
+  tocar: to touch, to play
+  existir: to exist
+  detener: to stop, to detain
+  descubrir: to discover
+  aparecer: to appear
+  vestir: to dress
+  cuidar: to look after
+  continuar: to continue
+  preferir: to prefer
+  escapar: to escape
+  elegir: to choose
+  bajar: to go down
+  arreglar: to fix
+  desaparecer: to disappear
+  presentar: to present
+  aceptar: to accept
+  responder: to answer
+  merecer: to deserve
+  mostrar: to show
+  explicar: to explain
+  llorar: to cry
+  lograr: to achieve
+  mentir: to lie
+  obtener: to obtain
+  volar: to fly
+  conducir: to drive
+  bailar: to dance
+  jurar: to swear
+  enseñar: to teach
+  probar: to try, to taste
+  golpear: to hit
+  caminar: to walk
+  comprender: to understand
+  resultar: to turn out
+  levantar: to lift
+  tirar: to throw
+  preparar: to prepare
+  amar: to love
+  actuar: to act
+  averiguar: to find out
+  doler: to hurt
+  quitar: to remove
+  cortar: to cut
+  ofrecer: to offer
+  crecer: to grow
+  cenar: to have dinner
+  pelear: to fight
+  luchar: to struggle
+  atrapar: to catch
+  recoger: to pick up
+  proteger: to protect
+  reconocer: to recognise
+  atacar: to attack
+  asegurar: to assure
+  acordar: to agree
+  dirigir: to direct
+  nacer: to be born
+  agradecer: to thank
+  destruir: to destroy
+  despertar: to wake
+  evitar: to avoid
+  abandonar: to abandon
+  mandar: to send, to order
+  revisar: to check
+  interesar: to interest
+  asustar: to frighten
+  molestar: to bother
+  descansar: to rest
+  recuperar: to recover
+  sobrevivir: to survive
+  devolver: to give back
+  pertenecer: to belong
+  equivocar: to mistake
+  huir: to flee
+  disfrutar: to enjoy
+  compartir: to share
+  odiar: to hate
+  considerar: to consider
+  construir: to build
+  partir: to leave, to split
+  respirar: to breathe
+  ocupar: to occupy
+  guardar: to keep
+  manejar: to drive, to manage
+  aguantar: to put up with
+  arruinar: to ruin
+  utilizar: to use
+  acercar: to bring closer
+
+verbs:
+
+  # -- Wholly irregular ------------------------------------------------------------------------
+  # Their present and preterite share no stem with the infinitive, so every cell is suppletive and
+  # the struck-through naive form is suppressed automatically.
+
+  ser:
+    gloss: to be
+    weight: 0.35        # already drilled by ContrastCategory.SER_ESTAR, and impossible to avoid
+    default_class: suppletive
+
+  ir:
+    gloss: to go
+    weight: 0.35
+    default_class: suppletive
+
+  haber:
+    gloss: to have (auxiliary)
+    weight: 0.35
+    default_class: suppletive
+    # Compound tenses are out of scope, so asking a learner to *produce* "hemos" alone drills a form
+    # they would never emit by itself. Recognising "hubiera" / "habría" / "haya" still matters.
+    restriction:
+      directions: [decode]
+    alternates:
+      pres.3s: hay      # impersonal "hay" beside auxiliary "ha"
+
+  estar:
+    gloss: to be (state)
+    weight: 0.35
+    # The dump's estar entry carries no conjugation table at all, which silently dropped the single
+    # most important verb in the drill. Supplied by hand; the cascade classifies it from here as
+    # normal (yo_oy, accent_shift, strong_pret_u).
+    forms:
+      pres.1s: estoy
+      pres.2s: estás
+      pres.3s: está
+      pres.1p: estamos
+      pres.2p: estáis
+      pres.3p: están
+      pret.1s: estuve
+      pret.2s: estuviste
+      pret.3s: estuvo
+      pret.1p: estuvimos
+      pret.2p: estuvisteis
+      pret.3p: estuvieron
+      imp.1s: estaba
+      imp.2s: estabas
+      imp.3s: estaba
+      imp.1p: estábamos
+      imp.2p: estabais
+      imp.3p: estaban
+      fut.1s: estaré
+      fut.2s: estarás
+      fut.3s: estará
+      fut.1p: estaremos
+      fut.2p: estaréis
+      fut.3p: estarán
+      cond.1s: estaría
+      cond.2s: estarías
+      cond.3s: estaría
+      cond.1p: estaríamos
+      cond.2p: estaríais
+      cond.3p: estarían
+      sub_pres.1s: esté
+      sub_pres.2s: estés
+      sub_pres.3s: esté
+      sub_pres.1p: estemos
+      sub_pres.2p: estéis
+      sub_pres.3p: estén
+
+  # -- Cells the cascade can't place --------------------------------------------------------------
+
+  dar:
+    gloss: to give
+    # dar borrows the -er/-ir preterite wholesale rather than changing stem or ending in any
+    # patterned way; no tidier class fits.
+    classes:
+      pret.1s: other_irregular
+      pret.2s: other_irregular
+      pret.3s: other_irregular
+      pret.1p: other_irregular
+      pret.2p: other_irregular
+      pret.3p: other_irregular
+
+  # -gu- verbs change twice at once: the e->i stem raise, plus the silent u of "gu" that only
+  # survives before e/i. The cascade sees one span and can't name both halves.
+  seguir:
+    gloss: to follow
+    classes:
+      pres.1s: [stem_e_i, orth_ger_gir_guir]
+      pres.2s: stem_e_i
+      pres.3s: stem_e_i
+      pres.3p: stem_e_i
+      pret.3s: stem_raise_pret
+      pret.3p: stem_raise_pret
+      sub_pres.1s: [stem_e_i, orth_ger_gir_guir]
+      sub_pres.2s: [stem_e_i, orth_ger_gir_guir]
+      sub_pres.3s: [stem_e_i, orth_ger_gir_guir]
+      sub_pres.1p: [stem_e_i, orth_ger_gir_guir]
+      sub_pres.2p: [stem_e_i, orth_ger_gir_guir]
+      sub_pres.3p: [stem_e_i, orth_ger_gir_guir]
+
+  conseguir:
+    gloss: to obtain
+    classes:
+      pres.1s: [stem_e_i, orth_ger_gir_guir]
+      pres.2s: stem_e_i
+      pres.3s: stem_e_i
+      pres.3p: stem_e_i
+      pret.3s: stem_raise_pret
+      pret.3p: stem_raise_pret
+      sub_pres.1s: [stem_e_i, orth_ger_gir_guir]
+      sub_pres.2s: [stem_e_i, orth_ger_gir_guir]
+      sub_pres.3s: [stem_e_i, orth_ger_gir_guir]
+      sub_pres.1p: [stem_e_i, orth_ger_gir_guir]
+      sub_pres.2p: [stem_e_i, orth_ger_gir_guir]
+      sub_pres.3p: [stem_e_i, orth_ger_gir_guir]
+
+  # oír inserts a y between vowels rather than changing its stem vowel.
+  oír:
+    gloss: to hear
+    classes:
+      pres.2s: orth_y_hiatus
+      pres.3s: orth_y_hiatus
+      pres.3p: orth_y_hiatus
+
+  # reír contracts its stem against the ending: ri- + -eron, not re- + -ieron. Either analysis loses
+  # an i, so the dropped-i class is the honest label.
+  reír:
+    gloss: to laugh
+    classes:
+      pret.3s: orth_i_loss
+      pret.3p: orth_i_loss

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -43,6 +44,7 @@ import com.copiosa.R
 import com.copiosa.data.local.TopicEntity
 import com.copiosa.domain.quiz.CueType
 import com.copiosa.domain.routine.RoutineType
+import com.copiosa.ui.components.ScreenHeader
 import kotlinx.coroutines.launch
 
 /**
@@ -55,23 +57,16 @@ fun RoutinesScreen(
     onStartRun: (Long) -> Unit,
     onOpenStatus: () -> Unit,
     onOpenRapidFire: (CueType) -> Unit,
+    onOpenConjugationDrill: () -> Unit,
     viewModel: RoutinesViewModel = hiltViewModel(),
 ) {
     val suggestions by viewModel.suggestions.collectAsState()
+    val conjugationAvailable by viewModel.conjugationAvailable.collectAsState()
     val scope = rememberCoroutineScope()
     var setupOpen by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                stringResource(R.string.routines_title),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
+        ScreenHeader(title = stringResource(R.string.routines_title)) {
             IconButton(onClick = onOpenStatus) {
                 Icon(
                     Icons.Filled.Insights,
@@ -97,6 +92,21 @@ fun RoutinesScreen(
             icon = Icons.Filled.Speed,
             onClick = { onOpenRapidFire(CueType.TIME) },
         )
+        RoutineCard(
+            title = stringResource(R.string.quiz_title_format, stringResource(R.string.quiz_cue_restaurant)),
+            description = stringResource(R.string.quiz_card_desc_restaurant),
+            icon = Icons.Filled.Speed,
+            onClick = { onOpenRapidFire(CueType.RESTAURANT) },
+        )
+        // Hidden outside Spanish: there is no verb lexicon to drill from.
+        if (conjugationAvailable) {
+            RoutineCard(
+                title = stringResource(R.string.conj_card_title),
+                description = stringResource(R.string.conj_card_desc),
+                icon = Icons.Filled.Bolt,
+                onClick = onOpenConjugationDrill,
+            )
+        }
     }
 
     if (setupOpen) {

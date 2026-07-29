@@ -3,6 +3,7 @@ package com.copiosa.domain.routine
 import com.copiosa.domain.routine.activities.AffectivePi
 import com.copiosa.domain.routine.activities.BedtimeStory
 import com.copiosa.domain.routine.activities.CognateHunt
+import com.copiosa.domain.routine.activities.ConjugationDrill
 import com.copiosa.domain.routine.activities.ContrastCloze
 import com.copiosa.domain.routine.activities.GuessThenFlip
 import com.copiosa.domain.routine.activities.MultipleChoiceCloze
@@ -34,6 +35,7 @@ object ActivityRegistry {
         CognateHunt,
         SerialStory,
         RapidFireListening,
+        ConjugationDrill,
     )
 
     val byType: Map<ActivityType, ActivityDescriptor> = all.associateBy { it.type }

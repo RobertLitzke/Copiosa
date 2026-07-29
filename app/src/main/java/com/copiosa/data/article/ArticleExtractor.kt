@@ -29,7 +29,7 @@ class ArticleExtractor @Inject constructor(
     private val client: OkHttpClient,
 ) {
     suspend fun extract(url: String): ExtractedArticle = withContext(Dispatchers.IO) {
-        val normalized = if (url.startsWith("http", ignoreCase = true)) url else "https://$url"
+        val normalized = normalizeUrl(url)
         val html = fetch(normalized)
         val article = try {
             Readability4J(normalized, html).parse()
@@ -102,6 +102,10 @@ class ArticleExtractor @Inject constructor(
         private const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/120.0 Mobile Safari/537.36"
+
+        /** [url] with an `https://` scheme prepended when the user typed a bare host/path. */
+        fun normalizeUrl(url: String): String =
+            if (url.startsWith("http", ignoreCase = true)) url else "https://$url"
 
         /** Bare host of [url] (without `www.`), used as a fallback title and the list source label. */
         fun hostOf(url: String): String =

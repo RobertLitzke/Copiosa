@@ -39,6 +39,14 @@ class RoutineAdaptation @Inject constructor(
      * keyed by a run — but the proficiency the planner and generators read moves identically, so
      * standalone and in-routine practice train the same estimate.
      */
+    /**
+     * A bucket's current mastery, or null if it has never been practised. The read-side counterpart
+     * to [recordStandalone], for callers that shape their own content from how well a bucket is going
+     * (the conjugation drill holds its derived card types back until the pattern starts to land).
+     */
+    suspend fun masteryFor(bucketKey: String, targetLanguage: String): Double? =
+        repo.getProficiency(bucketKey, targetLanguage)?.mastery
+
     suspend fun recordStandalone(
         bucketKey: String,
         targetLanguage: String,

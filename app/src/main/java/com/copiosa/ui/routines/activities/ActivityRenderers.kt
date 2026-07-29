@@ -8,6 +8,7 @@ import com.copiosa.domain.routine.ActivityInstance
 import com.copiosa.domain.routine.AffectivePiContent
 import com.copiosa.domain.routine.BedtimeStoryContent
 import com.copiosa.domain.routine.CognateHuntContent
+import com.copiosa.domain.routine.ConjugationDrillContent
 import com.copiosa.domain.routine.ContrastClozeContent
 import com.copiosa.domain.routine.GuessThenFlipContent
 import com.copiosa.domain.routine.MultipleChoiceClozeContent
@@ -130,6 +131,14 @@ object ActivityRenderers {
             RoutineRapidFireStep(
                 content = ctx.activity.content as RapidFireContent,
                 onAnswer = { correct, ms, speed -> ctx.viewModel.recordAttempt(ctx.activity, correct, ms, speed) },
+                onComplete = ctx.advance,
+            )
+        },
+        ConjugationDrillContent::class to RendererEntry(fullScreen = false) { ctx ->
+            RoutineConjugationStep(
+                content = ctx.activity.content as ConjugationDrillContent,
+                viewModel = ctx.viewModel,
+                activity = ctx.activity,
                 onComplete = ctx.advance,
             )
         },

@@ -96,6 +96,11 @@ class FlashcardsViewModel @Inject constructor(
     private val _export = MutableStateFlow(ExportState())
     val export: StateFlow<ExportState> = _export.asStateFlow()
 
+    init {
+        // Peel any crammed usage note out of the translation field for older cards, once.
+        viewModelScope.launch { repo.ensureNotesBackfilled() }
+    }
+
     fun setQuery(q: String) { _query.value = q }
 
     fun setMarkedOnly(markedOnly: Boolean) { _markedOnly.value = markedOnly }

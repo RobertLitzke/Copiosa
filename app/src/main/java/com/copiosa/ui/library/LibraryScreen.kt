@@ -21,7 +21,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Headphones
@@ -49,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -58,12 +61,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.copiosa.R
+import com.copiosa.data.epub.BookMedia
+import com.copiosa.ui.audio.AudioPane
 import com.copiosa.ui.audio.TtsDownloadPrompt
 import com.copiosa.ui.components.CefrBadge
 import com.copiosa.ui.components.CircleAvatar
 import com.copiosa.ui.components.EmptyState
-import com.copiosa.ui.components.ListHeader
+import com.copiosa.ui.components.HeaderSearch
+import com.copiosa.ui.components.ScreenHeader
 import com.copiosa.ui.components.SegmentedToggle
+import com.copiosa.ui.flashcards.FileImage
 import com.copiosa.ui.theme.SourceSerif
 import com.copiosa.ui.theme.skin.LocalAppSkin
 import com.copiosa.ui.theme.skin.personaTexture
@@ -74,6 +81,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 fun LibraryScreen(
     onOpenConversation: (Long) -> Unit,
     onOpenText: (Long) -> Unit,
+    onOpenBook: (Long) -> Unit,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val query by viewModel.query.collectAsState()
@@ -114,15 +122,17 @@ fun LibraryScreen(
 
     val skin = LocalAppSkin.current
     Column(modifier = Modifier.fillMaxSize().personaTexture(skin)) {
-        ListHeader(
+        ScreenHeader(
             title = stringResource(R.string.library_title),
-            searching = searching,
-            query = query,
-            onQueryChange = viewModel::setQuery,
-            onToggleSearch = {
-                searching = !searching
-                if (!searching) viewModel.setQuery("")
-            },
+            search = HeaderSearch(
+                active = searching,
+                query = query,
+                onQueryChange = viewModel::setQuery,
+                onToggle = {
+                    searching = !searching
+                    if (!searching) viewModel.setQuery("")
+                },
+            ),
         )
 
         SegmentedToggle(
@@ -131,53 +141,70 @@ fun LibraryScreen(
                 stringResource(R.string.filter_all),
                 stringResource(R.string.filter_chats),
                 stringResource(R.string.filter_translations),
+                stringResource(R.string.filter_books),
+                stringResource(R.string.filter_audio),
             ),
             onSelect = { viewModel.setFilter(LibraryFilter.entries[it]) },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
 
-        if (pending > 0) BatchProgressBanner(pending)
-
-        if (entries.isEmpty()) {
-            EmptyState(stringResource(emptyMessageFor(filter)))
+        // The Audio segment isn't a filter over the list — it swaps in the audio queue, which brings
+        // its own list, transport bar and state.
+        if (filter == LibraryFilter.AUDIO) {
+            AudioPane(Modifier.weight(1f))
         } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                // Each row is its own solid card; the gap + edge padding lets the list background
-                // (and any persona texture) show through between them.
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // Chats and translations share the conversations table, so ids are unique across both.
-                items(entries, key = { it.id }) { entry ->
-                    when (entry) {
-                        is LibraryEntry.Chat -> ConversationRowItem(
-                            row = entry.row,
-                            onClick = { onOpenConversation(entry.id) },
-                            onToggleStar = {
-                                viewModel.setStarred(entry.id, !entry.row.conversation.starred)
-                            },
-                            onToggleRead = {
-                                viewModel.setRead(entry.id, !entry.row.conversation.read)
-                            },
-                            onRetry = { viewModel.retryChat(entry.id) },
-                            onGenerateAudio = { requestAudio(entry) },
-                            onDelete = { pendingDelete = entry },
-                        )
-                        is LibraryEntry.Translation -> TextRowItem(
-                            item = entry.item,
-                            onClick = { onOpenText(entry.id) },
-                            onToggleStar = { viewModel.setStarred(entry.id, !entry.item.starred) },
-                            onRetry = { viewModel.retryTranslation(entry.id) },
-                            onGenerateAudio = { requestAudio(entry) },
-                            onDelete = { pendingDelete = entry },
-                        )
+            if (pending > 0) BatchProgressBanner(pending)
+
+            if (entries.isEmpty()) {
+                EmptyState(stringResource(emptyMessageFor(filter)))
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    // Each row is its own solid card; the gap + edge padding lets the list background
+                    // (and any persona texture) show through between them.
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // Keyed by type + id: books live in their own table, so ids alone would collide.
+                    items(entries, key = { it.listKey }) { entry ->
+                        when (entry) {
+                            is LibraryEntry.Chat -> ConversationRowItem(
+                                row = entry.row,
+                                onClick = { onOpenConversation(entry.id) },
+                                onToggleStar = {
+                                    viewModel.setStarred(entry.id, !entry.row.conversation.starred)
+                                },
+                                onToggleRead = {
+                                    viewModel.setRead(entry.id, !entry.row.conversation.read)
+                                },
+                                onRetry = { viewModel.retryChat(entry.id) },
+                                onGenerateAudio = { requestAudio(entry) },
+                                onDelete = { pendingDelete = entry },
+                            )
+                            is LibraryEntry.Translation -> TextRowItem(
+                                item = entry.item,
+                                onClick = { onOpenText(entry.id) },
+                                onToggleStar = { viewModel.setStarred(entry.id, !entry.item.starred) },
+                                onRetry = { viewModel.retryTranslation(entry.id) },
+                                onGenerateAudio = { requestAudio(entry) },
+                                onDelete = { pendingDelete = entry },
+                            )
+                            is LibraryEntry.Book -> BookRowItem(
+                                item = entry.item,
+                                onClick = { onOpenBook(entry.id) },
+                                onToggleStar = { viewModel.setBookStarred(entry.id, !entry.item.starred) },
+                                onToggleAutoTranslate = {
+                                    viewModel.setBookAutoTranslate(entry.id, !entry.item.autoTranslate)
+                                },
+                                onDelete = { pendingDelete = entry },
+                            )
+                        }
                     }
-                }
-                if (moreCount > 0) {
-                    item(key = "show_more") {
-                        ShowMoreRow(count = moreCount, onClick = viewModel::showMore)
+                    if (moreCount > 0) {
+                        item(key = "show_more") {
+                            ShowMoreRow(count = moreCount, onClick = viewModel::showMore)
+                        }
                     }
                 }
             }
@@ -185,27 +212,39 @@ fun LibraryScreen(
     }
 
     pendingDelete?.let { target ->
-        val isChat = target is LibraryEntry.Chat
         val title = when (target) {
             is LibraryEntry.Chat -> target.row.conversation.title
             is LibraryEntry.Translation -> target.item.title
+            is LibraryEntry.Book -> target.item.title
+        }
+        val titleRes = when (target) {
+            is LibraryEntry.Chat -> R.string.delete_conversation_title
+            is LibraryEntry.Translation -> R.string.delete_text_title
+            is LibraryEntry.Book -> R.string.book_delete_title
         }
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.delete(target.id)
+                    when (target) {
+                        is LibraryEntry.Book -> viewModel.deleteBook(target.id)
+                        else -> viewModel.delete(target.id)
+                    }
                     pendingDelete = null
                 }) { Text(stringResource(R.string.action_delete)) }
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.action_cancel)) }
             },
-            title = {
-                Text(stringResource(if (isChat) R.string.delete_conversation_title else R.string.delete_text_title))
-            },
+            title = { Text(stringResource(titleRes)) },
             text = {
-                Text(stringResource(if (isChat) R.string.delete_conversation_message else R.string.delete_text_message, title))
+                when (target) {
+                    is LibraryEntry.Chat ->
+                        Text(stringResource(R.string.delete_conversation_message, title))
+                    is LibraryEntry.Translation ->
+                        Text(stringResource(R.string.delete_text_message, title))
+                    is LibraryEntry.Book -> Text(stringResource(R.string.book_delete_confirm))
+                }
             },
         )
     }
@@ -228,6 +267,8 @@ private fun LibraryViewModel.sendToAudio(entry: LibraryEntry) {
     when (entry) {
         is LibraryEntry.Chat -> sendChatToAudio(entry.id)
         is LibraryEntry.Translation -> sendTextToAudio(entry.id)
+        // Books aren't sendable to audio (a whole novel is not one playlist item); the menu omits it.
+        is LibraryEntry.Book -> Unit
     }
 }
 
@@ -235,6 +276,9 @@ private fun emptyMessageFor(filter: LibraryFilter): Int = when (filter) {
     LibraryFilter.ALL -> R.string.library_empty_all
     LibraryFilter.CHATS -> R.string.library_empty
     LibraryFilter.TRANSLATIONS -> R.string.texts_empty
+    LibraryFilter.BOOKS -> R.string.library_empty_books
+    // The audio segment renders its own empty state; this branch only satisfies exhaustiveness.
+    LibraryFilter.AUDIO -> R.string.audio_empty
 }
 
 // region Chat row
@@ -599,6 +643,142 @@ private fun StatusRow(label: String) {
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+// endregion
+
+// region Book row
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun BookRowItem(
+    item: BookItem,
+    onClick: () -> Unit,
+    onToggleStar: () -> Unit,
+    onToggleAutoTranslate: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val context = LocalContext.current
+    var menuOpen by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val unfinished = !item.finishedReading
+            val cover = item.coverFile?.let { BookMedia.file(context, it) }?.takeIf { it.exists() }
+            if (cover != null) {
+                FileImage(
+                    file = cover,
+                    modifier = Modifier.size(width = 40.dp, height = 56.dp).clip(RoundedCornerShape(4.dp)),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                CircleAvatar(icon = Icons.AutoMirrored.Filled.MenuBook, highlighted = unfinished)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.Top) {
+                    Text(
+                        item.title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontFamily = SourceSerif),
+                        fontWeight = if (unfinished) FontWeight.Bold else FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (item.starred) {
+                        Spacer(Modifier.width(6.dp))
+                        Icon(
+                            Icons.Filled.Star,
+                            contentDescription = stringResource(R.string.cd_starred),
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // No level badge on a book that was never graded (a reverse import read as
+                    // written) — it would claim a difficulty nothing set.
+                    if (item.wantsTranslation) CefrBadge(item.level)
+                    BookSubtitle(item)
+                }
+            }
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(if (item.starred) R.string.action_unstar else R.string.action_star)) },
+                leadingIcon = {
+                    Icon(
+                        if (item.starred) Icons.Outlined.StarBorder else Icons.Filled.Star,
+                        contentDescription = null,
+                    )
+                },
+                onClick = { onToggleStar(); menuOpen = false },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.book_translate_background)) },
+                leadingIcon = {
+                    if (item.autoTranslate) {
+                        Icon(Icons.Filled.Check, contentDescription = null)
+                    } else {
+                        Spacer(Modifier.size(24.dp))
+                    }
+                },
+                onClick = { onToggleAutoTranslate(); menuOpen = false },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.action_delete)) },
+                leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                onClick = { onDelete(); menuOpen = false },
+            )
+        }
+    }
+}
+
+/** Second line of a book row: translation progress while incomplete, else author + reading time. */
+@Composable
+private fun BookSubtitle(item: BookItem) {
+    val labelStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp)
+    // A book with no translation pending is "complete" whatever the counter says — a reverse book
+    // read as written has no shortfall to report.
+    val complete = !item.wantsTranslation || item.translatedSections >= item.totalSections
+    when {
+        item.translating -> StatusRow(
+            stringResource(
+                R.string.book_translating_progress,
+                (item.translatedSections + 1).coerceAtMost(item.totalSections),
+                item.totalSections,
+            ),
+        )
+        item.failed -> Text(
+            stringResource(R.string.text_failed),
+            style = labelStyle,
+            color = MaterialTheme.colorScheme.error,
+        )
+        !complete -> Text(
+            stringResource(R.string.book_translated_progress, item.translatedSections, item.totalSections),
+            style = labelStyle,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        else -> {
+            val author = item.author ?: stringResource(R.string.book_source)
+            Text(
+                if (item.readingMinutes > 0) {
+                    stringResource(R.string.text_reading_minutes, author, item.readingMinutes)
+                } else {
+                    author
+                },
+                style = labelStyle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

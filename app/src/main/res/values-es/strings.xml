@@ -2,11 +2,77 @@
 <resources>
     <string name="app_name">Copiosa</string>
 
+    <string name="nav_home">Inicio</string>
     <string name="nav_library">Biblioteca</string>
     <string name="nav_lexicon">Léxico</string>
     <string name="nav_audio">Audio</string>
     <string name="nav_routines">Rutinas</string>
     <string name="nav_settings">Ajustes</string>
+
+    <!-- Home -->
+    <string name="home_min_this_week">min, últimos 7 días</string>
+    <plurals name="home_streak">
+        <item quantity="one">racha de %1$d día</item>
+        <item quantity="other">racha de %1$d días</item>
+    </plurals>
+    <string name="home_continue_reading">Seguir leyendo</string>
+    <string name="home_keep_going">Continúa</string>
+    <string name="home_card_review_label">Repaso</string>
+    <string name="home_card_review">Palabras por repasar</string>
+    <string name="home_card_listening_label">Escucha</string>
+    <string name="home_card_listening">Práctica rápida de escucha</string>
+    <string name="home_card_audio_label">Sin escuchar</string>
+    <string name="home_card_audio">Audio nuevo</string>
+    <string name="home_card_chats_label">Conversación</string>
+    <string name="home_card_chats">Conversaciones sin leer</string>
+
+    <!-- Stats screen -->
+    <string name="stats_title">Tus estadísticas</string>
+    <string name="stats_scope_all">Todos los idiomas</string>
+    <string name="stats_time_section">Tiempo y constancia</string>
+    <string name="stats_total_time">Tiempo total</string>
+    <string name="stats_current_streak">Racha actual</string>
+    <string name="stats_longest_streak">Racha más larga</string>
+    <string name="stats_days_studied">Estudio total</string>
+    <string name="stats_best_day">Mejor día</string>
+    <string name="stats_daily_average">Promedio diario</string>
+    <string name="stats_by_activity">Por actividad</string>
+    <string name="stats_daily_time">Tiempo por día (30d)</string>
+    <string name="stats_chart_hint">Toca una barra para ver el día</string>
+    <string name="stats_heatmap_title">Últimas 12 semanas</string>
+    <string name="stats_vocab_section">Vocabulario y repasos</string>
+    <string name="stats_total_cards">Palabras totales</string>
+    <string name="stats_reviews_done">Repasos hechos</string>
+    <string name="stats_accuracy">Precisión</string>
+    <string name="stats_added_7">Añadidas (7d)</string>
+    <string name="stats_added_30">Añadidas (30d)</string>
+    <string name="stats_frozen">Congeladas</string>
+    <string name="stats_card_states">Estados de tarjetas</string>
+    <string name="stats_reviews_per_day">Repasos por día (30d)</string>
+    <string name="stats_answer_distribution">Distribución de respuestas</string>
+    <plurals name="stats_days">
+        <item quantity="one">%d día</item>
+        <item quantity="other">%d días</item>
+    </plurals>
+    <string name="stats_state_new">Nuevas</string>
+    <string name="stats_state_learning">Aprendiendo</string>
+    <string name="stats_state_known">Conocidas</string>
+    <string name="stats_reading_section">Lectura y escucha</string>
+    <string name="stats_conversations">Conversaciones</string>
+    <string name="stats_messages">Mensajes</string>
+    <string name="stats_texts">Textos terminados</string>
+    <string name="stats_audio_played">Audios reproducidos</string>
+    <string name="stats_listening">Tiempo de escucha</string>
+    <string name="stats_clear">Borrar estadísticas</string>
+    <string name="stats_clear_confirm_title">¿Borrar las estadísticas de tiempo?</string>
+    <string name="stats_clear_confirm_body_active">Esto borra todo el historial de tiempo de estudio de %1$s. Tus tarjetas, el historial de repasos y todo lo demás se conservan. No se puede deshacer.</string>
+    <string name="stats_clear_confirm_body_all">Esto borra todo el historial de tiempo de estudio de todos los idiomas. Tus tarjetas, el historial de repasos y todo lo demás se conservan. No se puede deshacer.</string>
+    <string name="activity_reading">Lectura</string>
+    <string name="activity_reading_book">Libros</string>
+    <string name="activity_listening">Escucha</string>
+    <string name="activity_review">Repaso</string>
+    <string name="activity_quiz">Quiz</string>
+    <string name="activity_routine">Rutinas</string>
 
     <!-- Routines -->
     <string name="routines_title">Rutinas</string>
@@ -72,6 +138,31 @@
     <string name="new_chat">Nueva conversación</string>
     <string name="add_text">Añadir un texto</string>
 
+    <string name="review_undo">Deshacer última respuesta</string>
+
+    <string name="settings_backup_section">Copia de seguridad</string>
+    <string name="settings_backup_desc">Todo — vocabulario, conversaciones, textos, audio, ajustes — en un solo zip. Las claves de API y los paquetes descargables no se incluyen.</string>
+    <string name="settings_backup_export">Exportar copia</string>
+    <string name="settings_backup_restore">Restaurar</string>
+    <string name="settings_backup_saved">Copia guardada</string>
+    <string name="settings_backup_failed">Algo salió mal — no se cambió nada</string>
+    <string name="settings_restore_confirm_title">¿Restaurar desde la copia?</string>
+    <string name="settings_restore_confirm_body">Todos los datos actuales serán reemplazados por la copia. La aplicación se cerrará al terminar — vuelve a abrirla para continuar.</string>
+
+    <string name="settings_notifications_section">Notificaciones</string>
+    <string name="settings_review_reminders">Recordatorios de repaso</string>
+    <string name="settings_review_reminders_desc">Recibir un aviso diario cuando haya tarjetas pendientes</string>
+    <string name="review_reminder_channel">Recordatorios de repaso</string>
+    <string name="review_reminder_title">Hora de repasar</string>
+    <plurals name="review_reminder_body">
+        <item quantity="one">%1$d tarjeta lista para repasar</item>
+        <item quantity="other">%1$d tarjetas listas para repasar</item>
+    </plurals>
+
+    <string name="shortcut_review">Repasar tarjetas</string>
+    <string name="shortcut_new_chat">Nueva conversación</string>
+    <string name="shortcut_routine">Iniciar rutina</string>
+
     <string name="new_title">Nueva sesión</string>
     <string name="mode_conversation">Conversación</string>
     <string name="mode_url">Traducir una URL</string>
@@ -92,13 +183,15 @@
     <string name="action_copy">Copiar</string>
     <string name="action_save_word">Guardar</string>
     <string name="action_save_as">Guardar «%1$s»</string>
-    <string name="action_save_form_instead">Guardar «%1$s» tal cual</string>
     <string name="explain_prompt">Traduce \"%1$s\" y explica brevemente cómo se usa aquí.</string>
     <string name="translating">Traduciendo…</string>
     <string name="translate_unavailable">Traducción sin conexión no disponible. Toca Explicar para una explicación en contexto.</string>
+    <string name="translate_of_lemma">traducción de %1$s</string>
     <string name="dict_download">Descargar diccionario sin conexión (~85 MB)</string>
     <string name="dict_downloading">Descargando diccionario…</string>
     <string name="dict_loading">Buscando…</string>
+    <string name="dict_pick_headword">¿Cuál guardar?</string>
+    <string name="dict_as_written">«%1$s» — tal cual</string>
     <string name="thinking">Pensando…</string>
     <string name="save_as_flashcard">Guardar como tarjeta</string>
     <string name="saved">Guardado</string>
@@ -130,6 +223,7 @@
     <!-- Lectura de texto -->
     <string name="text_view_translation">Traducción</string>
     <string name="text_view_original">Original</string>
+    <string name="text_view_both">Ambos</string>
     <string name="text_discuss">Conversar sobre el texto</string>
     <string name="text_importing">Importando…</string>
     <string name="text_translating">Traduciendo…</string>
@@ -138,17 +232,55 @@
     <string name="text_continue">Seguir traduciendo</string>
     <string name="text_partial_error">La traducción se detuvo a medias. Tu progreso está guardado.</string>
 
+    <!-- Lectura de libros -->
+    <string name="book_source">Libro</string>
+    <string name="book_translating_progress">Traduciendo sección %1$d de %2$d…</string>
+    <string name="book_paused_auto">%1$d de %2$d secciones traducidas — se traducirán más mientras lees.</string>
+    <string name="book_paused_manual">%1$d de %2$d secciones traducidas.</string>
+    <string name="book_continue">Continuar</string>
+    <string name="book_translate_background">Traducir todo el libro en segundo plano</string>
+    <string name="book_delete_title">¿Eliminar este libro?</string>
+    <string name="book_delete_confirm">Se eliminarán el libro, su traducción y tu posición de lectura. El vocabulario guardado se conserva.</string>
+    <string name="book_import_failed">No se pudo importar el libro</string>
+    <string name="book_importing">Importando libro…</string>
+    <string name="book_translated_progress">%1$d/%2$d traducidas</string>
+    <string name="book_view_target">Idioma meta</string>
+    <string name="book_view_native">Idioma nativo</string>
+
+    <string name="book_toc_title">Índice</string>
+    <string name="cd_table_of_contents">Índice de capítulos</string>
+    <string name="book_chapter_n">Capítulo %1$d</string>
+    <string name="book_toc_partial">Traducido en parte</string>
+    <string name="book_toc_not_translated">Aún sin traducir</string>
+    <plurals name="book_toc_locked_hint">
+        <item quantity="one">Queda %1$d capítulo sin traducir.</item>
+        <item quantity="other">Quedan %1$d capítulos sin traducir.</item>
+    </plurals>
+
+    <string name="book_import_title">Importar libro</string>
+    <string name="book_import_language_q">Este libro está escrito en</string>
+    <string name="book_import_level">Traducir al %1$s en el nivel</string>
+    <string name="book_import_reverse_note">Leerás el libro tal como está escrito. Toca cualquier palabra para traducirla y guardarla como tarjeta.</string>
+    <string name="book_import_translate_all">Traducir también todo el libro al %1$s</string>
+    <string name="book_import_action">Importar</string>
+    <string name="settings_book_read_ahead">Traducir por adelantado al leer libros</string>
+    <string name="settings_book_read_ahead_desc">Mantén un par de secciones traducidas más allá de donde vas leyendo.</string>
+
     <string name="library_title">Biblioteca</string>
     <string name="library_empty">Aún no hay charlas. Empieza una con el botón +.</string>
     <string name="library_empty_all">Aún no hay nada. Toca + para empezar una charla o mantén pulsado para traducir un texto.</string>
     <string name="search_hint">Buscar…</string>
     <string name="filter_all">Todo</string>
     <string name="filter_chats">Charlas</string>
-    <string name="filter_translations">Traducciones</string>
+    <string name="filter_translations">Sitios</string>
+    <string name="filter_audio">Audio</string>
+    <string name="filter_books">Libros</string>
+    <string name="library_empty_books">Aún no hay libros. Mantén pulsado + para importar un EPUB.</string>
 
     <!-- Charlas por lotes (mantén pulsado el botón +) -->
     <string name="fab_new_chat">Nueva conversación</string>
     <string name="fab_many_chats">Varias conversaciones</string>
+    <string name="fab_import_book">Importar libro</string>
     <string name="batch_chats_title">Charlas nuevas a partir de temas</string>
     <string name="batch_chats_helper">Un tema por línea. Cada uno se convierte en su propia charla, generada en segundo plano.</string>
     <string name="batch_chats_hint">Historia de México\nEl ciclo del agua\nMis planes del fin de semana</string>
@@ -185,6 +317,7 @@
     <string name="action_fill_explanations">Rellenar explicaciones</string>
     <string name="fill_progress">Explicando… %1$d/%2$d</string>
     <string name="vocab_example_label">Ejemplo</string>
+    <string name="vocab_usage_note_label">Nota de uso</string>
     <string name="vocab_saved_label">En tu léxico</string>
     <string name="action_view_details">Abrir</string>
     <string name="vocab_seen_in_chat">Visto en tu charla «%1$s»</string>
@@ -213,7 +346,17 @@
     <string name="edit_card_pos">Categoría gramatical</string>
     <string name="edit_card_type">Tipo de tarjeta</string>
     <string name="edit_card_direction">Dirección de repaso</string>
+    <string name="edit_card_gender">Género</string>
+    <string name="edit_card_usage_note">Nota de uso</string>
     <string name="edit_card_marked">Marcada</string>
+    <!-- Opciones de género gramatical -->
+    <string name="gender_none">Ninguno</string>
+    <string name="gender_masculine">masculino</string>
+    <string name="gender_feminine">femenino</string>
+    <string name="gender_neuter">neutro</string>
+    <string name="gender_common">masculino o femenino</string>
+    <string name="gender_masculine_plural">masculino plural</string>
+    <string name="gender_feminine_plural">femenino plural</string>
     <string name="edit_card_image">Imagen</string>
     <string name="pos_none">Ninguna</string>
     <string name="pos_unknown">Desconocida</string>
@@ -285,6 +428,8 @@
     <!-- Acciones comunes -->
     <string name="action_delete">Eliminar</string>
     <string name="action_cancel">Cancelar</string>
+    <string name="action_ok">Aceptar</string>
+    <string name="action_dismiss">Descartar</string>
 
     <string name="settings_title">Ajustes</string>
     <string name="settings_model_menu">Modelo</string>
@@ -388,6 +533,9 @@
     <string name="audio_tts_prompt_body">La escucha usa una voz en el dispositivo (~100 MB, descarga única). Se pondrá en cola y comenzará cuando la voz esté lista.</string>
     <string name="audio_not_now">Ahora no</string>
     <!-- Ajustes: voz en el dispositivo -->
+    <string name="settings_background_section">Segundo plano</string>
+    <string name="settings_background_tasks">Tareas en segundo plano</string>
+    <string name="settings_background_tasks_desc">Sugiere temas nuevos y reintenta los chats fallidos con la app cerrada. Usa tu clave de API.</string>
     <string name="settings_speech_section">Voz (texto a voz)</string>
     <string name="settings_tts_title">Voz en el dispositivo</string>
     <string name="settings_tts_not_downloaded">No instalada. Descárgala para habilitar la escucha (pestaña Audio).</string>
@@ -402,4 +550,140 @@
     <string name="settings_audio_retention">Borrar audio reproducido</string>
     <string name="settings_audio_retention_off">Nunca</string>
     <string name="settings_audio_retention_days">Despu&#233;s de %1$d d&#237;as</string>
+    <!-- Settings: review schedule (FSRS target recall) -->
+    <string name="settings_srs_section">Programa de repaso</string>
+    <string name="settings_srs_retention">Retención objetivo</string>
+    <string name="settings_srs_retention_value">%1$d%%</string>
+    <string name="settings_srs_explainer">La proporción de repasos que quieres acertar. Un valor más alto hace que las tarjetas vuelvan antes y repases más; uno más bajo alarga los intervalos y olvidas más. Solo afecta a este idioma.</string>
+    <string name="settings_srs_preview_title">Qué cambia</string>
+    <string name="settings_srs_preview_row">%1$s → %2$s</string>
+    <string name="settings_srs_apply">Aplicar</string>
+    <string name="settings_srs_confirm_title">¿Cambiar el programa de repaso?</string>
+    <string name="settings_srs_confirm_body">Fija la retención objetivo en %1$d%% para %2$s. Las tarjetas pasan al nuevo programa a medida que las calificas; las fechas ya asignadas no cambian hasta entonces.</string>
+    <string name="settings_srs_days">%1$d días</string>
+    <string name="settings_srs_month_one">1 mes</string>
+    <string name="settings_srs_months">%1$d meses</string>
+    <string name="settings_srs_year_one">1 año</string>
+    <string name="settings_srs_years">%1$s años</string>
+    <!-- Settings: daily study goal (home tracker target line) -->
+    <string name="settings_goal_section">Meta diaria</string>
+    <string name="settings_goal_label">Meta de estudio</string>
+    <string name="settings_goal_value">%1$d min/día</string>
+    <string name="settings_goal_explainer">Se muestra como una línea objetivo en el panel de inicio; los días que la alcanzan se resaltan.</string>
+
+    <!-- Conjugación -->
+    <string name="activity_conjugation">Conjugación</string>
+    <string name="conj_title">Conjugación</string>
+    <string name="conj_card_title">Ejercicio de conjugación</string>
+    <string name="conj_card_desc">Piensa la forma, revélala y mira exactamente qué parte es irregular.</string>
+    <string name="conj_reveal">Revelar</string>
+    <string name="conj_grade_missed">No la tenía</string>
+    <string name="conj_grade_got_it">La tenía</string>
+    <string name="conj_not">no</string>
+    <string name="conj_decode_hint">¿Qué verbo, persona y tiempo?</string>
+    <string name="conj_start">Empezar</string>
+    <string name="conj_restart">Otra ronda</string>
+    <string name="conj_finish">Listo</string>
+    <string name="conj_unavailable">Por ahora el ejercicio de conjugación solo está en español.</string>
+
+    <string name="conj_setup_count">Preguntas</string>
+    <string name="conj_setup_tenses">Tiempos</string>
+    <string name="conj_setup_directions">Tipos de tarjeta</string>
+    <string name="conj_setup_emphasis">Énfasis en irregulares</string>
+    <string name="conj_setup_emphasis_low">Equilibrado</string>
+    <string name="conj_setup_emphasis_mid">Más irregulares</string>
+    <string name="conj_setup_emphasis_high">Solo irregulares</string>
+    <string name="conj_setup_vosotros">Incluir vosotros</string>
+
+    <string name="conj_results_title">Ronda completa</string>
+    <string name="conj_results_accuracy">Aciertos</string>
+    <string name="conj_results_answered">Respondidas</string>
+    <string name="conj_results_speed">Tiempo medio</string>
+    <string name="conj_results_by_tense">Por tiempo</string>
+    <string name="conj_results_by_family">Por patrón</string>
+    <string name="conj_results_seconds">%1$.1fs</string>
+    <string name="conj_summary_mastered">%1$d de %2$d formas firmes</string>
+    <plurals name="conj_summary_accuracy">
+        <item quantity="one">%1$d%% de acierto, sobre %2$d respuesta</item>
+        <item quantity="other">%1$d%% de acierto, sobre %2$d respuestas</item>
+    </plurals>
+
+    <string name="conj_direction_produce">Conjúgalo</string>
+    <string name="conj_direction_decode">Identifica la forma</string>
+    <string name="conj_direction_transform">Derívalo</string>
+    <string name="conj_direction_generalize">Aplica el patrón</string>
+    <string name="conj_transform_pret_to_subimp">→ imperfecto de subjuntivo</string>
+    <string name="conj_transform_yo_to_subpres">→ presente de subjuntivo</string>
+    <string name="conj_transform_fut_to_cond">→ condicional</string>
+    <string name="conj_transform_pres_to_pret">→ pretérito</string>
+
+    <!-- Los nombres de tiempos y personas ya están en español en ambos idiomas. -->
+    <string name="conj_tense_present">presente</string>
+    <string name="conj_tense_preterite">pretérito</string>
+    <string name="conj_tense_imperfect">imperfecto</string>
+    <string name="conj_tense_future">futuro</string>
+    <string name="conj_tense_conditional">condicional</string>
+    <string name="conj_tense_present_subjunctive">pres. de subjuntivo</string>
+    <string name="conj_tense_imperfect_subjunctive">imp. de subjuntivo</string>
+    <string name="conj_person_yo">yo</string>
+    <string name="conj_person_tu">tú</string>
+    <string name="conj_person_el">él / ella</string>
+    <string name="conj_person_nosotros">nosotros</string>
+    <string name="conj_person_vosotros">vosotros</string>
+    <string name="conj_person_ellos">ellos / ellas</string>
+
+    <string name="conj_family_regular">Regular</string>
+    <string name="conj_family_stem_change">Cambios de raíz</string>
+    <string name="conj_family_yo">Primera persona irregular</string>
+    <string name="conj_family_strong_pret">Pretéritos fuertes</string>
+    <string name="conj_family_fut_stem">Raíces de futuro</string>
+    <string name="conj_family_orth">Cambios ortográficos</string>
+    <string name="conj_family_suppletive">Totalmente irregular</string>
+
+    <string name="conj_class_stem_e_ie">cambio de raíz e → ie</string>
+    <string name="conj_class_stem_o_ue">cambio de raíz o → ue</string>
+    <string name="conj_class_stem_e_i">cambio de raíz e → i</string>
+    <string name="conj_class_stem_u_ue">cambio de raíz u → ue</string>
+    <string name="conj_class_stem_i_ie">cambio de raíz i → ie</string>
+    <string name="conj_class_stem_raise_pret">Cierre vocálico en pretérito</string>
+    <string name="conj_class_yo_go">Primera persona en -go</string>
+    <string name="conj_class_yo_zco">Primera persona en -zco</string>
+    <string name="conj_class_yo_oy">Primera persona en -oy</string>
+    <string name="conj_class_yo_other">Primera persona irregular</string>
+    <string name="conj_class_subj_yo_stem">Subjuntivo sobre la raíz de yo</string>
+    <string name="conj_class_strong_pret_u">Pretérito con raíz en u</string>
+    <string name="conj_class_strong_pret_i">Pretérito con raíz en i</string>
+    <string name="conj_class_strong_pret_j">Pretérito con raíz en j</string>
+    <string name="conj_class_strong_pret_ending">Terminación átona de pretérito</string>
+    <string name="conj_class_fut_dr">Raíz de futuro en -dr-</string>
+    <string name="conj_class_fut_drop">Raíz de futuro con vocal perdida</string>
+    <string name="conj_class_fut_irregular">Raíz de futuro contraída</string>
+    <string name="conj_class_orth_car_gar_zar">Ortografía -car / -gar / -zar</string>
+    <string name="conj_class_orth_ger_gir_guir">Ortografía -ger / -gir / -guir</string>
+    <string name="conj_class_orth_y_hiatus">i → y entre vocales</string>
+    <string name="conj_class_orth_i_loss">i átona perdida</string>
+    <string name="conj_class_accent_shift">Tilde</string>
+    <string name="conj_class_suppletive">Supletivo</string>
+    <string name="conj_class_imperfect_irregular">Imperfecto irregular</string>
+    <string name="conj_class_subj_irregular">Subjuntivo irregular</string>
+    <string name="conj_class_other">Irregular</string>
+
+    <string name="conj_reference_open">Tablas de conjugación</string>
+    <string name="conj_reference_title">Referencia</string>
+    <string name="conj_reference_patterns">Patrones regulares</string>
+    <string name="conj_reference_patterns_desc">Cómo conjuga cada clase cuando nada se desvía.</string>
+    <string name="conj_reference_irregular">Patrones irregulares</string>
+    <string name="conj_reference_irregular_desc">Cada clase de desviación, con los verbos que la muestran.</string>
+    <string name="conj_reference_current">Actual</string>
+    <string name="conj_reference_verbs_desc">Busca entre los %1$d verbos españoles más comunes.</string>
+    <string name="conj_reference_search">Buscar verbos</string>
+    <string name="conj_reference_no_match">Ningún verbo coincide.</string>
+    <string name="conj_reference_legend">Clave de colores</string>
+
+    <string name="stats_conjugation_section">Conjugación</string>
+    <string name="stats_conj_drills">Practicadas</string>
+    <string name="stats_conj_recall">Tiempo medio</string>
+    <string name="stats_conj_mastered">Firmes</string>
+    <string name="stats_conj_seen">Formas vistas</string>
+    <string name="routine_status_group_conjugation">Patrones de conjugación</string>
 </resources>

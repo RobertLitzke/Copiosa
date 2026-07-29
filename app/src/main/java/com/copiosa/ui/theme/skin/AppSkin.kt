@@ -77,6 +77,14 @@ private val StockLight = CountryPalette(
     accent2 = Color(0xFFB5651D),
     accent2Ink = Color(0xFFFFFFFF),
     shadow = Color(0x14000000),
+    tints = listOf(
+        Color(0xFFE2F9FB),
+        Color(0xFFFDEFFD),
+        Color(0xFFD7F7FB),
+        Color(0xFFFCE9FD),
+        Color(0xFFD8F3F6),
+        Color(0xFFF7E7F7),
+    ),
 )
 
 private val StockDark = CountryPalette(
@@ -94,4 +102,12 @@ private val StockDark = CountryPalette(
     accent2 = Color(0xFFE0A872),
     accent2Ink = Color(0xFF33200A),
     shadow = Color(0x66000000),
+    tints = listOf(
+        Color(0xFF17282A),
+        Color(0xFF2A212A),
+        Color(0xFF142E31),
+        Color(0xFF322432),
+        Color(0xFF1E3235),
+        Color(0xFF352A36),
+    ),
 )

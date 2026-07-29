@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Warm cream tile behind the logo, matching the app background in ui/theme/Theme.kt. -->
+    <color name="ic_launcher_background">#F5F3EC</color>
+</resources>

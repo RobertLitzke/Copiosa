@@ -7,9 +7,8 @@ import com.copiosa.data.quiz.QuizPoolRepository
 import com.copiosa.data.repository.AudioRepository
 import com.copiosa.data.tts.M4aWriter
 import com.copiosa.data.tts.WavPcm
+import com.copiosa.di.AppScope
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
@@ -32,12 +31,11 @@ class AudioCompactor @Inject constructor(
     private val quizDao: QuizDao,
     private val audioRepository: AudioRepository,
     private val quizPoolRepository: QuizPoolRepository,
+    @AppScope private val scope: CoroutineScope,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     fun start() {
         scope.launch {
-            runCatching { audioRepository.pruneOldPlayed() }
             var savedBytes = 0L
             var converted = 0
             for (item in audioItemDao.legacyWavItems()) {

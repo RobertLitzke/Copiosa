@@ -1,10 +1,15 @@
 package com.copiosa.data.routine
 
 import android.util.Log
+import com.copiosa.data.conjugation.ConjugationDrillRepository
 import com.copiosa.data.local.FlashcardDao
 import com.copiosa.data.local.ReviewLogDao
 import com.copiosa.data.quiz.QuizPoolRepository
 import com.copiosa.data.quiz.toReadyCue
+import com.copiosa.domain.conjugation.ConjugationDrillConfig
+import com.copiosa.domain.conjugation.DrillDirection
+import com.copiosa.domain.conjugation.DrillItemCodec
+import com.copiosa.domain.conjugation.Tense
 import com.copiosa.domain.quiz.QuizPoolConfig
 import com.copiosa.domain.quiz.QuizSessionBuilder
 import com.copiosa.domain.srs.ReviewWindows
@@ -12,6 +17,7 @@ import com.copiosa.data.remote.LlmMessage
 import com.copiosa.data.remote.LlmRequest
 import com.copiosa.data.remote.ProviderRegistry
 import com.copiosa.data.settings.SettingsRepository
+import com.copiosa.di.AppScope
 import com.copiosa.domain.model.Role
 import com.copiosa.domain.prompt.RoutineContentParser
 import com.copiosa.domain.prompt.RoutineContentPrompt
@@ -19,8 +25,10 @@ import com.copiosa.domain.routine.ActivityBuildContext
 import com.copiosa.domain.routine.ActivityDefinition
 import com.copiosa.domain.routine.ActivityInstance
 import com.copiosa.domain.routine.ActivityRegistry
+import com.copiosa.domain.routine.ActivitySlot
 import com.copiosa.domain.routine.ActivityStats
 import com.copiosa.domain.routine.ActivityType
+import com.copiosa.domain.routine.ConjugationDrillContent
 import com.copiosa.domain.routine.AdaptationMath
 import com.copiosa.domain.routine.RapidFireContent
 import com.copiosa.domain.routine.RapidFireItem
@@ -62,8 +70,9 @@ class RoutineSynthesisManager @Inject constructor(
     private val flashcardDao: FlashcardDao,
     private val reviewLogDao: ReviewLogDao,
     private val quizPoolRepo: QuizPoolRepository,
+    private val drillRepo: ConjugationDrillRepository,
+    @AppScope private val scope: CoroutineScope,
 ) : RoutineBuildServices {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** LLM calls used by the most recent synthesis — for the ≤5-call budget assertion / telemetry. */
     @Volatile var lastSynthesisLlmCalls: Int = 0
@@ -210,6 +219,36 @@ class RoutineSynthesisManager @Inject constructor(
         )
     }
 
+    /**
+     * A conjugation block from the bundled verb lexicon — no LLM, no pool, so it never needs an
+     * availability gate the way rapid-fire does; the lexicon always ships.
+     *
+     * The slot's adaptation difficulty widens the block rather than just relabelling it: a learner
+     * who is finding conjugation easy meets more tenses and, at the top level, the two derived card
+     * types that test whether the pattern actually generalized.
+     */
+    override suspend fun buildConjugationDrill(lang: String, slot: ActivitySlot): ConjugationDrillContent? {
+        if (!drillRepo.supports(lang)) return null
+        val stored = ConjugationDrillConfig.decode(settingsRepo.settingsFor(lang).conjugationDrillConfigJson)
+        val config = (stored ?: ConjugationDrillConfig()).copy(
+            itemCount = CONJUGATION_ITEMS,
+            tenses = conjugationTenses(slot.difficultyLevel),
+            directions = conjugationDirections(slot.difficultyLevel),
+        )
+        val items = drillRepo.selectItems(lang, config)
+        if (items.size < MIN_ITEMS) return null
+        return ConjugationDrillContent(items.map(DrillItemCodec::encode))
+    }
+
+    private fun conjugationTenses(difficulty: Int): Set<Tense> = when {
+        difficulty >= 2 -> Tense.entries.toSet()
+        difficulty == 1 -> setOf(Tense.PRESENT, Tense.PRETERITE, Tense.IMPERFECT, Tense.FUTURE)
+        else -> setOf(Tense.PRESENT, Tense.PRETERITE)
+    }
+
+    private fun conjugationDirections(difficulty: Int): Set<DrillDirection> =
+        if (difficulty >= 2) DrillDirection.entries.toSet() else ConjugationDrillConfig.DEFAULT_DIRECTIONS
+
     /** Recently-reviewed lemmas (today) plus soonest-due vocab, for recycling into the generated text. */
     private suspend fun recentVocab(lang: String): List<String> {
         val reviewedToday = reviewLogDao.cardIdsReviewedSince(startOfTodayMillis())
@@ -238,5 +277,6 @@ class RoutineSynthesisManager @Inject constructor(
         const val MAX_VOCAB = 20
         const val RAPID_FIRE_MIN_CUES = 12
         const val RAPID_FIRE_ITEMS = 10
+        const val CONJUGATION_ITEMS = 8
     }
 }

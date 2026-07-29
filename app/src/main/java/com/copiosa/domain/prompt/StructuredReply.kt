@@ -73,11 +73,12 @@ object TopicSuggestionSerializer : KSerializer<TopicSuggestion> {
  *   into the topic/interest table; each carries a self-contained gloss (see [TopicSuggestion]).
  * - [distinctive]: 1–5 of the hardest/most distinctive words from the reply, fed back on the next
  *   turn so they recur in fresh contexts.
- * - [vocabUsed] / [vocabUnused]: which of the supplied saved words the model did / couldn't weave in
- *   (stored for future spaced-repetition crediting; not surfaced in the UI yet).
- * - [vocabSupplied]: the target-word fronts we actually injected into the prompt for this turn. Unlike
- *   [vocabUsed]/[vocabUnused] (the model's self-report) this is our own ground-truth record, set by the
- *   repository before storage — the model never emits it. Empty for replies made before we tracked it.
+ * - [vocabUsed] / [vocabUnused]: which of the supplied saved words did / didn't actually appear in the
+ *   reply body. The model self-reports these in its metadata block, but the repository overwrites them
+ *   with a ground-truth scan (see VocabUsageDetector) before storage, and surfaces them in the
+ *   per-reply details sheet.
+ * - [vocabSupplied]: the target-word fronts we actually injected into the prompt for this turn — our own
+ *   record, set by the repository before storage; the model never emits it. Empty for older replies.
  * - [title]: a short title for the conversation in the target language, requested only on a chat's
  *   opening reply (the list otherwise shows the learner's native-language subject verbatim).
  */

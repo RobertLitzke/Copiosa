@@ -20,6 +20,8 @@ import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,6 +55,8 @@ import com.copiosa.ui.components.CefrBadge
 import com.copiosa.ui.components.MarkdownText
 import com.copiosa.ui.components.SectionLabel
 import com.copiosa.ui.components.llmErrorText
+import com.copiosa.ui.components.readingStyle
+import com.copiosa.ui.components.stripInlineMarkdown
 import com.copiosa.ui.theme.SerifBody
 import com.copiosa.ui.theme.SerifTitle
 import java.util.Locale
@@ -93,6 +97,16 @@ fun VocabularyDetailScreen(
             card?.let { c ->
                 IconButton(onClick = { editing = true }) {
                     Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.action_edit))
+                }
+                IconButton(onClick = viewModel::toggleMarked) {
+                    Icon(
+                        if (c.marked) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                        contentDescription = stringResource(
+                            if (c.marked) R.string.action_unmark else R.string.action_mark,
+                        ),
+                        tint = if (c.marked) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 IconButton(onClick = viewModel::toggleSuspended) {
                     Icon(
@@ -189,15 +203,22 @@ private fun DetailContent(
                 )
             }
         } else {
-            Text(card.front, style = SerifTitle.copy(fontSize = 28.sp, lineHeight = 34.sp))
+            Text(stripInlineMarkdown(card.front), style = SerifTitle.copy(fontSize = 28.sp, lineHeight = 34.sp))
+            // The country a word is specific to (if the user set one) sits just under the headword.
+            card.country?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    countryLabel(it),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
-            val article = genderArticle(card.gender)
-            if (article != null || !card.region.isNullOrBlank() ||
+            val article = genderArticle(card.gender, card.targetLanguage)
+            if (article != null ||
                 !card.partOfSpeech.isNullOrBlank() || !card.cefrLevel.isNullOrBlank()
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    GenderChip(card.gender)
-                    card.region?.takeIf { it.isNotBlank() }?.let { InfoChip(regionLabel(it)) }
+                    GenderChip(card.gender, card.targetLanguage)
                     card.partOfSpeech?.takeIf { it.isNotBlank() }?.let { PosChip(it) }
                     card.cefrLevel?.takeIf { it.isNotBlank() }?.let { CefrBadge(it) }
                 }
@@ -212,7 +233,17 @@ private fun DetailContent(
             }
 
             if (card.back.isNotBlank()) {
-                Text(card.back, style = SerifBody, color = MaterialTheme.colorScheme.onSurface)
+                // The translation is a plain gloss — never Markdown (only the usage note / explanation are).
+                Text(
+                    stripInlineMarkdown(card.back),
+                    style = readingStyle(MaterialTheme.typography.bodyLarge),
+                )
+            }
+
+            card.usageNote?.takeIf { it.isNotBlank() }?.let { note ->
+                Spacer(Modifier.size(4.dp))
+                SectionLabel(stringResource(R.string.vocab_usage_note_label))
+                MarkdownText(note)
             }
         }
 

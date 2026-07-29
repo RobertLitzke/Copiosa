@@ -16,6 +16,9 @@ import javax.inject.Singleton
  * FlashcardRepository), and [build]/[formsByCard] simply read that cached column. [computeForms] /
  * [computeFormsFor] are the only dictionary callers and are used solely to populate the cache.
  *
+ * Every form is derived from the card's [targetTerm], never blindly its front: a reverse Anki import
+ * holds the native gloss on its front, and matching that would tint native words in the reading text.
+ *
  * Eligibility: a card highlights only while it is due for review soon — on or before
  * `now + `[ReviewWindows.HIGHLIGHT_DUE_MS] (which includes overdue cards) — so reading material across
  * every reader (Texts, chat, routines) spotlights the words worth restudying now rather than every
@@ -54,7 +57,7 @@ class HighlightTargetProvider @Inject constructor(
             ?.let { HighlightTarget(it, card.gender, card.targetLanguage) }
 
     /** A card's cached surface forms (its headword plus any stored inflections), all normalized. */
-    private fun storedForms(card: FlashcardEntity): Set<String> = decode(card.inflectedForms, card.front)
+    private fun storedForms(card: FlashcardEntity): Set<String> = decode(card.inflectedForms, card.targetTerm)
 
     /**
      * Expands [cards] into their normalized {headword + inflected forms} via the dictionary pack — the
@@ -66,30 +69,59 @@ class HighlightTargetProvider @Inject constructor(
         // Expand per language so each card's inflections come from its own pack.
         for ((lang, group) in cards.groupBy { it.targetLanguage }) {
             // Only single-word headwords can be inflection-expanded; multi-word phrases stay exact.
-            val expandable = group.filterNot { it.front.trim().any(Char::isWhitespace) }.map { it.front }
+            val expandable = group.filterNot { it.targetTerm.trim().any(Char::isWhitespace) }
+                .associate { it.targetTerm to posFilter(it.partOfSpeech, it.gender) }
             val expansions = if (expandable.isNotEmpty() && dictionary.isDownloaded(lang)) {
                 dictionary.inflectedFormsFor(expandable, lang)
             } else {
                 emptyMap()
             }
             for (card in group) {
-                out[card.id] = normalizedExpansion(card.front, expansions[card.front])
+                val term = card.targetTerm
+                out[card.id] = normalizedExpansion(term, expansions[term])
             }
         }
         return out
     }
 
-    /** Surface forms for a single new/edited headword, to persist into [FlashcardEntity.inflectedForms]. */
-    suspend fun computeFormsFor(front: String, lang: String): Set<String> {
-        val key = normalizeWord(front)
+    /**
+     * Surface forms for a single new/edited headword, to persist into [FlashcardEntity.inflectedForms].
+     * [term] must be the card's target-language side (see [targetTerm]), not blindly its front.
+     */
+    suspend fun computeFormsFor(
+        term: String,
+        lang: String,
+        partOfSpeech: String? = null,
+        gender: String? = null,
+    ): Set<String> {
+        val key = normalizeWord(term)
         if (key.isEmpty()) return emptySet()
-        if (front.trim().any(Char::isWhitespace) || !dictionary.isDownloaded(lang)) return setOf(key)
-        return normalizedExpansion(front, dictionary.inflectedFormsFor(listOf(front), lang)[front])
+        if (term.trim().any(Char::isWhitespace) || !dictionary.isDownloaded(lang)) return setOf(key)
+        val expansions = dictionary.inflectedFormsFor(mapOf(term to posFilter(partOfSpeech, gender)), lang)
+        return normalizedExpansion(term, expansions[term])
     }
 
-    /** Normalizes a dictionary expansion (raw forms for [front]) into the headword + its inflections. */
-    private fun normalizedExpansion(front: String, raw: Set<String>?): Set<String> {
-        val key = normalizeWord(front)
+    /**
+     * Which `lemmas.pos` values a card may expand through, or null for "no idea, allow any".
+     *
+     * This is what keeps a noun off a verb's paradigm. Spanish "son" is both a noun (the music genre)
+     * and third-person plural of "ser"; unfiltered, the noun card inherited soy/eres/es/…, so tapping
+     * "es" in a text resolved to "el son". A stored gender is itself a noun assertion, so it stands in
+     * when the part of speech was never filled (cards default to "unknown").
+     */
+    private fun posFilter(partOfSpeech: String?, gender: String?): Set<String>? =
+        when (partOfSpeech?.trim()?.lowercase()) {
+            // "name" is the pack's proper-noun tag; a saved noun may legitimately be either.
+            "noun" -> setOf("noun", "name")
+            "verb" -> setOf("verb")
+            "adjective", "adj" -> setOf("adj")
+            "adverb", "adv" -> setOf("adv")
+            else -> if (gender != null) setOf("noun", "name") else null
+        }
+
+    /** Normalizes a dictionary expansion (raw forms for [term]) into the headword + its inflections. */
+    private fun normalizedExpansion(term: String, raw: Set<String>?): Set<String> {
+        val key = normalizeWord(term)
         if (key.isEmpty()) return emptySet()
         return raw?.mapNotNullTo(mutableSetOf()) { normalizeWord(it).takeIf(String::isNotEmpty) }
             ?.apply { add(key) }

@@ -1,5 +1,15 @@
 package com.copiosa.domain.highlight
 
+import com.copiosa.data.local.FlashcardEntity
+
+/**
+ * The card's target-language side — what in-text highlighting matches against. Usually [front], but a
+ * reverse card imported from Anki ([FlashcardEntity.frontIsTarget] false) carries the native gloss on
+ * its front and the target headword on its back. Highlighting the front unconditionally would tint
+ * native words in the reading text, so every highlight-path caller resolves the side through here.
+ */
+val FlashcardEntity.targetTerm: String get() = if (frontIsTarget) front else back
+
 /**
  * A saved word eligible for in-text highlighting. [forms] holds every surface form that should light
  * up — the headword plus its plural/conjugated inflections (see [HighlightTargetProvider]) — each

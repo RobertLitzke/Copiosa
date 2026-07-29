@@ -60,8 +60,14 @@ class WordColorizerTest {
 
     @Test
     fun `does not highlight articles for languages without a table`() {
-        val c = colorizer(HighlightTarget(setOf("fiesta"), gender = "F", lang = "de"))
-        assertEquals(listOf("fiesta"), c.matched("die fiesta"))
+        val c = colorizer(HighlightTarget(setOf("neko"), gender = "F", lang = "ja"))
+        assertEquals(listOf("neko"), c.matched("sono neko"))
+    }
+
+    @Test
+    fun `highlights the german article for a gendered noun`() {
+        val c = colorizer(HighlightTarget(setOf("frau"), gender = "F", lang = "de"))
+        assertEquals(listOf("die frau"), c.matched("die frau"))
     }
 
     @Test

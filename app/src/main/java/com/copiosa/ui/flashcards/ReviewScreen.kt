@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Star
@@ -53,7 +54,10 @@ import com.copiosa.data.repository.ImageCandidate
 import com.copiosa.domain.model.Cloze
 import com.copiosa.domain.model.ReviewDirection
 import com.copiosa.domain.model.ReviewRating
+import com.copiosa.domain.stats.FocusActivityType
+import com.copiosa.ui.components.TrackFocusTime
 import com.copiosa.ui.components.flagForLanguage
+import com.copiosa.ui.components.stripInlineMarkdown
 import kotlin.random.Random
 import com.copiosa.ui.theme.SerifBody
 import com.copiosa.ui.theme.SerifTitle
@@ -75,10 +79,19 @@ fun ReviewScreen(
     onFinished: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsState()
+    // The routine player embeds this screen as a step and tracks ROUTINE time itself; only the
+    // standalone review session records REVIEW time.
+    TrackFocusTime(FocusActivityType.REVIEW, enabled = onFinished == null)
     LaunchedEffect(Unit) { viewModel.start(limit) }
     Column(modifier = Modifier.fillMaxSize()) {
         topFrame?.invoke()
-        ReviewHeader(position = state.position, total = state.total, onBack = onBack)
+        ReviewHeader(
+            position = state.position,
+            total = state.total,
+            canUndo = state.canUndo,
+            onUndo = viewModel::undo,
+            onBack = onBack,
+        )
         when {
             state.loading -> Box(
                 modifier = Modifier.fillMaxWidth().weight(1f),
@@ -107,6 +120,7 @@ fun ReviewScreen(
                 onReview = viewModel::rate,
                 onToggleMark = viewModel::toggleMark,
                 onEdit = viewModel::editCard,
+                onDelete = viewModel::deleteCard,
                 onSearchImages = viewModel::searchImages,
                 onAttachImage = viewModel::attachImage,
                 onRemoveImage = viewModel::removeImage,
@@ -115,9 +129,9 @@ fun ReviewScreen(
     }
 }
 
-/** Back button, title, and a "n / total" progress counter. */
+/** Back button, title, undo (for the last grade), and a "n / total" progress counter. */
 @Composable
-private fun ReviewHeader(position: Int, total: Int, onBack: () -> Unit) {
+private fun ReviewHeader(position: Int, total: Int, canUndo: Boolean, onUndo: () -> Unit, onBack: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -133,6 +147,14 @@ private fun ReviewHeader(position: Int, total: Int, onBack: () -> Unit) {
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f),
         )
+        if (canUndo) {
+            IconButton(onClick = onUndo) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Undo,
+                    contentDescription = stringResource(R.string.review_undo),
+                )
+            }
+        }
         if (total > 0) {
             Text(
                 stringResource(R.string.review_progress, position, total),
@@ -151,6 +173,7 @@ private fun ColumnScope.ReviewBody(
     onReview: (ReviewRating) -> Unit,
     onToggleMark: () -> Unit,
     onEdit: (CardEdits) -> Unit,
+    onDelete: () -> Unit,
     onSearchImages: suspend (String) -> List<ImageCandidate>,
     onAttachImage: suspend (ImageCandidate) -> String,
     onRemoveImage: () -> Unit,
@@ -283,6 +306,7 @@ private fun ColumnScope.ReviewBody(
             onAttachImage = onAttachImage,
             onRemoveImage = onRemoveImage,
             onDismiss = { editing = false },
+            onDelete = onDelete,
         )
     }
 }
@@ -315,13 +339,25 @@ private fun CardFace(card: FlashcardEntity, target: Boolean, big: Boolean) {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text,
+                // Headwords are plain — strip any stored Markdown so no stray markers show mid-review.
+                stripInlineMarkdown(text),
                 style = if (big) SerifTitle.copy(fontSize = 26.sp, lineHeight = 32.sp) else SerifBody,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.weight(1f),
             )
             // Balances the flag's width so the word stays visually centered in the card.
             Spacer(Modifier.width(if (big) 24.dp else 22.dp))
+        }
+        // The country a word is specific to (if set) sits just below the flag, on the target side.
+        if (target) {
+            card.country?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    countryLabel(it),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.Start),
+                )
+            }
         }
         // On the question side, the part of speech disambiguates words whose meaning (and thus
         // translation) differs by role — e.g. a term that's both a noun and a verb.
@@ -331,14 +367,13 @@ private fun CardFace(card: FlashcardEntity, target: Boolean, big: Boolean) {
             }
         }
         if (target) {
-            val article = genderArticle(card.gender)
-            if (article != null || card.region != null) {
+            val article = genderArticle(card.gender, card.targetLanguage)
+            if (article != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    GenderChip(card.gender)
-                    card.region?.let { InfoChip(regionLabel(it)) }
+                    GenderChip(card.gender, card.targetLanguage)
                 }
             }
-            card.altForms?.let {
+            card.altForms?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     "= $it",
                     style = SerifBody.copy(fontStyle = FontStyle.Italic),

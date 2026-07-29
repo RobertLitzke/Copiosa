@@ -9,9 +9,10 @@ enum class ArousalBand { ENGAGE, SETTLE, DRIFT }
 
 /**
  * How activating an activity is — a hard tier (not the continuous [ActivityDefinition.arousalWeight],
- * which only orders activities within a band). A routine type caps the tier it will include
- * ([RoutineType.maxArousal]); the bedtime wind-down excludes [HIGH] so it can't wake the learner up.
- * Ordinal order is meaningful: LOW < MEDIUM < HIGH.
+ * which only orders activities within a band). A routine type declares the tier it draws from freely
+ * ([RoutineType.maxArousal]) and how much it will admit from above it: the bedtime wind-down takes at
+ * most one [HIGH] activity, and only in [ArousalBand.ENGAGE], where a jolt still has the rest of the
+ * routine to decay. Ordinal order is meaningful: LOW < MEDIUM < HIGH.
  */
 enum class ArousalLevel { LOW, MEDIUM, HIGH }
 
@@ -57,4 +58,7 @@ enum class ActivityType {
 
     /** Engage: hear a short cue (a number/time) and tap the matching digits fast — sound -> meaning. */
     RAPID_FIRE_LISTENING,
+
+    /** Engage: conjugate in your head, reveal, self-grade. The library's first [ArousalLevel.HIGH]. */
+    CONJUGATION_DRILL,
 }

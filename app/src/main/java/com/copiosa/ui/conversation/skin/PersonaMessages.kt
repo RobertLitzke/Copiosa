@@ -25,7 +25,6 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -67,17 +66,6 @@ internal fun PersonaMessageItem(
     }
 }
 
-/** Small uppercase name label above a message ("JONAS" / "DER PENDLER"). */
-@Composable
-private fun KickerLabel(chatSkin: ChatSkin, isTutor: Boolean) {
-    val palette = chatSkin.skin.palette
-    Text(
-        (if (isTutor) chatSkin.tutorName else chatSkin.strings.you).uppercase(),
-        style = chatSkin.kickerStyle,
-        color = if (isTutor) palette.accent else palette.textMute,
-    )
-}
-
 /** Assistant body: selectable, translated, colorized — shared by all three layouts. */
 @Composable
 private fun AssistantBody(
@@ -104,7 +92,7 @@ private fun AssistantBody(
 }
 
 // ---------------------------------------------------------------------------
-// Paper (Professor, Poet): no bubbles, kicker labels over justified text blocks.
+// Paper (Professor, Poet): no bubbles, justified text blocks.
 // ---------------------------------------------------------------------------
 
 @Composable
@@ -118,8 +106,11 @@ private fun PaperMessage(
     onSendToAudio: () -> Unit,
 ) {
     val isTutor = message.role != Role.USER
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        KickerLabel(chatSkin, isTutor)
+    // With no name labels, the learner's turn is set apart by an indent and a dimmed ink.
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(start = if (isTutor) 0.dp else 24.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
         if (isTutor) {
             AssistantBody(
                 message, chatSkin, colorizer, isActiveSelection, onSelected, onCleared,
@@ -229,7 +220,7 @@ private fun BubbleMessage(
 }
 
 // ---------------------------------------------------------------------------
-// Transcript (Commuter, Explorer): dense left-bar entries with uppercase kickers.
+// Transcript (Commuter, Explorer): dense entries, speaker carried by the left bar's colour.
 // ---------------------------------------------------------------------------
 
 @Composable
@@ -259,7 +250,6 @@ private fun TranscriptMessage(
             )
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                KickerLabel(chatSkin, isTutor)
                 if (isTutor) {
                     AssistantBody(
                         message, chatSkin, colorizer, isActiveSelection, onSelected, onCleared,

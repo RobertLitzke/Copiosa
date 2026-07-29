@@ -65,13 +65,15 @@ import com.copiosa.R
 import com.copiosa.data.article.ArticleExtractor
 import com.copiosa.data.local.ConversationEntity
 import com.copiosa.domain.highlight.HighlightTarget
+import com.copiosa.domain.stats.FocusActivityType
 import com.copiosa.ui.audio.TtsDownloadPrompt
 import com.copiosa.ui.components.CefrBadge
+import com.copiosa.ui.components.TrackFocusTime
 import com.copiosa.ui.components.MarkdownText
 import com.copiosa.ui.components.SegmentedToggle
 import com.copiosa.ui.components.SelectableReader
 import com.copiosa.ui.components.llmErrorText
-import com.copiosa.ui.conversation.TranslateState
+import com.copiosa.ui.components.TranslateState
 import com.copiosa.ui.theme.SerifTitle
 import kotlinx.coroutines.delay
 
@@ -90,6 +92,8 @@ fun TextReadingScreen(
     val savedNotice by viewModel.savedNotice.collectAsState()
     val starred by viewModel.starred.collectAsState()
     val savedScroll by viewModel.savedScroll.collectAsState()
+
+    TrackFocusTime(FocusActivityType.READING, conversation?.targetLanguage)
 
     var showOriginal by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -213,6 +217,7 @@ fun TextReadingScreen(
                         onDismissSelection = viewModel::dismissTranslate,
                         onRetry = viewModel::retry,
                         onSave = { viewModel.saveCurrentTranslation(it) },
+                        onSelectSaveEntry = viewModel::selectSaveEntry,
                         onDownloadDictionary = viewModel::downloadDictionary,
                         onOpenSaved = onOpenVocab,
                         onSendSelectionToAudio = { text ->
@@ -302,6 +307,7 @@ private fun TranslationList(
     onDismissSelection: () -> Unit,
     onRetry: () -> Unit,
     onSave: (String) -> Unit,
+    onSelectSaveEntry: (lemma: String, pos: String?) -> Unit,
     onDownloadDictionary: () -> Unit,
     onOpenSaved: (Long) -> Unit,
     onSendSelectionToAudio: (String) -> Unit,
@@ -317,6 +323,7 @@ private fun TranslationList(
             onSelectionTranslate = onSelectionTranslate,
             onDismissSelection = onDismissSelection,
             onSave = onSave,
+            onSelectSaveEntry = onSelectSaveEntry,
             onDownloadDictionary = onDownloadDictionary,
             title = title.ifBlank { null },
             listState = listState,

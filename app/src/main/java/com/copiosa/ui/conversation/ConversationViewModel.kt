@@ -4,7 +4,6 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.copiosa.data.local.ConversationEntity
-import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.data.generation.AudioGenerationManager
 import com.copiosa.data.generation.GenPhase
 import com.copiosa.data.generation.GenerationManager
@@ -13,23 +12,16 @@ import com.copiosa.data.local.MessageEntity
 import com.copiosa.data.remote.LlmError
 import com.copiosa.data.repository.ConversationRepository
 import com.copiosa.data.repository.FlashcardRepository
-import com.copiosa.data.translate.DictionaryResult
-import com.copiosa.data.translate.LocalTranslateResult
-import com.copiosa.ui.components.DefinitionView
 import com.copiosa.data.settings.AppSettings
 import com.copiosa.data.settings.SettingsRepository
-import com.copiosa.domain.model.CardKind
 import com.copiosa.domain.model.Cefr
 import com.copiosa.domain.model.Mode
 import com.copiosa.domain.model.ProviderId
 import com.copiosa.domain.model.Role
-import com.copiosa.domain.highlight.HighlightTarget
 import com.copiosa.domain.highlight.HighlightTargetProvider
 import com.copiosa.domain.prompt.StructuredReplyParser
-import com.copiosa.domain.srs.ReviewWindows
-import com.copiosa.ui.components.WordColorizer
+import com.copiosa.ui.components.ReadingSelectionController
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -41,34 +33,15 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
-
-data class TranslateState(
-    val original: String,
-    val translation: String? = null,
-    val loading: Boolean = true,
-    val definition: DefinitionView = DefinitionView.Hidden,
-    /** Vertical center of the selection in window pixels, so the card can avoid covering it. */
-    val anchorY: Float = 0f,
-    /** The matching saved flashcard when this word/phrase is already in the user's vocabulary. */
-    val savedCard: FlashcardEntity? = null,
-    /** Base form to offer on save when the selection is a conjugation/inflection (e.g. comía → comer). */
-    val saveLemma: String? = null,
-    /** Part of speech from the dictionary lookup, stored on the saved card. */
-    val savePos: String? = null,
-)
 
 data class ConversationUiState(
     val input: String = "",
     val sending: Boolean = false,
     val error: LlmError? = null,
-    val translate: TranslateState? = null,
     /** Id of the message whose selection is currently highlighted, so only one shows at a time. */
     val selectionMessageId: Long? = null,
-    val savedNotice: Boolean = false,
 )
 
 /** Level + model + provider + variant currently in effect, whether a draft or a stored conversation. */
@@ -154,20 +127,25 @@ class ConversationViewModel @Inject constructor(
             base.copy(sending = starting || (id != DRAFT && active[id] == GenPhase.GENERATING))
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ConversationUiState())
 
-    /** Every saved flashcard, kept hot so a tapped word can be matched to its full entry. */
-    private val allCards: StateFlow<List<FlashcardEntity>> =
-        flashcardRepo.observeAll()
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
     /**
-     * Saved flashcards as highlight targets (each carrying its plural/conjugated forms, with gender for
-     * article highlighting), used to tint already-saved words in replies. Locked-in words (well
-     * understood, due far out) are excluded so they don't clutter the text. A [MutableStateFlow] rather
-     * than a derived flow so [addImmediateHighlight] can light up a just-saved word at once, instead of
-     * waiting for the Room re-emit + rebuild.
+     * The selectable-reader engine shared with the Texts reader and routine reading steps:
+     * tap-to-translate/define + save-to-vocab + saved-word highlighting + passive review of saved
+     * words appearing in assistant replies. Saved cards are stamped with this chat's id (null while
+     * still a draft — though a draft has no replies to select from).
      */
-    private val _highlightTargets = MutableStateFlow<List<HighlightTarget>>(emptyList())
-    val highlightTargets: StateFlow<List<HighlightTarget>> = _highlightTargets.asStateFlow()
+    private val selection = ReadingSelectionController(
+        scope = viewModelScope,
+        conversationRepo = conversationRepo,
+        flashcardRepo = flashcardRepo,
+        highlightProvider = highlightProvider,
+        sourceConversationId = { _activeId.value.takeIf { it != DRAFT } },
+        readingText = messages.map { msgs ->
+            msgs.filter { it.role == Role.ASSISTANT }.joinToString("\n") { it.content }
+        },
+    )
+    val translate = selection.translate
+    val savedNotice = selection.savedNotice
+    val highlightTargets = selection.highlightTargets
 
     /**
      * Suggested next subjects, shown as tappable chips below the latest reply. Tracks the freshest
@@ -176,9 +154,6 @@ class ConversationViewModel @Inject constructor(
      */
     private val _nextTopics = MutableStateFlow<List<String>>(emptyList())
     val nextTopics: StateFlow<List<String>> = _nextTopics.asStateFlow()
-
-    /** Card ids already passively reviewed this screen session, so re-renders don't re-push them. */
-    private val passivelyReviewed = mutableSetOf<Long>()
 
     init {
         viewModelScope.launch {
@@ -197,22 +172,6 @@ class ConversationViewModel @Inject constructor(
             _activeId.collect { id -> if (id != DRAFT) conversationRepo.setRead(id, true) }
         }
         observeTopics()
-        // Rebuild highlight targets from the saved deck whenever it changes (fast: reads cached forms).
-        viewModelScope.launch {
-            allCards.collect { cards -> _highlightTargets.value = highlightProvider.build(cards, System.currentTimeMillis()) }
-        }
-        // One-time: cache plural/conjugated forms on cards saved before the column existed.
-        viewModelScope.launch { flashcardRepo.ensureFormsBackfilled() }
-        // Seeing a saved word in a reply counts as a light review: push its next review back.
-        viewModelScope.launch {
-            combine(messages, allCards) { msgs, cards -> msgs to cards }
-                .collect { (msgs, cards) -> applyPassiveReviews(msgs.filter { it.role == Role.ASSISTANT }, cards) }
-        }
-    }
-
-    /** Tints [target] immediately so a just-saved word lights up without waiting for the DB rebuild. */
-    private fun addImmediateHighlight(target: HighlightTarget) {
-        _highlightTargets.update { current -> listOf(target) + current.filterNot { it.forms == target.forms } }
     }
 
     /**
@@ -232,35 +191,6 @@ class ConversationViewModel @Inject constructor(
         }
     }
 
-    /** Passively reviews every eligible saved word that appears in [assistantMessages] (once each). */
-    private suspend fun applyPassiveReviews(assistantMessages: List<MessageEntity>, cards: List<FlashcardEntity>) {
-        if (cards.isEmpty() || assistantMessages.isEmpty()) return
-        // Tokenizing reply text runs off the main thread (the collector fires on every message/card
-        // change); the processed-set keeps it idempotent.
-        withContext(Dispatchers.Default) {
-            val now = System.currentTimeMillis()
-            // Only cards close enough to get a passive push are worth expanding (see passiveReview).
-            val candidates = cards.filter {
-                it.id !in passivelyReviewed && !it.suspended && it.dueAt <= now + ReviewWindows.PASSIVE_WINDOW_MS
-            }
-            if (candidates.isEmpty()) return@withContext
-            val seen = assistantMessages.flatMapTo(hashSetOf()) { tokenize(it.content) }
-            if (seen.isEmpty()) return@withContext
-            // Match against each card's inflected forms, so seeing "gatos" reviews a "gato" card too.
-            val formsByCard = highlightProvider.formsByCard(candidates)
-            for (card in candidates) {
-                val forms = formsByCard[card.id] ?: setOf(WordColorizer.normalize(card.front))
-                if (forms.none { it.isNotEmpty() && it.none(Char::isWhitespace) && it in seen }) continue
-                passivelyReviewed += card.id
-                flashcardRepo.passiveReview(card, now)
-            }
-        }
-    }
-
-    /** Lowercased alphanumeric word tokens, matching [WordColorizer.normalize] for single words. */
-    private fun tokenize(text: String): List<String> =
-        WORD_REGEX.findAll(text).map { it.value.lowercase() }.toList()
-
     /** Whether the open (non-draft) conversation currently has a model call in flight. */
     private fun generatingNow(): Boolean {
         val id = _activeId.value
@@ -274,6 +204,7 @@ class ConversationViewModel @Inject constructor(
         if (_activeId.value == DRAFT) return
         _activeId.value = DRAFT
         _ui.value = ConversationUiState()
+        selection.dismissTranslate()
         _nextTopics.value = emptyList()
         viewModelScope.launch {
             val settings = settingsRepo.settings.first()
@@ -421,144 +352,52 @@ class ConversationViewModel @Inject constructor(
         if (generatingNow()) return
         // An explanation is a vocabulary aside: it omits next-topics (so the chips persist) and doesn't
         // seed the routine topic table — see ConversationRepository.sendMessage.
-        _ui.value = _ui.value.copy(error = null, translate = null, selectionMessageId = null)
+        _ui.value = _ui.value.copy(error = null, selectionMessageId = null)
+        selection.dismissTranslate()
         generation.sendUserTurn(id, text, isExplanation = true)
     }
 
     /**
-     * Looks up the selected phrase on-device and shows it in the translation card. No LLM/network
-     * call; when on-device translation isn't available the card falls back to nudging Explain.
+     * Looks up the selected phrase on-device and shows it in the translation card, remembering which
+     * message the selection lives in so only that bubble renders it. The engine is the shared
+     * [ReadingSelectionController]; the message body is passed along so the saved card keeps the
+     * sentence the word appeared in.
      */
     fun onSelectionTranslate(messageId: Long, text: String, anchorY: Float) {
-        // If the word/phrase is already saved, surface its full entry alongside the translation.
-        val normalized = WordColorizer.normalize(text)
-        val saved = allCards.value.firstOrNull { WordColorizer.normalize(it.front) == normalized }
-        _ui.value = _ui.value.copy(
-            translate = TranslateState(original = text, loading = true, anchorY = anchorY, savedCard = saved),
-            selectionMessageId = messageId,
-        )
-        // Quick on-device translation (ML Kit).
-        viewModelScope.launch {
-            val translation = when (val r = conversationRepo.localTranslate(text)) {
-                is LocalTranslateResult.Success -> r.text
-                LocalTranslateResult.Unsupported, LocalTranslateResult.Unavailable -> null
-            }
-            updateTranslate(text) { it.copy(translation = translation, loading = false) }
-        }
-        // Offline definition (single words only; multi-word phrases skip the dictionary).
-        val word = text.trim()
-        if (word.isNotEmpty() && word.none { it.isWhitespace() } && conversationRepo.dictionaryConfigured()) {
-            viewModelScope.launch {
-                if (!conversationRepo.dictionaryDownloaded()) {
-                    updateTranslate(text) { it.copy(definition = DefinitionView.NeedsDownload) }
-                    return@launch
-                }
-                updateTranslate(text) { it.copy(definition = DefinitionView.Loading) }
-                val result = conversationRepo.defineSelection(text)
-                val (lemma, pos) = lemmaSuggestion(text, result)
-                updateTranslate(text) { it.copy(definition = result.toView(), saveLemma = lemma, savePos = pos) }
-            }
-        }
-    }
-
-    /**
-     * From a dictionary lookup, the base form to offer on save (when the selection is an inflection of
-     * a different lemma — e.g. "comía" → "comer") and the part of speech. Prefers a verb inflection.
-     */
-    private fun lemmaSuggestion(word: String, result: DictionaryResult): Pair<String?, String?> {
-        val entries = (result as? DictionaryResult.Found)?.entries ?: return null to null
-        val inflection = entries.firstOrNull { it.inflectionOf != null && it.pos?.contains("verb", true) == true }
-            ?: entries.firstOrNull { it.inflectionOf != null }
-        val lemma = inflection?.lemma?.takeIf { !it.equals(word.trim(), ignoreCase = true) }
-        return lemma to (inflection?.pos ?: entries.firstOrNull()?.pos)
+        val sourceText = messages.value.firstOrNull { it.id == messageId }?.content.orEmpty()
+        _ui.value = _ui.value.copy(selectionMessageId = messageId)
+        selection.onSelectionTranslate(text, anchorY, sourceText)
     }
 
     /** Triggered by the card's "download dictionary" button; fetches the pack then re-runs lookup. */
-    fun downloadDictionary() {
-        val word = _ui.value.translate?.original ?: return
-        updateTranslate(word) { it.copy(definition = DefinitionView.Downloading) }
-        viewModelScope.launch {
-            if (!conversationRepo.downloadDictionary()) {
-                updateTranslate(word) { it.copy(definition = DefinitionView.NeedsDownload) }
-                return@launch
-            }
-            updateTranslate(word) { it.copy(definition = DefinitionView.Loading) }
-            val view = conversationRepo.defineSelection(word).toView()
-            updateTranslate(word) { it.copy(definition = view) }
-        }
-    }
+    fun downloadDictionary() = selection.downloadDictionary()
 
-    /** Updates the current translation card iff it's still showing [original] (drops stale results). */
-    private fun updateTranslate(original: String, transform: (TranslateState) -> TranslateState) {
-        val current = _ui.value.translate ?: return
-        if (current.original != original) return
-        _ui.value = _ui.value.copy(translate = transform(current))
+    fun dismissTranslate() {
+        selection.dismissTranslate()
+        _ui.value = _ui.value.copy(selectionMessageId = null)
     }
-
-    private fun DictionaryResult.toView(): DefinitionView = when (this) {
-        is DictionaryResult.Found -> DefinitionView.Ready(entries)
-        DictionaryResult.NotFound -> DefinitionView.NotFound
-        DictionaryResult.Unavailable -> DefinitionView.NeedsDownload
-    }
-
-    fun dismissTranslate() { _ui.value = _ui.value.copy(translate = null, selectionMessageId = null) }
 
     /**
      * Saves the selection as a card. [headword] is the term to store — the caller passes the
      * suggested infinitive (for a conjugated verb) or the surface form; defaults to the surface form.
-     * Multi-word selections are saved as [CardKind.PHRASE].
+     * Multi-word selections are saved as phrase cards.
      */
     fun saveCurrentTranslation(headword: String? = null) {
-        val t = _ui.value.translate ?: return
-        val back = t.translation ?: return
-        val id = _activeId.value.takeIf { it != DRAFT } ?: return
-        val term = headword?.takeIf { it.isNotBlank() } ?: t.original
-        // Capture the sentence the word was selected from, so its vocab entry can show it in context.
-        val sentence = _ui.value.selectionMessageId?.let { msgId ->
-            messages.value.firstOrNull { it.id == msgId }?.let { sentenceAround(it.content, t.original) }
-        }
-        val kind = if (term.trim().any { it.isWhitespace() }) CardKind.PHRASE else CardKind.VOCAB
-        val pos = t.savePos
-        // Dismiss the card and confirm immediately, before the (first-time slow) dictionary-backed save
-        // runs — otherwise the popup lingers with no feedback and a second tap saves a duplicate. This
-        // also guards re-entrancy: a second tap now hits the `translate == null` early-return above.
-        _ui.value = _ui.value.copy(translate = null, selectionMessageId = null, savedNotice = true)
-        viewModelScope.launch {
-            val newId = flashcardRepo.add(
-                front = term,
-                back = back,
-                contextSentence = sentence,
-                sourceConversationId = id,
-                partOfSpeech = pos,
-                cardKind = kind,
-            )
-            // Light it up at once; the Room re-emit will rebuild an equivalent list, so no flicker.
-            flashcardRepo.getCard(newId)?.let { card -> highlightProvider.targetFor(card)?.let(::addImmediateHighlight) }
-        }
+        selection.saveCurrentTranslation(headword)
+        _ui.value = _ui.value.copy(selectionMessageId = null)
     }
 
-    /** Best-effort: the sentence in [content] containing [phrase], trimmed; null when not found. */
-    private fun sentenceAround(content: String, phrase: String): String? {
-        val idx = content.indexOf(phrase)
-        if (idx < 0) return null
-        val breaks = charArrayOf('.', '!', '?', '\n', '。', '！', '？')
-        var start = idx
-        while (start > 0 && content[start - 1] !in breaks) start--
-        var end = idx + phrase.length
-        while (end < content.length && content[end] !in breaks) end++
-        if (end < content.length) end++ // keep the terminal punctuation
-        return content.substring(start, end).trim().ifBlank { null }
-    }
+    /** Which dictionary entry the card's save should use, when the word resolved to several. */
+    fun selectSaveEntry(lemma: String, pos: String?) = selection.selectSaveEntry(lemma, pos)
 
     fun consumeError() {
         _ui.value = _ui.value.copy(error = null)
         val id = _activeId.value
         if (id != DRAFT) generation.consumeError(id)
     }
-    fun consumeSavedNotice() { _ui.value = _ui.value.copy(savedNotice = false) }
+    fun consumeSavedNotice() = selection.consumeSavedNotice()
 
     private companion object {
         const val DRAFT = 0L
-        val WORD_REGEX = Regex("[\\p{L}\\p{N}]+")
     }
 }

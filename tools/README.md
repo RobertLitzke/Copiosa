@@ -55,6 +55,47 @@ and de-duplicated.
 
 ---
 
+# Conjugation drill lexicon (`build_conjugations.py`)
+
+Generates the bundled verb data for the conjugation drill: the 200 most frequent Spanish verbs, every
+cell of seven paradigms, and a classification of *how* each irregular cell deviates.
+
+```sh
+python build_conjugations.py --check-only     # report; writes nothing
+python build_conjugations.py                  # regenerate everything
+```
+
+| Input | |
+|---|---|
+| `data/eswiktionary-raw.jsonl.gz` | the same dump `build_dictionary.py` uses; supplies the forms |
+| `data/es_frequency_50k.txt` | OpenSubtitles counts ([hermitdave/FrequencyWords](https://github.com/hermitdave/FrequencyWords), MIT). Gitignored — falls back to the committed `es_top2000.tsv`, so a rebuild needs no download |
+| `conjugation_overrides.yaml` | everything that needs a human: glosses, damping, exclusions, restrictions, hand-supplied paradigms, class corrections |
+
+| Output | |
+|---|---|
+| `../app/src/main/java/com/copiosa/domain/conjugation/data/VerbLexiconData.kt` | the lexicon, chunked into blocks of 40 verbs |
+| `../app/src/test/resources/conjugation_golden.csv` | all 8,400 cells, replayed by `ConjugationGoldenTest` |
+| `es_top2000.tsv` | committed frequency slice |
+| `_verify/conjugations.json` | human-readable dump |
+
+**Only deviations are stored.** Regular cells are reproduced at runtime by `RegularConjugator.kt`,
+which this script mirrors in Python — and `ConjugationGoldenTest` replays every cell through the
+Kotlin engine, so the two implementations cannot drift apart unnoticed. The imperfect subjunctive is
+never stored at all: it derives from the third-plural preterite, so it inherits that cell's
+irregularity for free, and the script rejects any `sub_imp` override.
+
+The script is loud rather than lossy. It reports unclassified deviations, verbs whose paradigm the
+dump doesn't carry (estar's entry has none — its table is hand-supplied here), rival forms it had to
+choose between, and missing glosses. Each is a prompt to adjudicate in the YAML, not a warning to
+ignore; a clean run prints none of them.
+
+Ranking sums corpus counts over each lemma's surface forms, skipping any form some non-verb also
+spells — without that, `escolar`, `solar` and `estrellar` ride their noun homographs straight into the
+top 200. Verb-verb collisions survive (`vengar` vs `venir`'s subjunctive) and are handled by the
+`exclude:` list.
+
+---
+
 # One-off deck cleanup (`clean_spanish_apkg.py`)
 
 A single-use script that rewrites one specific hand-built Spanish deck (`Spanish.apkg`) into a form

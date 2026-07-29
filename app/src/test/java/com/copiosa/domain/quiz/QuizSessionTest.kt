@@ -89,6 +89,55 @@ class QuizSessionTest {
         assertTrue(overlap < 30)
     }
 
+    // --- phrase cues (stored options) ---
+
+    private fun phraseCue(id: Long, correct: String, distractors: List<String>) = ReadyCue(
+        id = id,
+        type = CueType.RESTAURANT,
+        valueKey = "phrase$id",
+        displayText = correct,
+        filePath = "/pool/$id.wav",
+        durationMs = 1500,
+        options = PhraseOptions(correct, distractors),
+    )
+
+    @Test
+    fun `phrase questions use stored options with the correct answer marked`() {
+        val stored = listOf("A wrong one", "B wrong one", "C wrong one", "D wrong one")
+        val cues = (1..20).map { phraseCue(it.toLong(), "Ready to order?", stored) }
+        val questions = QuizSessionBuilder(Random(7)).build(cues, QuizPoolConfig(langCode = "es"), count = 20)
+        assertEquals(20, questions.size)
+        questions.forEach { q ->
+            assertEquals(4, q.options.size)
+            assertEquals(q.options.size, q.options.distinct().size)
+            // The correct answer is present and answerIndex points to it.
+            assertEquals("Ready to order?", q.options[q.answerIndex])
+            assertEquals(q.displayAnswer, q.options[q.answerIndex])
+            // The three shown distractors are a subset of the four stored ones.
+            val shown = q.options.filterIndexed { i, _ -> i != q.answerIndex }
+            assertTrue("unexpected distractor in $shown", stored.containsAll(shown))
+            assertEquals(3, shown.size)
+        }
+    }
+
+    @Test
+    fun `phrase options are not forced into sorted order`() {
+        // Alphabetically-labelled distractors so a stable sort would be detectable; across many cues
+        // the correct answer must land in varied positions rather than always first/last.
+        val stored = listOf("alpha", "bravo", "charlie", "delta")
+        val cues = (1..200).map { phraseCue(it.toLong(), "zulu correct", stored) }
+        val questions = QuizSessionBuilder(Random(9)).build(cues, QuizPoolConfig(langCode = "es"), count = 200)
+        val slots = questions.map { it.answerIndex }.toSet()
+        assertTrue("correct answer stuck in one slot: $slots", slots.size > 1)
+    }
+
+    @Test
+    fun `phrase cue lacking enough distractors is skipped`() {
+        val cues = listOf(phraseCue(1, "Only two", listOf("one", "two")))
+        val questions = QuizSessionBuilder(Random(1)).build(cues, QuizPoolConfig(langCode = "es"), count = 1)
+        assertTrue(questions.isEmpty())
+    }
+
     // --- scoring ---
 
     @Test

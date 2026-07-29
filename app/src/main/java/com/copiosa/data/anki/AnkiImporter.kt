@@ -6,6 +6,7 @@ import com.copiosa.domain.model.CardKind
 import com.copiosa.domain.model.FlashcardState
 import com.copiosa.domain.model.ReviewDirection
 import com.copiosa.domain.model.ReviewRating
+import com.copiosa.domain.vocab.BackNoteSplitter
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -63,7 +64,9 @@ class AnkiImporter(
             // the rest become altForms. Splitting the target side keeps the card's review direction.
             val (primary, altForms) = splitPrimaryAlt(if (frontIsTarget) projFront else projBack)
             val front = if (frontIsTarget) primary else projFront
-            val back = if (frontIsTarget) projBack else primary
+            // Keep the translation clean: peel a crammed usage note out of the gloss side only (a
+            // reverse card's back is the target headword, which must never be split).
+            val (back, usageNote) = if (frontIsTarget) BackNoteSplitter.split(projBack) else primary to null
             val cardKind = la["kind"]?.let { runCatching { CardKind.valueOf(it.uppercase()) }.getOrNull() }
                 ?: CardKind.VOCAB
 
@@ -78,9 +81,12 @@ class AnkiImporter(
             val entity = FlashcardEntity(
                 front = front,
                 back = back,
+                usageNote = usageNote,
                 cardKind = cardKind,
                 gender = la["gender"]?.uppercase(),
-                region = la["region"],
+                // The retired `region` slug is no longer imported; a user-set country round-trips via
+                // `la:country` instead (single-token only, like the other structured tags).
+                country = la["country"],
                 altForms = altForms,
                 frontIsTarget = frontIsTarget,
                 // Preserve the Anki card's direction: forward cards prompt from the target side,

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Static launcher shortcuts (long-press the app icon). Each fires a custom action that
+     MainActivity maps to a navigation target — see LaunchAction. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="review"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_review"
+        android:shortcutShortLabel="@string/shortcut_review">
+        <intent
+            android:action="com.copiosa.action.REVIEW"
+            android:targetPackage="com.copiosa"
+            android:targetClass="com.copiosa.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="new_chat"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_chat"
+        android:shortcutShortLabel="@string/shortcut_new_chat">
+        <intent
+            android:action="com.copiosa.action.NEW_CHAT"
+            android:targetPackage="com.copiosa"
+            android:targetClass="com.copiosa.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="routine"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_routine"
+        android:shortcutShortLabel="@string/shortcut_routine">
+        <intent
+            android:action="com.copiosa.action.ROUTINE"
+            android:targetPackage="com.copiosa"
+            android:targetClass="com.copiosa.MainActivity" />
+    </shortcut>
+</shortcuts>

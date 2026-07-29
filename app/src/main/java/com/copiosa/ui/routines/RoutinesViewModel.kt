@@ -2,6 +2,7 @@ package com.copiosa.ui.routines
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.copiosa.data.conjugation.ConjugationDrillRepository
 import com.copiosa.data.local.TopicEntity
 import com.copiosa.data.routine.RoutineRepository
 import com.copiosa.data.routine.RoutineSynthesisManager
@@ -27,16 +28,22 @@ class RoutinesViewModel @Inject constructor(
     private val routineRepo: RoutineRepository,
     private val topicRepo: TopicRepository,
     private val synthesizer: RoutineSynthesisManager,
+    private val drillRepo: ConjugationDrillRepository,
 ) : ViewModel() {
 
     private val _suggestions = MutableStateFlow<List<TopicEntity>>(emptyList())
     val suggestions: StateFlow<List<TopicEntity>> = _suggestions.asStateFlow()
+
+    /** Whether the conjugation drill has a verb lexicon for the active profile — Spanish only in v1. */
+    private val _conjugationAvailable = MutableStateFlow(false)
+    val conjugationAvailable: StateFlow<Boolean> = _conjugationAvailable.asStateFlow()
 
     init {
         // Refresh suggestions whenever the active language profile changes, not just once.
         viewModelScope.launch {
             settingsRepo.activeProfileTag.collect { lang ->
                 _suggestions.value = topicRepo.suggestions(lang, limit = 8)
+                _conjugationAvailable.value = drillRepo.supports(lang)
             }
         }
     }

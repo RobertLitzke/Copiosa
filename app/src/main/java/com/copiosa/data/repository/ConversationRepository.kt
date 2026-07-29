@@ -5,6 +5,7 @@ import com.copiosa.data.local.ConversationDao
 import com.copiosa.data.local.ConversationEntity
 import com.copiosa.data.local.ConversationPreview
 import com.copiosa.data.local.FlashcardDao
+import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.data.local.MessageDao
 import com.copiosa.data.local.MessageEntity
 import com.copiosa.data.remote.LlmError
@@ -22,9 +23,13 @@ import com.copiosa.domain.model.Mode
 import com.copiosa.domain.model.ProviderId
 import com.copiosa.domain.model.Role
 import com.copiosa.data.routine.TopicRepository
+import com.copiosa.domain.highlight.HighlightTargetProvider
+import com.copiosa.domain.model.CardKind
 import com.copiosa.domain.prompt.PromptBuilder
 import com.copiosa.domain.prompt.ReplyMetadata
 import com.copiosa.domain.prompt.StructuredReplyParser
+import com.copiosa.domain.prompt.VocabHint
+import com.copiosa.domain.prompt.VocabUsageDetector
 import com.copiosa.domain.routine.TopicSource
 import com.copiosa.domain.srs.ReviewWindows
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -79,6 +84,31 @@ class ConversationRepository @Inject constructor(
 
     /** Latest message text per conversation, for the chat-list snippet preview. */
     fun observeLatestPreviews(): Flow<List<ConversationPreview>> = messageDao.observeLatestPreviews()
+
+    /** The active profile's newest unread chat, for the Home screen. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeLatestUnreadChat(): Flow<ConversationEntity?> =
+        settingsRepo.activeProfileTag.flatMapLatest { lang ->
+            conversationDao.observeLatestUnread(Mode.CONVERSATION, lang)
+        }
+
+    /** The active profile's newest translated-but-unfinished text, for the Home screen. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeLatestUnfinishedText(): Flow<ConversationEntity?> =
+        settingsRepo.activeProfileTag.flatMapLatest { lang ->
+            conversationDao.observeLatestUnfinishedText(Mode.URL_TRANSLATION, lang)
+        }
+
+    /** How many chats in the active profile are unread. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeUnreadChatCount(): Flow<Int> =
+        settingsRepo.activeProfileTag.flatMapLatest { lang ->
+            conversationDao.observeUnreadCount(Mode.CONVERSATION, lang)
+        }
+
+    /** Last assistant turn of a conversation — the Home "continue" card's snippet. */
+    suspend fun lastAssistantMessage(conversationId: Long): MessageEntity? =
+        messageDao.getLastByRole(conversationId, Role.ASSISTANT)
 
     fun observeMessages(conversationId: Long): Flow<List<MessageEntity>> =
         messageDao.observeForConversation(conversationId)
@@ -165,7 +195,7 @@ class ConversationRepository @Inject constructor(
         rollbackOnError: Boolean = true,
         // A distinct slice of saved words for this chat to weave in; null falls back to a fresh sample.
         // Used by batch generation so sibling chats don't all reuse the same vocabulary.
-        vocabOverride: List<Pair<String, String>>? = null,
+        vocabOverride: List<VocabHint>? = null,
     ) {
         val conversation = conversationDao.getById(id) ?: return
         val history = messageDao.getForConversation(id).map { LlmMessage(it.role, it.content) }
@@ -233,13 +263,19 @@ class ConversationRepository @Inject constructor(
         // True on a chat's opening reply: adopt the model's target-language title (when it gave one).
         applyTitle: Boolean = false,
         // The saved words we actually injected into this turn's prompt, recorded for the per-reply
-        // metadata view. Distinct from the model's self-reported vocabUsed/vocabUnused.
-        injectedVocab: List<Pair<String, String>> = emptyList(),
+        // metadata view and scanned for real usage. Distinct from the model's self-report.
+        injectedVocab: List<VocabHint> = emptyList(),
     ) {
         val now = System.currentTimeMillis()
         val (body, parsed) = StructuredReplyParser.parse(rawText)
-        // Fold in our ground-truth record of the supplied words (the model never emits this itself).
-        val meta = parsed.copy(vocabSupplied = injectedVocab.map { it.first })
+        // Replace the model's unreliable self-report with our own ground truth: which injected words
+        // actually appear in the reply body, plus our record of everything we supplied.
+        val usage = VocabUsageDetector.detect(body, injectedVocab)
+        val meta = parsed.copy(
+            vocabSupplied = injectedVocab.map { it.front },
+            vocabUsed = usage.used,
+            vocabUnused = usage.unused,
+        )
         val messageId = messageDao.insert(
             MessageEntity(
                 conversationId = conversation.id,
@@ -250,6 +286,8 @@ class ConversationRepository @Inject constructor(
                 level = conversation.level,
                 country = conversation.country,
                 metadata = StructuredReplyParser.encode(meta),
+                // The unparsed model output, kept as a debug aid; pruned to recent chats below.
+                rawResponse = rawText,
             ),
         )
         // The model's suggested next-topics are good routine seeds, but cryptic on their own — store
@@ -278,6 +316,13 @@ class ConversationRepository @Inject constructor(
                 ),
             )
         }
+        // A reply landed, so this chat is no longer "awaiting a reply" — give it its full
+        // background-retry budget back for whatever fails next. Must come *after* the whole-row
+        // update above, which would otherwise write back the attempt count captured before the
+        // retry that produced this very reply.
+        conversationDao.clearAutoRetry(conversation.id)
+        // Raw output is a debug convenience, not durable data — keep it only for the most recent chats.
+        messageDao.pruneRawResponses(RAW_RESPONSE_KEEP_CHATS)
     }
 
     suspend fun setConversationLevel(id: Long, level: Cefr) {
@@ -341,18 +386,20 @@ class ConversationRepository @Inject constructor(
         dictionary.lookup(word, settingsRepo.settings.first().targetLanguage)
 
     /** A built system prompt paired with the saved words it wove in, so the reply can record them. */
-    private data class PreparedPrompt(val prompt: String, val vocab: List<Pair<String, String>>)
+    private data class PreparedPrompt(val prompt: String, val vocab: List<VocabHint>)
 
     private suspend fun systemPromptFor(
         c: ConversationEntity,
         includeTitle: Boolean = false,
         includeTopics: Boolean = true,
         // A pre-chosen vocab slice (batch generation); null draws a fresh per-turn sample.
-        vocabOverride: List<Pair<String, String>>? = null,
+        vocabOverride: List<VocabHint>? = null,
     ): PreparedPrompt {
         val settings = settingsRepo.settings.first()
         // A sample of saved words to weave in, plus the prior reply's distinctive words to recur.
         val vocabToUse = vocabOverride ?: pickVocabToUse(c.targetLanguage)
+        // The prompt only needs each word's front/back; the forms travel with the hint for later scoring.
+        val vocabPairs = vocabToUse.map { it.front to it.back }
         val reuseWords = latestDistinctiveWords(c.id)
         val prompt = when (c.mode) {
             Mode.CONVERSATION -> prompts.buildConversationPrompt(
@@ -363,7 +410,7 @@ class ConversationRepository @Inject constructor(
                 nativeLang = c.nativeLanguage,
                 level = c.level,
                 subject = c.subject.orEmpty(),
-                vocabToUse = vocabToUse,
+                vocabToUse = vocabPairs,
                 reuseWords = reuseWords,
                 includeTitle = includeTitle,
                 includeTopics = includeTopics,
@@ -375,7 +422,7 @@ class ConversationRepository @Inject constructor(
                 targetLang = c.targetLanguage,
                 nativeLang = c.nativeLanguage,
                 level = c.level,
-                vocabToUse = vocabToUse,
+                vocabToUse = vocabPairs,
                 reuseWords = reuseWords,
                 includeTopics = includeTopics,
             )
@@ -400,13 +447,25 @@ class ConversationRepository @Inject constructor(
      * [ReviewWindows.HINT_FALLBACK_MIN_CARDS] are due that soon); [VOCAB_TO_USE_COUNT] are sampled from
      * it. Empty for a learner with no saved words yet.
      */
-    private suspend fun pickVocabToUse(targetLang: String): List<Pair<String, String>> {
+    private suspend fun pickVocabToUse(targetLang: String): List<VocabHint> {
         val maxDue = vocabHintMaxDue(targetLang)
-        return flashcardDao.upcomingByLanguage(targetLang, maxDue, VOCAB_POOL_SIZE)
-            .shuffled()
-            .take(VOCAB_TO_USE_COUNT)
-            .map { it.front to it.back }
+        val pool = flashcardDao.upcomingByLanguage(targetLang, maxDue, VOCAB_POOL_SIZE).shuffled()
+        return toHints(preferredFirst(pool).take(VOCAB_TO_USE_COUNT))
     }
+
+    /**
+     * Reorders a shuffled due pool so single words with a known part of speech come first — those make
+     * for the most natural, teachable hints — while keeping everything else as fallback so a learner
+     * whose cards lack POS tags still gets a full sample. A soft preference, not a filter.
+     */
+    private fun preferredFirst(pool: List<FlashcardEntity>): List<FlashcardEntity> {
+        val (preferred, rest) = pool.partition { it.cardKind == CardKind.VOCAB && !it.partOfSpeech.isNullOrBlank() }
+        return preferred + rest
+    }
+
+    /** Builds vocab hints from cards, carrying each card's cached surface forms for later usage scoring. */
+    private fun toHints(cards: List<FlashcardEntity>): List<VocabHint> =
+        cards.map { VocabHint(it.front, it.back, HighlightTargetProvider.decode(it.inflectedForms, it.front)) }
 
     /**
      * Distinct vocab samples for a batch of [count] new conversations, so sibling chats don't all weave
@@ -415,15 +474,14 @@ class ConversationRepository @Inject constructor(
      * words to fill them all, slices cycle (the overlap is then unavoidable). Each list is empty for a
      * learner with no eligible words yet.
      */
-    suspend fun pickVocabBatches(targetLang: String, count: Int): List<List<Pair<String, String>>> {
+    suspend fun pickVocabBatches(targetLang: String, count: Int): List<List<VocabHint>> {
         if (count <= 0) return emptyList()
         val maxDue = vocabHintMaxDue(targetLang)
         val poolSize = maxOf(VOCAB_POOL_SIZE, count * VOCAB_TO_USE_COUNT)
-        val pool = flashcardDao.upcomingByLanguage(targetLang, maxDue, poolSize)
-            .shuffled()
-            .map { it.front to it.back }
+        val pool = flashcardDao.upcomingByLanguage(targetLang, maxDue, poolSize).shuffled()
         if (pool.isEmpty()) return List(count) { emptyList() }
-        val slices = pool.chunked(VOCAB_TO_USE_COUNT)
+        // Preferred words first, then chunk — so the earliest chats in a batch get the best hints.
+        val slices = preferredFirst(pool).chunked(VOCAB_TO_USE_COUNT).map { toHints(it) }
         return List(count) { i -> slices[i % slices.size] }
     }
 
@@ -438,7 +496,7 @@ class ConversationRepository @Inject constructor(
     /** Creates a text conversation for a URL; extraction + translation run later in [runTextTranslation]. */
     suspend fun createUrlTextDraft(url: String): Long {
         val trimmed = url.trim()
-        val full = if (trimmed.startsWith("http", ignoreCase = true)) trimmed else "https://$trimmed"
+        val full = ArticleExtractor.normalizeUrl(trimmed)
         return createTextDraft(
             title = ArticleExtractor.hostOf(full),
             sourceUrl = trimmed,
@@ -687,5 +745,8 @@ class ConversationRepository @Inject constructor(
 
         /** Most recent messages sent as LLM context; older turns are dropped, not summarized. */
         private const val HISTORY_MESSAGE_CAP = 60
+
+        /** How many of the most recent chats keep their raw model output (a debug aid); older ones lose it. */
+        private const val RAW_RESPONSE_KEEP_CHATS = 30
     }
 }

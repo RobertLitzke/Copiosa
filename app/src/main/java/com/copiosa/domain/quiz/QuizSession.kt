@@ -19,6 +19,8 @@ data class ReadyCue(
     val filePath: String,
     // Null for clips adopted from the on-disk cache (playback uses a completion callback anyway).
     val durationMs: Long?,
+    // Set only for PHRASE cues: the pre-seeded correct + distractor answers. Null for algorithmic cues.
+    val options: PhraseOptions? = null,
 )
 
 /** One quiz question: the clip to play and the digit options to reveal once it finishes. */
@@ -47,6 +49,9 @@ class QuizSessionBuilder(private val random: Random = Random.Default) {
         optionCount: Int = OPTION_COUNT,
         difficultyFor: (CueType) -> Int = { 0 },
     ): List<QuizQuestion> = cues.shuffled(random).take(count).mapNotNull { cue ->
+        // Phrase cues (Restaurant, …) carry their answer options pre-seeded — no algorithmic
+        // generator, no natural order — so they build from stored options and shuffle.
+        if (cue.type.kind == CueKind.PHRASE) return@mapNotNull buildPhraseQuestion(cue, optionCount)
         val value = CueValue.parse(cue.type, cue.valueKey) ?: return@mapNotNull null
         val generator = CueGenerators.forType(cue.type)
         val need = optionCount - 1
@@ -68,6 +73,29 @@ class QuizSessionBuilder(private val random: Random = Random.Default) {
             displayAnswer = cue.displayText,
             options = optionValues.map { generator.displayText(it) },
             answerIndex = optionValues.indexOf(value),
+        )
+    }
+
+    /**
+     * Builds one phrase question from its stored [PhraseOptions]: the correct answer plus a random
+     * [optionCount]-1 of the (up to four) stored distractors, shuffled — phrases have no natural order,
+     * so there is nothing to sort. Returns null if the cue is missing options or lacks enough
+     * distractors to fill the grid.
+     */
+    private fun buildPhraseQuestion(cue: ReadyCue, optionCount: Int): QuizQuestion? {
+        val opts = cue.options ?: return null
+        val need = optionCount - 1
+        val distractors = opts.distractors.shuffled(random).take(need)
+        if (distractors.size < need) return null
+        val options = (distractors + opts.correct).shuffled(random)
+        return QuizQuestion(
+            cueId = cue.id,
+            cueType = cue.type,
+            audioPath = cue.filePath,
+            durationMs = cue.durationMs,
+            displayAnswer = opts.correct,
+            options = options,
+            answerIndex = options.indexOf(opts.correct),
         )
     }
 

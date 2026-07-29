@@ -2,16 +2,15 @@ package com.copiosa.data.generation
 
 import com.copiosa.data.repository.AudioRepository
 import com.copiosa.data.settings.SettingsRepository
+import com.copiosa.data.tts.RenderQueueStore
 import com.copiosa.data.tts.SupertonicModelStore
 import com.copiosa.data.tts.TtsEngine
 import com.copiosa.data.tts.TtsModelState
 import com.copiosa.data.tts.TtsRenderQueue
+import com.copiosa.di.AppScope
 import com.copiosa.domain.model.AudioStatus
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
@@ -33,20 +32,17 @@ class AudioGenerationManager @Inject constructor(
     private val tts: TtsEngine,
     modelStore: SupertonicModelStore,
     private val settingsRepo: SettingsRepository,
+    @AppScope private val scope: CoroutineScope,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
     private val queue = TtsRenderQueue(
         scope = scope,
         modelStore = modelStore,
-        nextPendingId = { repo.unrendered().firstOrNull()?.id },
-        resetOrphans = {
-            // A process death mid-synthesis leaves a GENERATING row with no job behind it; reset it.
-            repo.unrendered()
-                .filter { it.status == AudioStatus.GENERATING }
-                .forEach { repo.setStatus(it.id, AudioStatus.PENDING) }
+        store = object : RenderQueueStore {
+            override suspend fun unrendered() = repo.unrendered().map { it.id to it.status }
+            override suspend fun setStatus(id: Long, status: AudioStatus) = repo.setStatus(id, status)
+            override suspend fun setFailed(id: Long, message: String) = repo.setFailed(id, message)
         },
-        processOne = ::processOne,
+        render = ::render,
     )
 
     init {
@@ -82,20 +78,13 @@ class AudioGenerationManager @Inject constructor(
         }
     }
 
-    private suspend fun processOne(id: Long) {
+    /** Owner-specific render (the queue wraps this in the GENERATING/PENDING/FAILED envelope). */
+    private suspend fun render(id: Long) {
         val item = repo.getById(id) ?: return
-        repo.setStatus(id, AudioStatus.GENERATING)
-        try {
-            val out = File(repo.audioDir, "audio_$id.m4a")
-            // Speed is read live (unlike the per-item voice) so a slider change applies to the queue.
-            val speed = settingsRepo.settings.first().ttsSpeed
-            val durationMs = tts.synthesizeArticle(item.title, item.text, item.langCode, item.sid, out, speed)
-            repo.setReady(id, out, durationMs.takeIf { it > 0 })
-        } catch (e: CancellationException) {
-            repo.setStatus(id, AudioStatus.PENDING)
-            throw e
-        } catch (e: Exception) {
-            repo.setFailed(id, e.message ?: "Synthesis failed")
-        }
+        val out = File(repo.audioDir, "audio_$id.m4a")
+        // Speed is read live (unlike the per-item voice) so a slider change applies to the queue.
+        val speed = settingsRepo.settings.first().ttsSpeed
+        val durationMs = tts.synthesizeArticle(item.title, item.text, item.langCode, item.sid, out, speed)
+        repo.setReady(id, out, durationMs.takeIf { it > 0 })
     }
 }

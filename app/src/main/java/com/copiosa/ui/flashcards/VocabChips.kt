@@ -48,22 +48,24 @@ fun InfoChip(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-// Faint gender cues: masculine articles tinted blue, feminine pink. Mid tones that stay legible in
-// both the light (cream) and dark (forest) themes; the fill is the same hue at low alpha.
+// Faint gender cues: masculine articles tinted blue, feminine pink, neuter a muted teal. Mid tones
+// that stay legible in both the light (cream) and dark (forest) themes; fill is the hue at low alpha.
 private val GenderMasculine = Color(0xFF4F86C6)
 private val GenderFeminine = Color(0xFFC76B98)
+private val GenderNeuter = Color(0xFF4FA88A)
 
 /**
- * Gender pill ("el"/"la"/…) faintly colored by grammatical gender — blue for masculine, pink for
- * feminine — as a quiet visual cue. Common-gender ("el/la") and unknown codes fall back to a neutral
- * [InfoChip]; renders nothing when the card carries no gender.
+ * Gender pill ("el"/"la"/"der"/…) faintly colored by grammatical gender — blue for masculine, pink
+ * for feminine, teal for neuter — as a quiet visual cue. Common-gender and unknown codes fall back to
+ * a neutral [InfoChip]; renders nothing when the card carries no article for its [lang].
  */
 @Composable
-fun GenderChip(gender: String?, modifier: Modifier = Modifier) {
-    val article = genderArticle(gender) ?: return
+fun GenderChip(gender: String?, lang: String, modifier: Modifier = Modifier) {
+    val article = genderArticle(gender, lang) ?: return
     val tint = when (gender?.uppercase()) {
         "M", "MPL" -> GenderMasculine
         "F", "FPL" -> GenderFeminine
+        "N" -> GenderNeuter
         else -> null
     }
     if (tint == null) {
@@ -80,32 +82,50 @@ fun GenderChip(gender: String?, modifier: Modifier = Modifier) {
     }
 }
 
-/** The Spanish article implied by a stored gender code (M/F/MF/MPL/FPL), for display; null if unset. */
-fun genderArticle(gender: String?): String? = when (gender?.uppercase()) {
-    "M" -> "el"
-    "F" -> "la"
-    "MF" -> "el/la"
-    "MPL" -> "los"
-    "FPL" -> "las"
-    else -> null
+/**
+ * The definite article implied by a stored gender code (M/F/MF/N/MPL/FPL) in [lang], for display;
+ * null if the code has no article in that language (e.g. neuter in Spanish) or is unset. Supports
+ * Spanish/Portuguese/French/German — the languages whose nouns carry grammatical gender here.
+ */
+fun genderArticle(gender: String?, lang: String): String? {
+    val code = gender?.uppercase() ?: return null
+    return when (lang.lowercase().substringBefore('-')) {
+        "es" -> when (code) {
+            "M" -> "el"; "F" -> "la"; "MF" -> "el/la"; "MPL" -> "los"; "FPL" -> "las"; else -> null
+        }
+        "pt" -> when (code) {
+            "M" -> "o"; "F" -> "a"; "MF" -> "o/a"; "MPL" -> "os"; "FPL" -> "as"; else -> null
+        }
+        "fr" -> when (code) {
+            "M" -> "le"; "F" -> "la"; "MF" -> "le/la"; "MPL" -> "les"; "FPL" -> "les"; else -> null
+        }
+        "de" -> when (code) {
+            "M" -> "der"; "F" -> "die"; "N" -> "das"; "MF" -> "der/die"; "MPL", "FPL" -> "die"; else -> null
+        }
+        else -> null
+    }
 }
 
-/** Display label for a region slug emitted by the deck cleanup (e.g. "mx" → "México"). */
-fun regionLabel(region: String): String = when (region.lowercase()) {
-    "mx" -> "México"
-    "centroamerica" -> "Centroamérica"
-    "sudamerica" -> "Sudamérica"
-    "latam" -> "Latinoamérica"
-    "spain" -> "España"
-    "ar" -> "Argentina"
-    "co" -> "Colombia"
-    "cl" -> "Chile"
-    "pe" -> "Perú"
-    "ve" -> "Venezuela"
-    "caribe" -> "Caribe"
-    "conosur" -> "Cono Sur"
-    else -> region.replaceFirstChar { it.uppercase() }
+/**
+ * The gender codes offered in the card editor for [lang], as `null` (none) plus the language's set.
+ * Neuter (N) is offered only for languages that have it (German).
+ */
+fun genderOptions(lang: String): List<String?> = when (lang.lowercase().substringBefore('-')) {
+    "de" -> listOf(null, "M", "F", "N")
+    "es", "pt", "fr" -> listOf(null, "M", "F", "MF")
+    else -> listOf(null, "M", "F", "MF", "N")
 }
+
+/**
+ * Human-readable form of a stored [FlashcardEntity.country]. Countries are persisted whitespace-free
+ * (spaces collapsed to underscores) so they survive an Anki `la:country` tag round-trip; this turns
+ * "Costa_Rica" back into "Costa Rica" for display.
+ */
+fun countryLabel(country: String): String = country.replace('_', ' ')
+
+/** Normalizes a typed country for storage: trims and collapses runs of whitespace to single underscores. */
+fun countrySlug(country: String): String? =
+    country.trim().replace(Regex("\\s+"), "_").ifBlank { null }
 
 /** Localized label for a normalized part-of-speech key; unknown keys display as-is. */
 @Composable

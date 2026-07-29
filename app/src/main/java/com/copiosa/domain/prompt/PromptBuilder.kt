@@ -1,5 +1,6 @@
 package com.copiosa.domain.prompt
 
+import com.copiosa.domain.model.BookDirection
 import com.copiosa.domain.model.Cefr
 import java.util.Locale
 import javax.inject.Inject
@@ -173,6 +174,56 @@ class PromptBuilder @Inject constructor() {
     }
 
     /**
+     * System prompt for translating one section (~2 pages) of an imported book. The section arrives
+     * as `[[P<n>]]`-marked paragraphs the model must echo, so original and translated paragraphs
+     * stay aligned row-for-row (the reader's toggle depends on it). No structured-metadata block —
+     * the marker contract is the whole output format.
+     *
+     * [BookDirection.FORWARD] is the same level-adapted contract as [textTranslationSystemPrompt].
+     * [BookDirection.REVERSE] instead translates the target-language original *into* the learner's
+     * own language as a gloss, so [level] and [country] are unused — nothing grades a native-language
+     * crutch, and simplifying it would only blunt the original it sits beside.
+     *
+     * The previous section rides along as an earlier user/assistant exchange (see
+     * BookRepository.translateSection) purely for continuity — names and recurring vocabulary keep
+     * the translations they already got — hence the "translate only the latest message" guard.
+     */
+    fun bookSectionSystemPrompt(
+        country: String,
+        targetLang: String,
+        nativeLang: String,
+        level: Cefr,
+        direction: BookDirection,
+        bookTitle: String,
+        part: Int,
+        totalParts: Int,
+    ): String {
+        val target = languageName(targetLang)
+        val native = languageName(nativeLang)
+        val intro = when (direction) {
+            BookDirection.FORWARD ->
+                "You are a $country $target teacher preparing reading material for a " +
+                    "${levelDescriptor(level)} learner. You are translating the book \"$bookTitle\" into " +
+                    "$target at approximately ${level.name} level, section by section; this is section $part " +
+                    "of $totalParts. Simplifying vocabulary and grammar to that level is the priority, but " +
+                    "preserve the original's tone, voice and style as far as the level allows, and continue " +
+                    "seamlessly from earlier sections — keep the same translations for names and recurring " +
+                    "words. If the text is already in $target, adapt it to ${level.name} the same way."
+            // Nothing is graded here: the output is the learner's own language, and it exists only as
+            // a crutch beside the $target original they are actually reading. Hence no level, no
+            // teacher persona, and meaning over polish.
+            BookDirection.REVERSE ->
+                "You are translating the book \"$bookTitle\" from $target into $native, section by " +
+                    "section; this is section $part of $totalParts. The reader is a learner reading the " +
+                    "$target original, and your translation sits beside it as a reading aid — so render " +
+                    "the meaning faithfully and idiomatically, preserving the original's tone, voice and " +
+                    "style. Do not simplify, summarise, explain or annotate. Continue seamlessly from " +
+                    "earlier sections — keep the same translations for names and recurring words."
+        }
+        return intro + "\n\n" + MARKER_CONTRACT
+    }
+
+    /**
      * Chat persona for discussing an imported text after reading it. The translated text already sits
      * earlier in the conversation, so this prompt does not re-embed the original — it just frames the
      * teacher to talk about "the text the learner just read", keeping discussion turns cheap.
@@ -217,8 +268,14 @@ class PromptBuilder @Inject constructor() {
         val list = words.joinToString("; ") { (front, back) ->
             if (back.isBlank()) front else "$front ($back)"
         }
-        return "\n\nThe learner is studying these saved words: $list. Use the ones that fit naturally, " +
-            "without distorting your reply, and never force them; you need not use any."
+        // Opt-in with a soft floor (capped at however many words we actually supplied): usage is the
+        // default, not optional flavour, but the anti-distortion guard is kept so prose stays natural.
+        val target = minOf(VOCAB_MIN_TO_USE, words.size)
+        return "\n\nPRIORITY VOCABULARY FOR THIS REPLY — the learner is actively studying these saved " +
+            "words: $list. Work as many of them as read naturally into your reply — aim for at least " +
+            "$target — choosing examples, sentences, or phrasing that let them fit. Prefer rephrasing to " +
+            "include a word over leaving it out, but never distort your meaning or force a word that " +
+            "truly cannot fit."
     }
 
     /** Distinctive words from the previous reply to recur in new contexts. Empty list -> no section. */
@@ -262,8 +319,8 @@ class PromptBuilder @Inject constructor() {
             add("\"distinctive\": [$distinctiveInstruction]")
             if (includeVocabReport) {
                 add(
-                    "\"vocabUsed\": [the supplied saved words you worked in], " +
-                        "\"vocabUnused\": [the supplied saved words you could not fit naturally]",
+                    "\"vocabUsed\": [the priority saved words you actually worked into this reply], " +
+                        "\"vocabUnused\": [any priority saved words you genuinely could not fit]",
                 )
             }
         }.joinToString(", ")
@@ -281,6 +338,28 @@ class PromptBuilder @Inject constructor() {
     }
 
     companion object {
+        /**
+         * Soft floor for how many supplied saved words a reply should work in (capped at however many
+         * were actually supplied). Not enforced on the model — usage is measured after the fact
+         * (see VocabUsageDetector) — but it turns the vocab section from opt-out into a concrete target.
+         */
+        const val VOCAB_MIN_TO_USE = 4
+
+        /**
+         * The `[[P<n>]]` output contract for book sections, shared by both translation directions —
+         * it is what keeps original and translated paragraphs on the same row, which the reader's
+         * language toggle and the table of contents both depend on.
+         */
+        private const val MARKER_CONTRACT =
+            "The section is split into numbered paragraphs, each preceded by a marker line like " +
+                "[[P214]]. Translate every paragraph. Your output MUST contain exactly the same markers, " +
+                "in the same order, each on its own line, followed by that paragraph's translation. " +
+                "Never merge, split, drop, add, or reorder paragraphs — one output paragraph per marker, " +
+                "even for one-word paragraphs and ## headings (keep the ##). Keep *italic* and **bold** " +
+                "where the original has them. Earlier sections may appear in this conversation for " +
+                "context — translate ONLY the paragraphs in the latest message. Output nothing before " +
+                "the first marker and nothing after the last translation."
+
         /** Distinctive-word instruction shared by conversation and text-discussion prompts. */
         private const val DISTINCTIVE_FROM_REPLY =
             "1-5 of the hardest or most distinctive words from your reply that the learner is least " +

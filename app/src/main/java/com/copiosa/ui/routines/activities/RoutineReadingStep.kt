@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -16,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.copiosa.ui.components.ProgressBar
 import com.copiosa.ui.components.SelectableReader
 import com.copiosa.ui.routines.RoutinePlayerViewModel
 
@@ -43,7 +43,7 @@ internal fun RoutineReadingStep(
     }
 
     Column(Modifier.fillMaxSize()) {
-        LinearProgressIndicator(
+        ProgressBar(
             progress = { (index + 1f) / total },
             modifier = Modifier.fillMaxWidth(),
         )
@@ -55,6 +55,7 @@ internal fun RoutineReadingStep(
                 onSelectionTranslate = viewModel::onSelectionTranslate,
                 onDismissSelection = viewModel::dismissTranslate,
                 onSave = viewModel::saveSelection,
+                onSelectSaveEntry = viewModel::selectSaveEntry,
                 onDownloadDictionary = viewModel::downloadDictionary,
                 title = title.ifBlank { null },
             )

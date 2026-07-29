@@ -34,7 +34,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.copiosa.R
 import com.copiosa.domain.quiz.CueType
 import com.copiosa.domain.quiz.SessionStats
+import com.copiosa.domain.stats.FocusActivityType
 import com.copiosa.ui.audio.TtsDownloadPrompt
+import com.copiosa.ui.components.TrackFocusTime
 
 /**
  * The standalone rapid-fire listening quiz, scoped to a single cue type ([focusType]) so the learner
@@ -56,6 +58,8 @@ fun RapidFireScreen(
     val playbackSpeed by viewModel.playbackSpeed.collectAsState()
 
     val active = session
+    // Only a running session counts as focus time — not the setup or results screens.
+    TrackFocusTime(FocusActivityType.QUIZ, enabled = active != null && !active.finished)
     when {
         active == null -> RapidFireHome(home, focusType, questionCount, playbackSpeed, viewModel, onBack, onOpenPool)
         active.finished -> ResultsScreen(
@@ -238,6 +242,7 @@ private fun cueLabel(cue: CueType): String = stringResource(
     when (cue) {
         CueType.NUMBER -> R.string.quiz_cue_numbers
         CueType.TIME -> R.string.quiz_cue_times
+        CueType.RESTAURANT -> R.string.quiz_cue_restaurant
     },
 )
 

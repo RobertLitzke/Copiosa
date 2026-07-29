@@ -19,7 +19,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.copiosa.domain.highlight.HighlightTarget
-import com.copiosa.ui.conversation.TranslateState
 import com.copiosa.ui.theme.SerifTitle
 
 /**
@@ -37,6 +36,7 @@ fun SelectableReader(
     onSelectionTranslate: (text: String, anchorY: Float, sourceText: String) -> Unit,
     onDismissSelection: () -> Unit,
     onSave: (headword: String) -> Unit,
+    onSelectSaveEntry: (lemma: String, pos: String?) -> Unit,
     onDownloadDictionary: () -> Unit,
     modifier: Modifier = Modifier,
     title: String? = null,
@@ -75,13 +75,16 @@ fun SelectableReader(
         TranslationCard(
             original = t.original,
             translation = t.translation,
+            translationOf = t.translationOf,
             loading = t.loading,
             definition = t.definition,
             canExplain = false,
             anchorYPx = t.anchorY,
             savedCard = t.savedCard,
             lemmaSuggestion = t.saveLemma,
+            savePos = t.savePos,
             onSave = onSave,
+            onSelectEntry = onSelectSaveEntry,
             onExplain = {},
             onDownloadDictionary = onDownloadDictionary,
             onOpenSaved = { t.savedCard?.let { c -> onOpenSaved?.invoke(c.id) } },

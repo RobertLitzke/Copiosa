@@ -77,7 +77,10 @@ class RoutinePlannerTest {
 
     @Test
     fun spanishOnlyActivities_neverAppearForOtherLanguages() {
-        val spanishOnly = setOf(ActivityType.REFERENTIAL_PI, ActivityType.CONTRAST_CLOZE, ActivityType.AFFECTIVE_PI)
+        val spanishOnly = setOf(
+            ActivityType.REFERENTIAL_PI, ActivityType.CONTRAST_CLOZE, ActivityType.AFFECTIVE_PI,
+            ActivityType.CONJUGATION_DRILL,
+        )
         for (duration in listOf(5, 10, 20)) {
             for (seed in 0L until 40L) {
                 val bp = plan(duration, seed, language = "fr")
@@ -91,15 +94,51 @@ class RoutinePlannerTest {
         }
     }
 
+    /** Above-cap activities in a blueprint, in order. */
+    private fun aboveCap(bp: RoutineBlueprint) =
+        bp.slots.filter { RoutineType.BEDTIME.isAboveCap(ActivityDefinition[it.type]) }
+
     @Test
-    fun bedtimePlan_neverExceedsItsArousalCap() = forManyPlans { bp ->
-        for (slot in bp.slots) {
-            val level = ActivityDefinition[slot.type].arousalLevel
-            assertTrue(
-                "bedtime must not include ${slot.type} (${level} > ${RoutineType.BEDTIME.maxArousal})",
-                level.ordinal <= RoutineType.BEDTIME.maxArousal.ordinal,
+    fun bedtimePlan_admitsAtMostOneAboveCapActivity() = forManyPlans { bp ->
+        val over = aboveCap(bp)
+        assertTrue(
+            "bedtime took ${over.map { it.type }} — quota is ${RoutineType.BEDTIME.highArousalSlots}",
+            over.size <= RoutineType.BEDTIME.highArousalSlots,
+        )
+    }
+
+    @Test
+    fun aboveCapActivities_onlyAppearInTheOpeningBand() = forManyPlans { bp ->
+        for (slot in aboveCap(bp)) {
+            assertEquals(
+                "${slot.type} is above the cap and must stay in the opening band",
+                RoutineType.BEDTIME.highArousalBand,
+                slot.band,
             )
         }
+    }
+
+    @Test
+    fun shortPlans_stayEntirelyWithinTheCap() {
+        // Engage gets no budget under six minutes, so the quota can never be spent.
+        for (seed in 0L until 60L) {
+            assertTrue("5m must stay calm throughout", aboveCap(plan(5, seed)).isEmpty())
+        }
+    }
+
+    @Test
+    fun theCloserIsNeverAboveTheCap() = forManyPlans { bp ->
+        // However activating the opening is, the routine has to end calm.
+        val last = ActivityDefinition[bp.slots.last().type]
+        assertFalse("closer ${bp.slots.last().type} is above the cap", RoutineType.BEDTIME.isAboveCap(last))
+    }
+
+    @Test
+    fun theConjugationDrill_isReachableInLongerSpanishPlans() {
+        val seen = (0L until 60L).any { seed ->
+            plan(20, seed).slots.any { it.type == ActivityType.CONJUGATION_DRILL }
+        }
+        assertTrue("the drill should be plannable at 20m — it is the quota's only user", seen)
     }
 
     @Test

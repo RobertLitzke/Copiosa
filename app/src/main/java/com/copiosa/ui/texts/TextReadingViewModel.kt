@@ -99,7 +99,7 @@ class TextReadingViewModel @Inject constructor(
         conversationRepo = conversationRepo,
         flashcardRepo = flashcardRepo,
         highlightProvider = highlightProvider,
-        sourceConversationId = id,
+        sourceConversationId = { id },
         readingText = translation,
     )
     val translate = selection.translate
@@ -110,6 +110,8 @@ class TextReadingViewModel @Inject constructor(
         selection.onSelectionTranslate(text, anchorY, sourceText)
 
     fun saveCurrentTranslation(headword: String? = null) = selection.saveCurrentTranslation(headword)
+
+    fun selectSaveEntry(lemma: String, pos: String?) = selection.selectSaveEntry(lemma, pos)
 
     fun downloadDictionary() = selection.downloadDictionary()
 

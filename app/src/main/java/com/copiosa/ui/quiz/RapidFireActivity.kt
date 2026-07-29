@@ -8,12 +8,13 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -37,8 +38,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.copiosa.R
 import com.copiosa.domain.routine.RapidFireItem
@@ -165,7 +168,11 @@ private fun PulsingSpeaker() {
     }
 }
 
-/** Big digit options in two-per-row tiles — built for fast thumbs, not careful reading. */
+/**
+ * Answer options. Short options (digit forms — numbers, times) get big two-per-row tiles built for
+ * fast thumbs; long options (phrase-scenario sentences) get one full-width, wrapping tile per row so
+ * the translation is readable. Both paths share [OptionTile].
+ */
 @Composable
 private fun OptionsGrid(
     options: List<String>,
@@ -173,35 +180,57 @@ private fun OptionsGrid(
     selected: Int?,
     onSelect: (Int) -> Unit,
 ) {
+    val longForm = options.any { it.length > MAX_SHORT_OPTION_CHARS || it.contains(' ') }
     Column(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        options.chunked(2).forEachIndexed { rowIndex, row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                row.forEachIndexed { colIndex, option ->
-                    val idx = rowIndex * 2 + colIndex
-                    OptionTile(
-                        text = option,
-                        reveal = selected != null,
-                        isCorrect = idx == answerIndex,
-                        isWrongPick = selected == idx && idx != answerIndex,
-                        onClick = { onSelect(idx) },
-                    )
+        if (longForm) {
+            options.forEachIndexed { idx, option ->
+                OptionTile(
+                    text = option,
+                    reveal = selected != null,
+                    isCorrect = idx == answerIndex,
+                    isWrongPick = selected == idx && idx != answerIndex,
+                    onClick = { onSelect(idx) },
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.titleMedium,
+                    minHeight = 60.dp,
+                )
+            }
+        } else {
+            options.chunked(2).forEachIndexed { rowIndex, row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEachIndexed { colIndex, option ->
+                        val idx = rowIndex * 2 + colIndex
+                        OptionTile(
+                            text = option,
+                            reveal = selected != null,
+                            isCorrect = idx == answerIndex,
+                            isWrongPick = selected == idx && idx != answerIndex,
+                            onClick = { onSelect(idx) },
+                            modifier = Modifier.weight(1f),
+                            textStyle = MaterialTheme.typography.headlineSmall,
+                            minHeight = 72.dp,
+                        )
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
                 }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
     }
 }
 
 @Composable
-private fun RowScope.OptionTile(
+private fun OptionTile(
     text: String,
     reveal: Boolean,
     isCorrect: Boolean,
     isWrongPick: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    textStyle: TextStyle = MaterialTheme.typography.headlineSmall,
+    minHeight: Dp = 72.dp,
 ) {
     val container = when {
         !reveal -> MaterialTheme.colorScheme.surfaceVariant
@@ -220,15 +249,19 @@ private fun RowScope.OptionTile(
             disabledContainerColor = container,
             disabledContentColor = MaterialTheme.colorScheme.onSurface,
         ),
-        modifier = Modifier.weight(1f).height(72.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        modifier = modifier.heightIn(min = minHeight),
     ) {
         Text(
             text,
-            style = MaterialTheme.typography.headlineSmall,
+            style = textStyle,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
         )
     }
 }
+
+/** Options longer than this (or containing a space) are treated as phrases and laid out one-per-row. */
+private const val MAX_SHORT_OPTION_CHARS = 12
 
 private const val ADVANCE_DELAY_MS = 700L

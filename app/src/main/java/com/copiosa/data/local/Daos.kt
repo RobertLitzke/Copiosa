@@ -6,7 +6,9 @@ import androidx.room.Query
 import androidx.room.Update
 import com.copiosa.domain.model.AudioStatus
 import com.copiosa.domain.quiz.CueType
+import com.copiosa.domain.model.FlashcardState
 import com.copiosa.domain.model.Mode
+import com.copiosa.domain.model.ReviewRating
 import com.copiosa.domain.model.Role
 import com.copiosa.domain.routine.ActivityType
 import com.copiosa.domain.routine.RoutineType
@@ -52,8 +54,83 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations WHERE targetLanguage = :lang ORDER BY updatedAt DESC LIMIT 1")
     suspend fun getMostRecent(lang: String): ConversationEntity?
 
+    @Query("SELECT COUNT(*) FROM conversations WHERE mode = :mode AND targetLanguage = :lang")
+    suspend fun countByMode(mode: Mode, lang: String): Int
+
+    @Query("SELECT COUNT(*) FROM conversations WHERE mode = :mode AND targetLanguage = :lang AND createdAt > :since")
+    suspend fun countByModeSince(mode: Mode, lang: String, since: Long): Int
+
+    /** Recent chat subjects — the raw signal the topic suggester ranks. */
+    @Query(
+        "SELECT * FROM conversations WHERE mode = :mode AND targetLanguage = :lang " +
+            "AND subject IS NOT NULL ORDER BY createdAt DESC LIMIT :limit",
+    )
+    suspend fun recentByMode(mode: Mode, lang: String, limit: Int): List<ConversationEntity>
+
+    /**
+     * Chats whose newest turn is still the user's — a reply that failed or was interrupted.
+     *
+     * Failure itself stays derived rather than stored, so this stays correct across process death;
+     * [ConversationEntity.autoRetryAttempts] only bounds how often background maintenance retries
+     * one, so a permanently-broken chat eventually stops costing calls.
+     */
+    @Query(
+        "SELECT c.* FROM conversations c " +
+            "WHERE c.mode = :mode AND c.targetLanguage = :lang " +
+            "AND c.autoRetryAttempts < :maxAttempts " +
+            "AND (SELECT m.role FROM messages m WHERE m.conversationId = c.id " +
+            "     ORDER BY m.createdAt DESC, m.id DESC LIMIT 1) = :userRole " +
+            "ORDER BY c.updatedAt DESC LIMIT :limit",
+    )
+    suspend fun awaitingReply(
+        mode: Mode,
+        lang: String,
+        userRole: Role,
+        maxAttempts: Int,
+        limit: Int,
+    ): List<ConversationEntity>
+
+    @Query(
+        "UPDATE conversations SET autoRetryAttempts = autoRetryAttempts + 1, lastAutoRetryAt = :now " +
+            "WHERE id = :id",
+    )
+    suspend fun recordAutoRetry(id: Long, now: Long)
+
+    /** Clears the retry budget once a reply lands, so a recovered chat starts fresh next time. */
+    @Query("UPDATE conversations SET autoRetryAttempts = 0, lastAutoRetryAt = NULL WHERE id = :id")
+    suspend fun clearAutoRetry(id: Long)
+
+    /** Newest unread chat in [lang], the Home screen's "jump back in" candidate. */
+    @Query(
+        "SELECT * FROM conversations WHERE mode = :mode AND targetLanguage = :lang AND read = 0 " +
+            "ORDER BY updatedAt DESC LIMIT 1",
+    )
+    fun observeLatestUnread(mode: Mode, lang: String): Flow<ConversationEntity?>
+
+    /** Newest fully-translated text not yet read to the end — the Home "continue reading" candidate. */
+    @Query(
+        "SELECT * FROM conversations WHERE mode = :mode AND targetLanguage = :lang " +
+            "AND finishedReading = 0 AND totalChunks > 0 AND translatedChunks >= totalChunks " +
+            "ORDER BY updatedAt DESC LIMIT 1",
+    )
+    fun observeLatestUnfinishedText(mode: Mode, lang: String): Flow<ConversationEntity?>
+
+    @Query("SELECT COUNT(*) FROM conversations WHERE mode = :mode AND targetLanguage = :lang AND read = 0")
+    fun observeUnreadCount(mode: Mode, lang: String): Flow<Int>
+
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun delete(id: Long)
+
+    // --- stats screen (null lang = all profiles combined) ---
+
+    @Query("SELECT COUNT(*) FROM conversations WHERE mode = :mode AND (:lang IS NULL OR targetLanguage = :lang)")
+    fun observeCountByMode(mode: Mode, lang: String?): Flow<Int>
+
+    @Query(
+        "SELECT COUNT(*) FROM conversations WHERE mode = :mode AND finishedReading = 1 " +
+            "AND (:lang IS NULL OR targetLanguage = :lang)",
+    )
+    fun observeFinishedTextCount(mode: Mode, lang: String?): Flow<Int>
 }
 
 /**
@@ -61,6 +138,12 @@ interface ConversationDao {
  * tell a still-awaited chat (last turn is the user's) from a completed one.
  */
 data class ConversationPreview(val conversationId: Long, val snippet: String, val role: Role)
+
+/** How many cards sit in one lifecycle [state], for the stats screen's card breakdown. */
+data class StateCount(val state: FlashcardState, val count: Int)
+
+/** How many reviews were graded with one [rating], for the stats screen's answer distribution. */
+data class RatingCount(val rating: ReviewRating, val count: Int)
 
 @Dao
 interface MessageDao {
@@ -97,6 +180,24 @@ interface MessageDao {
             "ORDER BY createdAt DESC, id DESC LIMIT 1",
     )
     suspend fun getLastByRole(conversationId: Long, role: Role): MessageEntity?
+
+    /** Total messages (both roles) across a profile's conversations — the stats "messages exchanged". */
+    @Query(
+        "SELECT COUNT(*) FROM messages m JOIN conversations c ON m.conversationId = c.id " +
+            "WHERE (:lang IS NULL OR c.targetLanguage = :lang)",
+    )
+    fun observeMessageCount(lang: String?): Flow<Int>
+
+    /**
+     * Clears stored raw model output outside the [keepChats] most recently active conversations (by
+     * updatedAt, matching the library list order). Raw output is a debug aid, not durable data, so it's
+     * bounded to recent chats; reopening an old chat re-earns raw only for its new replies.
+     */
+    @Query(
+        "UPDATE messages SET rawResponse = NULL WHERE rawResponse IS NOT NULL AND conversationId NOT IN (" +
+            "SELECT id FROM conversations ORDER BY updatedAt DESC LIMIT :keepChats)",
+    )
+    suspend fun pruneRawResponses(keepChats: Int)
 }
 
 @Dao
@@ -123,6 +224,14 @@ interface FlashcardDao {
     /** Cards in [lang] due for review now. Frozen (suspended) cards are excluded. */
     @Query("SELECT * FROM flashcards WHERE targetLanguage = :lang AND dueAt <= :now AND suspended = 0 ORDER BY dueAt ASC")
     fun observeDue(now: Long, lang: String): Flow<List<FlashcardEntity>>
+
+    /** How many non-frozen cards in [lang] are due at [now] — a count, so no rows are materialized. */
+    @Query("SELECT COUNT(*) FROM flashcards WHERE targetLanguage = :lang AND suspended = 0 AND dueAt <= :now")
+    suspend fun countDue(lang: String, now: Long): Int
+
+    /** Flow twin of [countDue], for the Home screen's review card. */
+    @Query("SELECT COUNT(*) FROM flashcards WHERE targetLanguage = :lang AND suspended = 0 AND dueAt <= :now")
+    fun observeCountDue(lang: String, now: Long): Flow<Int>
 
     /** Every non-frozen card in [lang], the pool a sized review session is composed from. */
     @Query("SELECT * FROM flashcards WHERE targetLanguage = :lang AND suspended = 0")
@@ -173,25 +282,45 @@ interface FlashcardDao {
     @Query("UPDATE flashcards SET front = :front, back = :back WHERE id = :id")
     suspend fun setText(id: Long, front: String, back: String)
 
-    /** Edits a card's text, part of speech, card type, and review direction from the card editor. */
+    /** Edits a card's text, alternate forms, part of speech, card type, review direction, gender, country, and usage note from the card editor. */
     @Query(
-        "UPDATE flashcards SET front = :front, back = :back, partOfSpeech = :partOfSpeech, " +
+        "UPDATE flashcards SET front = :front, back = :back, altForms = :altForms, partOfSpeech = :partOfSpeech, " +
             "cardKind = :cardKind, reviewDirection = :reviewDirection, " +
-            "contextSentence = :contextSentence WHERE id = :id",
+            "contextSentence = :contextSentence, gender = :gender, country = :country, usageNote = :usageNote WHERE id = :id",
     )
     suspend fun setDetails(
         id: Long,
         front: String,
         back: String,
+        altForms: String?,
         partOfSpeech: String?,
         cardKind: String,
         reviewDirection: String,
         contextSentence: String?,
+        gender: String?,
+        country: String?,
+        usageNote: String?,
     )
 
     /** Caches a card's precomputed highlight surface forms (";"-joined); see [FlashcardEntity.inflectedForms]. */
     @Query("UPDATE flashcards SET inflectedForms = :forms WHERE id = :id")
     suspend fun setInflectedForms(id: Long, forms: String?)
+
+    /** Splits a crammed translation: sets the clean [back] and the peeled-out [usageNote]. */
+    @Query("UPDATE flashcards SET back = :back, usageNote = :usageNote WHERE id = :id")
+    suspend fun setBackAndNote(id: Long, back: String, usageNote: String?)
+
+    /**
+     * Cards whose translation carries Markdown/multi-line structure — the backlog for the note-split
+     * backfill (and repair of earlier mis-splits). Gated on bold markup or a newline in `back` so
+     * clean single-line glosses are never scanned; a plain ML Kit translation has neither. (Note: in
+     * SQL LIKE, `_` is a single-char wildcard, so an underscore clause would match nearly everything —
+     * bold `**` plus the newline check already cover the generated blobs.)
+     */
+    @Query(
+        "SELECT * FROM flashcards WHERE back LIKE '%**%' OR back LIKE '%' || char(10) || '%'",
+    )
+    suspend fun cardsWithMarkdownBack(): List<FlashcardEntity>
 
     /** Cards whose highlight forms haven't been computed yet — the one-time backfill backlog. */
     @Query("SELECT * FROM flashcards WHERE inflectedForms IS NULL")
@@ -214,6 +343,23 @@ interface FlashcardDao {
 
     @Query("DELETE FROM flashcards WHERE id = :id")
     suspend fun delete(id: Long)
+
+    // --- stats screen (null lang = all profiles combined) ---
+
+    @Query("SELECT COUNT(*) FROM flashcards WHERE (:lang IS NULL OR targetLanguage = :lang)")
+    fun observeCardCount(lang: String?): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM flashcards WHERE suspended = 1 AND (:lang IS NULL OR targetLanguage = :lang)")
+    fun observeSuspendedCount(lang: String?): Flow<Int>
+
+    @Query(
+        "SELECT state, COUNT(*) AS count FROM flashcards " +
+            "WHERE (:lang IS NULL OR targetLanguage = :lang) GROUP BY state",
+    )
+    fun observeStateCounts(lang: String?): Flow<List<StateCount>>
+
+    @Query("SELECT COUNT(*) FROM flashcards WHERE createdAt >= :since AND (:lang IS NULL OR targetLanguage = :lang)")
+    fun observeCardsAddedSince(lang: String?, since: Long): Flow<Int>
 }
 
 @Dao
@@ -235,6 +381,10 @@ interface AudioItemDao {
     @Query("SELECT * FROM audio_items WHERE id = :id")
     suspend fun getById(id: Long): AudioItemEntity?
 
+    /** How many rendered-and-unheard items await in [lang], for the Home screen's audio card. */
+    @Query("SELECT COUNT(*) FROM audio_items WHERE langCode = :lang AND played = 0 AND status = 'READY'")
+    fun observeUnplayedReadyCount(lang: String): Flow<Int>
+
     /** Items still to be rendered (after a relaunch the queue is rebuilt from these). */
     @Query("SELECT * FROM audio_items WHERE status IN ('PENDING', 'GENERATING') ORDER BY sortOrder ASC")
     suspend fun unrendered(): List<AudioItemEntity>
@@ -245,10 +395,11 @@ interface AudioItemDao {
     @Query("SELECT MAX(sortOrder) FROM audio_items")
     suspend fun maxSortOrder(): Double?
 
-    @Query("UPDATE audio_items SET played = :played, sortOrder = :sortOrder WHERE id = :id")
-    suspend fun setPlayedAndOrder(id: Long, played: Boolean, sortOrder: Double)
+    @Query("UPDATE audio_items SET played = :played, sortOrder = :sortOrder, playedAt = :playedAt WHERE id = :id")
+    suspend fun setPlayedAndOrder(id: Long, played: Boolean, sortOrder: Double, playedAt: Long?)
 
-    @Query("UPDATE audio_items SET played = :played WHERE id = :id")
+    /** Also clears [AudioItemEntity.playedAt]: un-marking an item restarts its retention clock. */
+    @Query("UPDATE audio_items SET played = :played, playedAt = NULL WHERE id = :id")
     suspend fun setPlayed(id: Long, played: Boolean)
 
     @Query("UPDATE audio_items SET sortOrder = :sortOrder WHERE id = :id")
@@ -273,9 +424,20 @@ interface AudioItemDao {
     @Query("SELECT * FROM audio_items WHERE filePath LIKE '%.wav'")
     suspend fun legacyWavItems(): List<AudioItemEntity>
 
-    /** Played items created before [cutoff], across all languages, for retention cleanup. */
-    @Query("SELECT * FROM audio_items WHERE played = 1 AND createdAt < :cutoff")
-    suspend fun playedBefore(cutoff: Long): List<AudioItemEntity>
+    /** Items in [lang] whose playback finished before [cutoff] — the retention backlog. */
+    @Query(
+        "SELECT * FROM audio_items WHERE played = 1 AND langCode = :lang " +
+            "AND playedAt IS NOT NULL AND playedAt < :cutoff",
+    )
+    suspend fun playedBefore(lang: String, cutoff: Long): List<AudioItemEntity>
+
+    // --- stats screen (null lang = all profiles combined) ---
+
+    @Query("SELECT COUNT(*) FROM audio_items WHERE played = 1 AND (:lang IS NULL OR langCode = :lang)")
+    fun observePlayedCount(lang: String?): Flow<Int>
+
+    @Query("SELECT COALESCE(SUM(durationMs), 0) FROM audio_items WHERE played = 1 AND (:lang IS NULL OR langCode = :lang)")
+    fun observePlayedDurationMs(lang: String?): Flow<Long>
 }
 
 @Dao
@@ -293,9 +455,45 @@ interface ReviewLogDao {
     @Query("DELETE FROM reviews WHERE cardId = :cardId")
     suspend fun deleteForCard(cardId: Long)
 
+    /** Removes a single log entry — used when a review is undone. */
+    @Query("DELETE FROM reviews WHERE id = :id")
+    suspend fun delete(id: Long)
+
     /** Card ids reviewed at or after [since] (e.g. start-of-day), for "today's reviewed lemmas". */
     @Query("SELECT DISTINCT cardId FROM reviews WHERE reviewedAt >= :since")
     suspend fun cardIdsReviewedSince(since: Long): List<Long>
+
+    // --- stats screen (null lang = all profiles combined; joins to scope by the card's language) ---
+
+    @Query(
+        "SELECT COUNT(*) FROM reviews r JOIN flashcards f ON r.cardId = f.id " +
+            "WHERE (:lang IS NULL OR f.targetLanguage = :lang)",
+    )
+    fun observeReviewCount(lang: String?): Flow<Int>
+
+    /** Reviews graded better than "Again" — the numerator for the accuracy stat. */
+    @Query(
+        "SELECT COUNT(*) FROM reviews r JOIN flashcards f ON r.cardId = f.id " +
+            "WHERE r.rating != 'AGAIN' AND (:lang IS NULL OR f.targetLanguage = :lang)",
+    )
+    fun observeCorrectReviewCount(lang: String?): Flow<Int>
+
+    /**
+     * Raw review timestamps at or after [since], for the "reviews per day" sparkline. Bucketed into
+     * days by the caller (in the device zone) so day boundaries line up with the rest of the stats.
+     */
+    @Query(
+        "SELECT r.reviewedAt FROM reviews r JOIN flashcards f ON r.cardId = f.id " +
+            "WHERE r.reviewedAt >= :since AND (:lang IS NULL OR f.targetLanguage = :lang)",
+    )
+    fun observeReviewTimestampsSince(lang: String?, since: Long): Flow<List<Long>>
+
+    /** How often each rating was chosen — the "answer distribution". */
+    @Query(
+        "SELECT r.rating AS rating, COUNT(*) AS count FROM reviews r JOIN flashcards f ON r.cardId = f.id " +
+            "WHERE (:lang IS NULL OR f.targetLanguage = :lang) GROUP BY r.rating",
+    )
+    fun observeRatingCounts(lang: String?): Flow<List<RatingCount>>
 }
 
 @Dao
@@ -385,6 +583,26 @@ interface TopicDao {
 }
 
 @Dao
+interface SuggestedTopicDao {
+    @Insert
+    suspend fun insertAll(topics: List<SuggestedTopicEntity>)
+
+    /** Live suggestions for [lang], best first, excluding ones the user has dismissed. */
+    @Query(
+        "SELECT * FROM suggested_topics WHERE targetLanguage = :lang AND dismissedAt IS NULL " +
+            "ORDER BY score DESC, generatedAt DESC LIMIT :limit",
+    )
+    fun observeFor(lang: String, limit: Int): Flow<List<SuggestedTopicEntity>>
+
+    /** Wipes a language's suggestions ahead of a refresh; the set is replaced wholesale. */
+    @Query("DELETE FROM suggested_topics WHERE targetLanguage = :lang")
+    suspend fun clear(lang: String)
+
+    @Query("UPDATE suggested_topics SET dismissedAt = :now WHERE id = :id")
+    suspend fun dismiss(id: Long, now: Long)
+}
+
+@Dao
 interface QuizDao {
     @Insert
     suspend fun insertPool(pool: QuizPoolEntity): Long
@@ -455,4 +673,88 @@ interface StoryThreadDao {
 
     @Update
     suspend fun update(thread: StoryThreadEntity)
+}
+
+/** A GROUP BY projection for the drill's stats splits (per tense, per family, per direction). */
+data class DrillBucketCount(val bucket: String, val total: Int, val correct: Int)
+
+@Dao
+interface ConjugationDrillDao {
+
+    // --- selection ---
+
+    @Query("SELECT * FROM conjugation_item_stats WHERE targetLanguage = :lang")
+    suspend fun itemStats(lang: String): List<ConjugationItemStatEntity>
+
+    @Query("SELECT * FROM conjugation_item_stats WHERE itemKey = :key AND targetLanguage = :lang LIMIT 1")
+    suspend fun itemStat(key: String, lang: String): ConjugationItemStatEntity?
+
+    /**
+     * Verbs the learner has already met, in any direction. Generalize cards need a verb that is *not*
+     * in this set, so the pattern is the only way to answer.
+     */
+    @Query("SELECT DISTINCT infinitive FROM conjugation_attempts WHERE targetLanguage = :lang")
+    suspend fun seenInfinitives(lang: String): List<String>
+
+    @Insert
+    suspend fun insertStat(row: ConjugationItemStatEntity): Long
+
+    @Update
+    suspend fun updateStat(row: ConjugationItemStatEntity)
+
+    @Insert
+    suspend fun insertAttempt(row: ConjugationAttemptEntity): Long
+
+    // --- stats screen (null lang = all profiles combined) ---
+
+    @Query("SELECT COUNT(*) FROM conjugation_attempts WHERE (:lang IS NULL OR targetLanguage = :lang)")
+    fun observeAttemptCount(lang: String?): Flow<Int>
+
+    @Query(
+        "SELECT COUNT(*) FROM conjugation_attempts " +
+            "WHERE correct = 1 AND (:lang IS NULL OR targetLanguage = :lang)",
+    )
+    fun observeCorrectCount(lang: String?): Flow<Int>
+
+    /** Mean time from prompt to reveal on answers the learner got right. */
+    @Query(
+        "SELECT AVG(latencyMs) FROM conjugation_attempts " +
+            "WHERE correct = 1 AND (:lang IS NULL OR targetLanguage = :lang)",
+    )
+    fun observeAvgLatencyMs(lang: String?): Flow<Double?>
+
+    @Query(
+        "SELECT tense AS bucket, COUNT(*) AS total, SUM(correct) AS correct FROM conjugation_attempts " +
+            "WHERE (:lang IS NULL OR targetLanguage = :lang) GROUP BY tense",
+    )
+    fun observeByTense(lang: String?): Flow<List<DrillBucketCount>>
+
+    @Query(
+        "SELECT family AS bucket, COUNT(*) AS total, SUM(correct) AS correct FROM conjugation_attempts " +
+            "WHERE (:lang IS NULL OR targetLanguage = :lang) GROUP BY family",
+    )
+    fun observeByFamily(lang: String?): Flow<List<DrillBucketCount>>
+
+    @Query(
+        "SELECT direction AS bucket, COUNT(*) AS total, SUM(correct) AS correct FROM conjugation_attempts " +
+            "WHERE (:lang IS NULL OR targetLanguage = :lang) GROUP BY direction",
+    )
+    fun observeByDirection(lang: String?): Flow<List<DrillBucketCount>>
+
+    @Query("SELECT COUNT(*) FROM conjugation_item_stats WHERE (:lang IS NULL OR targetLanguage = :lang)")
+    fun observeItemsSeen(lang: String?): Flow<Int>
+
+    @Query(
+        "SELECT COUNT(*) FROM conjugation_item_stats " +
+            "WHERE mastery >= :threshold AND (:lang IS NULL OR targetLanguage = :lang)",
+    )
+    fun observeMasteredCount(lang: String?, threshold: Double): Flow<Int>
+
+    // --- reset ---
+
+    @Query("DELETE FROM conjugation_attempts WHERE (:lang IS NULL OR targetLanguage = :lang)")
+    suspend fun clearAttempts(lang: String?)
+
+    @Query("DELETE FROM conjugation_item_stats WHERE (:lang IS NULL OR targetLanguage = :lang)")
+    suspend fun clearItemStats(lang: String?)
 }

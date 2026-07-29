@@ -67,14 +67,17 @@ import com.copiosa.data.local.AudioItemEntity
 import com.copiosa.data.tts.TtsModelState
 import com.copiosa.domain.model.AudioStatus
 import com.copiosa.ui.components.EmptyState
+import com.copiosa.ui.components.ProgressBar
 import com.copiosa.ui.theme.SourceSerif
-import com.copiosa.ui.theme.skin.LocalAppSkin
-import com.copiosa.ui.theme.skin.personaTexture
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
+/**
+ * The audio queue. Hosted as a segment of the Library screen (it has no chrome of its own), so the
+ * caller supplies the height constraint and the persona texture.
+ */
 @Composable
-fun AudioScreen(viewModel: AudioViewModel = hiltViewModel()) {
+fun AudioPane(modifier: Modifier = Modifier, viewModel: AudioViewModel = hiltViewModel()) {
     val items by viewModel.items.collectAsState()
     val modelState by viewModel.modelState.collectAsState()
     val playback by viewModel.playbackState.collectAsState()
@@ -94,20 +97,15 @@ fun AudioScreen(viewModel: AudioViewModel = hiltViewModel()) {
     val hasPlayed = items.any { it.played }
     var confirmDeletePlayed by remember { mutableStateOf(false) }
 
-    // Match the Chats/Texts list: same persona texture over the list background, cards on top.
-    val skin = LocalAppSkin.current
-    Column(Modifier.fillMaxSize().personaTexture(skin)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                stringResource(R.string.nav_audio),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
-            if (hasPlayed) {
+    Column(modifier) {
+        // The Library header sits above the segment toggle, so this row carries only the queue's own
+        // action; it collapses away entirely when there's nothing played to sweep.
+        if (hasPlayed) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End,
+            ) {
                 IconButton(onClick = { confirmDeletePlayed = true }) {
                     Icon(Icons.Filled.DeleteSweep, contentDescription = stringResource(R.string.audio_delete_played))
                 }
@@ -176,7 +174,7 @@ private fun ModelBanner(modelState: TtsModelState, onDownload: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 if (modelState.progress >= 0f) {
-                    LinearProgressIndicator(progress = { modelState.progress }, modifier = Modifier.fillMaxWidth())
+                    ProgressBar(progress = { modelState.progress }, modifier = Modifier.fillMaxWidth())
                 } else {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }

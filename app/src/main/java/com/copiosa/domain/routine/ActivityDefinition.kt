@@ -32,7 +32,10 @@ data class ActivityDefinition(
     val needsLlm: Boolean,
     val needsTts: Boolean = false,
     val needsDict: Boolean = false,
-    /** Hard activation tier; a routine type drops anything above its [RoutineType.maxArousal]. */
+    /**
+     * Activation tier. A routine type draws freely up to its [RoutineType.maxArousal] and admits only
+     * a small quota from above it, confined to one band — see [RoutineType].
+     */
     val arousalLevel: ArousalLevel = ArousalLevel.MEDIUM,
     /** A closer is forced to the very end of its band/routine (the bedtime story). */
     val isCloser: Boolean = false,

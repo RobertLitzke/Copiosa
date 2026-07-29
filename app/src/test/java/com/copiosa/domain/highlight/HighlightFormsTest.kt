@@ -1,5 +1,6 @@
 package com.copiosa.domain.highlight
 
+import com.copiosa.data.local.FlashcardEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -25,4 +26,24 @@ class HighlightFormsTest {
     @Test fun `encode skips blank forms`() {
         assertTrue(!HighlightTargetProvider.encode(setOf("vivir", "")).contains(";;"))
     }
+
+    @Test fun `targetTerm is the front of a forward card`() {
+        assertEquals("gato", card(front = "gato", back = "cat", frontIsTarget = true).targetTerm)
+    }
+
+    @Test fun `targetTerm is the back of a reverse card`() {
+        // A reverse Anki import prompts from the native side, so its target headword sits on the back.
+        // Keying highlights off the front here would tint English words in the Spanish reading text.
+        assertEquals("gato", card(front = "cat", back = "gato", frontIsTarget = false).targetTerm)
+    }
+
+    private fun card(front: String, back: String, frontIsTarget: Boolean) = FlashcardEntity(
+        front = front,
+        back = back,
+        frontIsTarget = frontIsTarget,
+        targetLanguage = "es",
+        nativeLanguage = "en",
+        createdAt = 0L,
+        dueAt = 0L,
+    )
 }

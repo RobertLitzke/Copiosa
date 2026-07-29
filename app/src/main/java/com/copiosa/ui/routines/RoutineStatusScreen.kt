@@ -79,6 +79,14 @@ fun RoutineStatusScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
+                if (state.conjugation.isNotEmpty()) {
+                    StatusCard(stringResource(R.string.routine_status_group_conjugation)) {
+                        state.conjugation.forEachIndexed { i, bucket ->
+                            if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            BucketRow(bucket)
+                        }
+                    }
+                }
                 StatusCard(stringResource(R.string.routine_status_group_cloze)) {
                     state.clozeCategories.forEachIndexed { i, bucket ->
                         if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

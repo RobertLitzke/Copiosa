@@ -1,13 +1,17 @@
 package com.copiosa.ui.components
 
+import androidx.annotation.StringRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,9 +31,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.copiosa.R
 
@@ -50,68 +57,89 @@ fun CircleAvatar(
     }
 }
 
-/** Shared list header: a large title with a search toggle that swaps in a search field. */
-@Composable
-fun ListHeader(
-    title: String,
-    searching: Boolean,
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onToggleSearch: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (searching) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                placeholder = { Text(stringResource(R.string.search_hint)) },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onToggleSearch) {
-                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.action_search))
-            }
-        } else {
-            Text(
-                title,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onToggleSearch) {
-                Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.action_search))
-            }
-        }
-    }
-}
+/** Search state for [ScreenHeader]; pass null when a screen has no search affordance. */
+data class HeaderSearch(
+    val active: Boolean,
+    val query: String,
+    val onQueryChange: (String) -> Unit,
+    val onToggle: () -> Unit,
+    /** Placeholder override; defaults to the generic search hint. */
+    @StringRes val hintRes: Int = R.string.search_hint,
+)
 
-/** Plain screen title (no search), with an optional back button. Matches the list headers. */
+/**
+ * The one header every screen uses: `[back?] [logo?] Title [search?] [actions…]`.
+ *
+ * The brand logo stands in for the app's identity on top-level destinations; screens reached with a
+ * back arrow show that instead. While [search] is active the whole row gives way to the text field.
+ */
 @Composable
 fun ScreenHeader(
     title: String,
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
+    search: HeaderSearch? = null,
+    actions: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = if (onBack != null) 4.dp else 20.dp, end = 20.dp, top = 12.dp, bottom = 8.dp),
+            .padding(start = if (onBack != null) 4.dp else 20.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (search != null && search.active) {
+            OutlinedTextField(
+                value = search.query,
+                onValueChange = search.onQueryChange,
+                placeholder = { Text(stringResource(search.hintRes)) },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = search.onToggle) {
+                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.action_search))
+            }
+            return@Row
+        }
+
         if (onBack != null) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
             }
             Spacer(Modifier.width(4.dp))
+        } else {
+            // The adjacent title already names the screen, so the logo is decorative.
+            Image(
+                painter = painterResource(brandLogoRes()),
+                contentDescription = null,
+                modifier = Modifier.height(28.dp),
+            )
+            Spacer(Modifier.width(10.dp))
         }
-        Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text(
+            title,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (search != null) {
+            IconButton(onClick = search.onToggle) {
+                Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.action_search))
+            }
+        }
+        actions()
     }
 }
+
+/**
+ * The logo variant that survives the current background. Chosen from the resolved colour scheme
+ * rather than a `-night` resource qualifier, because a country skin can select a dark palette
+ * independently of the system uiMode.
+ */
+@Composable
+fun brandLogoRes(): Int =
+    if (MaterialTheme.colorScheme.background.luminance() < 0.5f) R.drawable.ic_logo_dark else R.drawable.ic_logo
 
 /** Small uppercase group label used to head sections (settings, the model menu, etc.). */
 @Composable

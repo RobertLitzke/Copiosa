@@ -12,6 +12,8 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.copiosa.data.local.AudioItemEntity
 import com.copiosa.data.repository.AudioRepository
+import com.copiosa.data.stats.FocusTimeTracker
+import com.copiosa.domain.stats.FocusActivityType
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +42,7 @@ data class PlaybackUiState(
 class PlaybackController @Inject constructor(
     @ApplicationContext private val context: Context,
     private val audioRepo: AudioRepository,
+    private val focusTracker: FocusTimeTracker,
 ) {
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -48,6 +51,9 @@ class PlaybackController @Inject constructor(
 
     /** The track currently loaded, tracked so we know which one just finished on a transition. */
     private var currentId: Long? = null
+
+    /** Language per queued item, snapshotted at [play] so listening time lands in the right profile. */
+    private var langById: Map<Long, String> = emptyMap()
 
     private val _state = MutableStateFlow(PlaybackUiState())
     val state: StateFlow<PlaybackUiState> = _state.asStateFlow()
@@ -59,6 +65,9 @@ class PlaybackController @Inject constructor(
                 currentId?.let { markPlayed(it) }
             }
             currentId = mediaItem?.mediaId?.toLongOrNull()
+            // Restart the listening session under the new track's language (a no-op split for
+            // same-language queues; playlists are per-profile anyway).
+            if (controller?.isPlaying == true) startListening()
             pushState()
         }
 
@@ -70,12 +79,39 @@ class PlaybackController @Inject constructor(
             pushState()
         }
 
-        override fun onIsPlayingChanged(isPlaying: Boolean) = pushState()
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying) startListening() else focusTracker.stop(FocusTimeTracker.Channel.PLAYBACK)
+            pushState()
+        }
+    }
+
+    /**
+     * Opens (or re-opens under a new language) the LISTENING focus session for the current track.
+     * Counts while the app is backgrounded — this controller and the tracker are process singletons
+     * kept alive by [AudioPlaybackService]. Falls back to a DB lookup for an id missing from the
+     * snapshot (e.g. a session restored after process death).
+     */
+    private fun startListening() {
+        val id = currentId ?: return
+        val lang = langById[id]
+        if (lang != null) {
+            focusTracker.start(FocusTimeTracker.Channel.PLAYBACK, FocusActivityType.LISTENING, lang)
+            return
+        }
+        ioScope.launch {
+            val item = audioRepo.getById(id) ?: return@launch
+            langById = langById + (id to item.langCode)
+            // Only still relevant if this track is still the one playing.
+            if (currentId == id && controller?.isPlaying == true) {
+                focusTracker.start(FocusTimeTracker.Channel.PLAYBACK, FocusActivityType.LISTENING, item.langCode)
+            }
+        }
     }
 
     /** Plays [items] as a playlist, starting at [startId] (or the first item). */
     fun play(items: List<AudioItemEntity>, startId: Long?) {
         if (items.isEmpty()) return
+        langById = items.associate { it.id to it.langCode }
         withController { c ->
             val startIndex = items.indexOfFirst { it.id == startId }.takeIf { it >= 0 } ?: 0
             c.setMediaItems(items.map { it.toMediaItem() }, startIndex, 0L)

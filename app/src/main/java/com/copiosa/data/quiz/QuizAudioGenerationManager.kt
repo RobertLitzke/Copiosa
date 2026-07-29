@@ -1,18 +1,18 @@
 package com.copiosa.data.quiz
 
 import android.util.Log
+import com.copiosa.data.tts.RenderQueueStore
 import com.copiosa.data.tts.SupertonicModelStore
 import com.copiosa.data.tts.TtsEngine
 import com.copiosa.data.tts.TtsModelState
 import com.copiosa.data.tts.TtsRenderQueue
+import com.copiosa.di.AppScope
 import com.copiosa.domain.model.AudioStatus
 import com.copiosa.domain.quiz.CueType
 import com.copiosa.domain.quiz.QuizPoolConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,23 +44,20 @@ class QuizAudioGenerationManager @Inject constructor(
     private val seeder: QuizPoolSeeder,
     private val tts: TtsEngine,
     modelStore: SupertonicModelStore,
+    @AppScope private val scope: CoroutineScope,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
     private val _seedState = MutableStateFlow<PoolSeedState>(PoolSeedState.Idle)
     val seedState: StateFlow<PoolSeedState> = _seedState.asStateFlow()
 
     private val queue = TtsRenderQueue(
         scope = scope,
         modelStore = modelStore,
-        nextPendingId = { repo.unrendered().firstOrNull()?.id },
-        resetOrphans = {
-            // A process death mid-synthesis leaves a GENERATING row with no job behind it; reset it.
-            repo.unrendered()
-                .filter { it.status == AudioStatus.GENERATING }
-                .forEach { repo.setStatus(it.id, AudioStatus.PENDING) }
+        store = object : RenderQueueStore {
+            override suspend fun unrendered() = repo.unrendered().map { it.id to it.status }
+            override suspend fun setStatus(id: Long, status: AudioStatus) = repo.setStatus(id, status)
+            override suspend fun setFailed(id: Long, message: String) = repo.setFailed(id, message)
         },
-        processOne = ::processOne,
+        render = ::render,
     )
 
     init {
@@ -97,25 +94,19 @@ class QuizAudioGenerationManager @Inject constructor(
         }
     }
 
-    private suspend fun processOne(id: Long) {
+    /** Owner-specific render (the queue wraps this in the GENERATING/PENDING/FAILED envelope). */
+    private suspend fun render(id: Long) {
         val cue = repo.getCue(id) ?: return
-        repo.setStatus(id, AudioStatus.GENERATING)
-        try {
-            val out = repo.cacheFile(cue.spokenText, cue.langCode, cue.sid)
-            if (out.exists() && out.length() > 0) {
-                repo.setReady(id, out, null)
-                return
-            }
-            val durationMs = tts.synthesizeToFile(
-                cue.spokenText, cue.langCode, cue.sid, out, QuizPoolRepository.RENDER_SPEED,
-            )
-            repo.setReady(id, out, durationMs.takeIf { it > 0 })
-        } catch (e: CancellationException) {
-            repo.setStatus(id, AudioStatus.PENDING)
-            throw e
-        } catch (e: Exception) {
-            repo.setFailed(id, e.message ?: "Synthesis failed")
+        val out = repo.cacheFile(cue.spokenText, cue.langCode, cue.sid)
+        // Cue audio is content-hash-named, so an identical cue rendered earlier is reused as-is.
+        if (out.exists() && out.length() > 0) {
+            repo.setReady(id, out, null)
+            return
         }
+        val durationMs = tts.synthesizeToFile(
+            cue.spokenText, cue.langCode, cue.sid, out, QuizPoolRepository.RENDER_SPEED,
+        )
+        repo.setReady(id, out, durationMs.takeIf { it > 0 })
     }
 
     private companion object {

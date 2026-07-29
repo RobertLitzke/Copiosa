@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,6 +30,9 @@ import com.copiosa.R
 import com.copiosa.domain.routine.ActivityInstance
 import com.copiosa.domain.routine.RoutinePlanCodec
 import com.copiosa.domain.routine.RoutineRunStatus
+import com.copiosa.domain.stats.FocusActivityType
+import com.copiosa.ui.components.ProgressBar
+import com.copiosa.ui.components.TrackFocusTime
 import com.copiosa.ui.routines.activities.ActivityRenderContext
 import com.copiosa.ui.routines.activities.ActivityRenderers
 
@@ -43,6 +45,8 @@ fun RoutinePlayerScreen(
     val run by viewModel.run.collectAsState()
     val index by viewModel.index.collectAsState()
     val current = run
+
+    TrackFocusTime(FocusActivityType.ROUTINE, current?.targetLanguage)
 
     when {
         current == null -> CenteredSpinner()
@@ -89,7 +93,7 @@ private fun ActivityHost(
         entry.renderer.Render(ctx)
     } else {
         Column(Modifier.fillMaxSize()) {
-            LinearProgressIndicator(
+            ProgressBar(
                 progress = { (index + 1f) / total },
                 modifier = Modifier.fillMaxWidth(),
             )

@@ -2,6 +2,7 @@ package com.copiosa.data.local
 
 import androidx.room.TypeConverter
 import com.copiosa.domain.model.AudioStatus
+import com.copiosa.domain.model.BookDirection
 import com.copiosa.domain.model.CardKind
 import com.copiosa.domain.model.Cefr
 import com.copiosa.domain.model.FlashcardState
@@ -11,6 +12,7 @@ import com.copiosa.domain.model.ReviewDirection
 import com.copiosa.domain.model.ReviewRating
 import com.copiosa.domain.model.Role
 import com.copiosa.domain.quiz.CueType
+import com.copiosa.domain.stats.FocusActivityType
 import com.copiosa.domain.routine.ActivityType
 import com.copiosa.domain.routine.RoutineRunStatus
 import com.copiosa.domain.routine.RoutineType
@@ -20,6 +22,11 @@ import com.copiosa.domain.routine.TopicSource
 class Converters {
     @TypeConverter fun cefrToString(v: Cefr): String = v.name
     @TypeConverter fun stringToCefr(v: String): Cefr = Cefr.valueOf(v)
+
+    @TypeConverter fun bookDirectionToString(v: BookDirection): String = v.name
+    // Falls back to FORWARD (the only direction books had before the column existed).
+    @TypeConverter fun stringToBookDirection(v: String): BookDirection =
+        runCatching { BookDirection.valueOf(v) }.getOrDefault(BookDirection.FORWARD)
 
     @TypeConverter fun modeToString(v: Mode): String = v.name
     @TypeConverter fun stringToMode(v: String): Mode = Mode.valueOf(v)
@@ -64,4 +71,7 @@ class Converters {
 
     @TypeConverter fun cueTypeToString(v: CueType): String = v.name
     @TypeConverter fun stringToCueType(v: String): CueType = CueType.valueOf(v)
+
+    @TypeConverter fun focusActivityToString(v: FocusActivityType): String = v.name
+    @TypeConverter fun stringToFocusActivity(v: String): FocusActivityType = FocusActivityType.valueOf(v)
 }

@@ -3,11 +3,78 @@
     <string name="app_name">Copiosa</string>
 
     <!-- Navigation -->
+    <string name="nav_home">Home</string>
     <string name="nav_library">Library</string>
     <string name="nav_lexicon">Vocab</string>
     <string name="nav_audio">Audio</string>
     <string name="nav_routines">Routines</string>
     <string name="nav_settings">Settings</string>
+
+    <!-- Home -->
+    <string name="home_min_this_week">min, last 7 days</string>
+    <plurals name="home_streak">
+        <item quantity="one">%1$d-day streak</item>
+        <item quantity="other">%1$d-day streak</item>
+    </plurals>
+    <string name="home_continue_reading">Continue reading</string>
+    <string name="home_keep_going">Keep going</string>
+    <string name="home_card_review_label">Review</string>
+    <string name="home_card_review">Words to review</string>
+    <string name="home_card_listening_label">Listening</string>
+    <string name="home_card_listening">Rapid listening drill</string>
+    <string name="home_card_audio_label">Unheard</string>
+    <string name="home_card_audio">New audio</string>
+    <string name="home_card_chats_label">Conversation</string>
+    <string name="home_card_chats">Unread conversations</string>
+
+    <!-- Stats screen -->
+    <string name="stats_title">Your stats</string>
+    <string name="stats_scope_all">All languages</string>
+    <string name="stats_time_section">Time &amp; consistency</string>
+    <string name="stats_total_time">Total time</string>
+    <string name="stats_current_streak">Current streak</string>
+    <string name="stats_longest_streak">Longest streak</string>
+    <string name="stats_days_studied">Total study</string>
+    <string name="stats_best_day">Best day</string>
+    <string name="stats_daily_average">Daily average</string>
+    <string name="stats_by_activity">By activity</string>
+    <string name="stats_daily_time">Time per day (30d)</string>
+    <string name="stats_chart_hint">Tap a bar for that day</string>
+    <string name="stats_heatmap_title">Last 12 weeks</string>
+    <string name="stats_vocab_section">Vocabulary &amp; reviews</string>
+    <string name="stats_total_cards">Total words</string>
+    <string name="stats_reviews_done">Reviews done</string>
+    <string name="stats_accuracy">Accuracy</string>
+    <string name="stats_added_7">Added (7d)</string>
+    <string name="stats_added_30">Added (30d)</string>
+    <string name="stats_frozen">Frozen</string>
+    <string name="stats_card_states">Card states</string>
+    <string name="stats_reviews_per_day">Reviews per day (30d)</string>
+    <string name="stats_answer_distribution">Answer distribution</string>
+    <plurals name="stats_days">
+        <item quantity="one">%d day</item>
+        <item quantity="other">%d days</item>
+    </plurals>
+    <string name="stats_state_new">New</string>
+    <string name="stats_state_learning">Learning</string>
+    <string name="stats_state_known">Known</string>
+    <string name="stats_reading_section">Reading &amp; listening</string>
+    <string name="stats_conversations">Conversations</string>
+    <string name="stats_messages">Messages</string>
+    <string name="stats_texts">Texts finished</string>
+    <string name="stats_audio_played">Audio played</string>
+    <string name="stats_listening">Listening time</string>
+    <string name="stats_clear">Clear stats</string>
+    <string name="stats_clear_confirm_title">Clear study-time stats?</string>
+    <string name="stats_clear_confirm_body_active">This erases all study-time history for %1$s. Your flashcards, review history, and everything else stay. This can\'t be undone.</string>
+    <string name="stats_clear_confirm_body_all">This erases all study-time history for every language. Your flashcards, review history, and everything else stay. This can\'t be undone.</string>
+    <string name="activity_reading">Reading</string>
+    <string name="activity_reading_book">Books</string>
+    <string name="activity_listening">Listening</string>
+    <string name="activity_review">Review</string>
+    <string name="activity_quiz">Quiz</string>
+    <string name="activity_routine">Routines</string>
+    <string name="activity_conjugation">Conjugation</string>
 
     <!-- Routines -->
     <string name="routines_title">Routines</string>
@@ -53,6 +120,7 @@
     <string name="routine_status_group_referential">Referential PI</string>
     <string name="routine_status_group_mc_cloze">Multiple-choice cloze</string>
     <string name="routine_status_group_rapid_fire">Rapid-fire listening</string>
+    <string name="routine_status_group_conjugation">Conjugation patterns</string>
     <string name="routine_status_group_affective">Affective PI</string>
 
     <!-- Rapid-fire listening quiz -->
@@ -61,6 +129,7 @@
     <string name="quiz_card_desc">Hear a number or time, tap the match — fast.</string>
     <string name="quiz_card_desc_numbers">Hear a spoken number, tap the match — fast.</string>
     <string name="quiz_card_desc_times">Hear a spoken time, tap the match — fast.</string>
+    <string name="quiz_card_desc_restaurant">Hear a phrase from a waiter or host, pick the meaning.</string>
     <string name="quiz_intro">Train yourself to catch spoken numbers and times instantly. Set up a practice pool of audio clips first — they generate once and are reused across sessions.</string>
     <string name="quiz_setup_pool">Set up practice pool</string>
     <string name="quiz_pool_open">Pool settings</string>
@@ -109,6 +178,8 @@
     <string name="quiz_pool_seed_fallbacks">%1$d clips skipped — no usable phrasing from the model.</string>
     <string name="quiz_cue_numbers">Numbers</string>
     <string name="quiz_cue_times">Times</string>
+    <string name="quiz_cue_restaurant">Restaurant</string>
+    <string name="quiz_pool_phrase_note">Phrases and their answer options are written entirely by your AI model when the pool is generated, so an API key is required.</string>
     <string name="quiz_time_numeric">Plain</string>
     <string name="quiz_time_colloquial">Colloquial</string>
     <string name="quiz_time_mixed">Mixed</string>
@@ -132,6 +203,34 @@
     <string name="new_chat">New chat</string>
     <string name="add_text">Add a text</string>
 
+    <string name="review_undo">Undo last grade</string>
+
+    <!-- Backup / restore -->
+    <string name="settings_backup_section">Backup</string>
+    <string name="settings_backup_desc">Everything — vocabulary, chats, texts, audio, settings — in one zip. API keys and downloadable packs are not included.</string>
+    <string name="settings_backup_export">Export backup</string>
+    <string name="settings_backup_restore">Restore</string>
+    <string name="settings_backup_saved">Backup saved</string>
+    <string name="settings_backup_failed">Something went wrong — nothing was changed</string>
+    <string name="settings_restore_confirm_title">Restore from backup?</string>
+    <string name="settings_restore_confirm_body">All current data will be replaced by the backup. The app will close when finished — reopen it to continue.</string>
+
+    <!-- Review reminder notification + its settings toggle -->
+    <string name="settings_notifications_section">Notifications</string>
+    <string name="settings_review_reminders">Review reminders</string>
+    <string name="settings_review_reminders_desc">Get a daily nudge when cards are waiting for review</string>
+    <string name="review_reminder_channel">Review reminders</string>
+    <string name="review_reminder_title">Time to review</string>
+    <plurals name="review_reminder_body">
+        <item quantity="one">%1$d card is ready to review</item>
+        <item quantity="other">%1$d cards are ready to review</item>
+    </plurals>
+
+    <!-- Launcher shortcuts (long-press the app icon) -->
+    <string name="shortcut_review">Review cards</string>
+    <string name="shortcut_new_chat">New chat</string>
+    <string name="shortcut_routine">Start routine</string>
+
     <!-- New conversation -->
     <string name="new_title">New session</string>
     <string name="mode_conversation">Conversation</string>
@@ -154,13 +253,15 @@
     <string name="action_copy">Copy</string>
     <string name="action_save_word">Save</string>
     <string name="action_save_as">Save “%1$s”</string>
-    <string name="action_save_form_instead">Save “%1$s” as-is</string>
     <string name="explain_prompt">Translate \"%1$s\", then briefly explain how it\'s used here.</string>
     <string name="translating">Translating…</string>
     <string name="translate_unavailable">Offline translation unavailable. Tap Explain for an in-context explanation.</string>
+    <string name="translate_of_lemma">translation of %1$s</string>
     <string name="dict_download">Download offline dictionary (~85 MB)</string>
     <string name="dict_downloading">Downloading dictionary…</string>
     <string name="dict_loading">Looking up…</string>
+    <string name="dict_pick_headword">Save which one?</string>
+    <string name="dict_as_written">“%1$s” — as written</string>
     <string name="thinking">Thinking…</string>
     <string name="save_as_flashcard">Save as flashcard</string>
     <string name="saved">Saved</string>
@@ -192,6 +293,8 @@
     <!-- Text reading -->
     <string name="text_view_translation">Translation</string>
     <string name="text_view_original">Original</string>
+    <!-- Book reader only: both languages interleaved, target text then source. -->
+    <string name="text_view_both">Both</string>
     <string name="text_discuss">Discuss this text</string>
     <string name="text_importing">Importing…</string>
     <string name="text_translating">Translating…</string>
@@ -200,6 +303,43 @@
     <string name="text_continue">Continue translating</string>
     <string name="text_partial_error">Translation stopped partway. Your progress is saved.</string>
 
+    <!-- Book reading -->
+    <string name="book_source">Book</string>
+    <string name="book_translating_progress">Translating section %1$d of %2$d…</string>
+    <string name="book_paused_auto">%1$d of %2$d sections translated — more will translate as you read.</string>
+    <string name="book_paused_manual">%1$d of %2$d sections translated.</string>
+    <string name="book_continue">Continue</string>
+    <string name="book_translate_background">Translate whole book in background</string>
+    <string name="book_delete_title">Delete this book?</string>
+    <string name="book_delete_confirm">The book, its translation, and your reading position will be removed. Saved vocabulary stays.</string>
+    <string name="book_import_failed">Couldn\'t import the book</string>
+    <string name="book_importing">Importing book…</string>
+    <string name="book_translated_progress">%1$d/%2$d translated</string>
+    <string name="book_view_target">Target</string>
+    <string name="book_view_native">Native</string>
+    <string name="book_paragraph_pending">Not translated yet…</string>
+
+    <!-- Table of contents -->
+    <string name="book_toc_title">Contents</string>
+    <string name="cd_table_of_contents">Table of contents</string>
+    <string name="book_chapter_n">Chapter %1$d</string>
+    <string name="book_toc_partial">Partly translated</string>
+    <string name="book_toc_not_translated">Not translated yet</string>
+    <plurals name="book_toc_locked_hint">
+        <item quantity="one">%1$d more chapter isn\'t translated yet.</item>
+        <item quantity="other">%1$d more chapters aren\'t translated yet.</item>
+    </plurals>
+
+    <!-- Book import options -->
+    <string name="book_import_title">Import book</string>
+    <string name="book_import_language_q">This book is written in</string>
+    <string name="book_import_level">Translate into %1$s at level</string>
+    <string name="book_import_reverse_note">You\'ll read the book as written. Tap any word to translate it and save it as a card.</string>
+    <string name="book_import_translate_all">Also translate the whole book into %1$s</string>
+    <string name="book_import_action">Import</string>
+    <string name="settings_book_read_ahead">Translate ahead while reading books</string>
+    <string name="settings_book_read_ahead_desc">Keep a couple of sections translated past where you\'re reading.</string>
+
     <!-- Library (combined chats + translations) -->
     <string name="library_title">Library</string>
     <string name="library_empty">No chats yet. Start one with the + button.</string>
@@ -207,11 +347,15 @@
     <string name="search_hint">Search…</string>
     <string name="filter_all">All</string>
     <string name="filter_chats">Chats</string>
-    <string name="filter_translations">Translations</string>
+    <string name="filter_translations">Sites</string>
+    <string name="filter_audio">Audio</string>
+    <string name="filter_books">Books</string>
+    <string name="library_empty_books">No books yet. Long-press + to import an EPUB.</string>
 
     <!-- Batch chats (long-press the + FAB) -->
     <string name="fab_new_chat">New conversation</string>
     <string name="fab_many_chats">Many conversations</string>
+    <string name="fab_import_book">Import book</string>
     <string name="batch_chats_title">New chats from topics</string>
     <string name="batch_chats_helper">One topic per line. Each becomes its own chat, generated in the background.</string>
     <string name="batch_chats_hint">History of Mexico\nThe water cycle\nMy weekend plans</string>
@@ -260,6 +404,7 @@
     <string name="export_done_message">%1$d cards, %2$d reviews, %3$d media files exported.</string>
     <string name="export_failed_title">Export failed</string>
     <string name="vocab_example_label">Example</string>
+    <string name="vocab_usage_note_label">Usage note</string>
     <string name="vocab_saved_label">In your vocabulary</string>
     <string name="action_view_details">Open</string>
     <string name="vocab_seen_in_chat">Seen in your chat “%1$s”</string>
@@ -284,12 +429,25 @@
     <string name="edit_card_title">Edit card</string>
     <string name="edit_card_front">Word</string>
     <string name="edit_card_back">Translation</string>
+    <string name="edit_card_alt_forms">Also known as</string>
+    <string name="edit_card_alt_forms_hint">Synonyms or variants, separated by ;</string>
     <string name="edit_card_context">Example sentence</string>
     <string name="edit_card_pos">Part of speech</string>
     <string name="edit_card_type">Card type</string>
     <string name="edit_card_direction">Review direction</string>
+    <string name="edit_card_gender">Gender</string>
+    <string name="edit_card_country">Country (optional)</string>
+    <string name="edit_card_usage_note">Usage note</string>
     <string name="edit_card_marked">Marked</string>
     <string name="edit_card_image">Image</string>
+    <!-- Grammatical gender options -->
+    <string name="gender_none">None</string>
+    <string name="gender_masculine">masculine</string>
+    <string name="gender_feminine">feminine</string>
+    <string name="gender_neuter">neuter</string>
+    <string name="gender_common">masculine or feminine</string>
+    <string name="gender_masculine_plural">masculine plural</string>
+    <string name="gender_feminine_plural">feminine plural</string>
     <string name="pos_none">None</string>
     <string name="pos_unknown">Unknown</string>
     <string name="card_kind_vocab">Vocabulary</string>
@@ -320,6 +478,10 @@
     <!-- Card freeze (Anki "suspend") -->
     <string name="action_freeze">Freeze</string>
     <string name="action_unfreeze">Unfreeze</string>
+
+    <!-- Card mark (Anki "marked") -->
+    <string name="action_mark">Mark</string>
+    <string name="action_unmark">Unmark</string>
 
     <!-- Review session size picker -->
     <string name="review_size_title">How many to review?</string>
@@ -429,6 +591,8 @@
     <!-- Common actions -->
     <string name="action_done">Done</string>
     <string name="action_cancel">Cancel</string>
+    <string name="action_ok">OK</string>
+    <string name="action_dismiss">Dismiss</string>
     <string name="action_delete">Delete</string>
     <string name="action_save_anyway">Save anyway</string>
 
@@ -508,10 +672,14 @@
     <string name="message_meta_model">Model</string>
     <string name="message_meta_level">Level</string>
     <string name="message_meta_injected">Target words injected</string>
-    <string name="message_meta_used">Words the model used</string>
+    <string name="message_meta_used">Words used (detected in reply)</string>
     <string name="message_meta_unused">Words unused</string>
     <string name="message_meta_distinctive">Distinctive words</string>
+    <string name="message_meta_raw">Raw response</string>
     <!-- Settings: on-device speech -->
+    <string name="settings_background_section">Background</string>
+    <string name="settings_background_tasks">Background tasks</string>
+    <string name="settings_background_tasks_desc">Suggest new topics and retry failed chats while the app is closed. Uses your API key.</string>
     <string name="settings_speech_section">Speech (text-to-speech)</string>
     <string name="settings_tts_title">On-device voice</string>
     <string name="settings_tts_not_downloaded">Not installed. Download to enable listening (Audio tab).</string>
@@ -526,4 +694,146 @@
     <string name="settings_audio_retention">Auto-delete played audio</string>
     <string name="settings_audio_retention_off">Never</string>
     <string name="settings_audio_retention_days">After %1$d days</string>
+    <!-- Settings: review schedule (FSRS target recall) -->
+    <string name="settings_srs_section">Review schedule</string>
+    <string name="settings_srs_retention">Target recall</string>
+    <string name="settings_srs_retention_value">%1$d%%</string>
+    <string name="settings_srs_explainer">The share of reviews you aim to get right. Higher means cards come back sooner and you review more often; lower means longer gaps and more forgetting. This applies to this language only.</string>
+    <string name="settings_srs_preview_title">What this changes</string>
+    <string name="settings_srs_preview_row">%1$s → %2$s</string>
+    <string name="settings_srs_apply">Apply</string>
+    <string name="settings_srs_confirm_title">Change the review schedule?</string>
+    <string name="settings_srs_confirm_body">Sets target recall to %1$d%% for %2$s. Cards move onto the new schedule as you grade them — due dates already set won\'t change until then.</string>
+    <string name="settings_srs_days">%1$d days</string>
+    <string name="settings_srs_month_one">1 month</string>
+    <string name="settings_srs_months">%1$d months</string>
+    <string name="settings_srs_year_one">1 year</string>
+    <string name="settings_srs_years">%1$s years</string>
+    <!-- Settings: daily study goal (home tracker target line) -->
+    <string name="settings_goal_section">Daily goal</string>
+    <string name="settings_goal_label">Study goal</string>
+    <string name="settings_goal_value">%1$d min/day</string>
+    <string name="settings_goal_explainer">Shown as a target line on the home tracker; days that reach it are highlighted.</string>
+
+    <!-- Conjugation drill -->
+    <string name="conj_title">Conjugation</string>
+    <string name="conj_card_title">Conjugation drill</string>
+    <string name="conj_card_desc">Work a form out in your head, reveal it, and see exactly which part is irregular.</string>
+    <string name="conj_reveal">Reveal</string>
+    <string name="conj_grade_missed">Missed it</string>
+    <string name="conj_grade_got_it">Got it</string>
+    <string name="conj_not">not</string>
+    <string name="conj_decode_hint">Which verb, person and tense?</string>
+    <string name="conj_start">Start drill</string>
+    <string name="conj_restart">Drill again</string>
+    <string name="conj_finish">Done</string>
+    <string name="conj_unavailable">The conjugation drill is Spanish-only for now.</string>
+
+    <!-- Conjugation drill: setup -->
+    <string name="conj_setup_count">Questions</string>
+    <string name="conj_setup_tenses">Tenses</string>
+    <string name="conj_setup_directions">Card types</string>
+    <string name="conj_setup_emphasis">Irregular emphasis</string>
+    <string name="conj_setup_emphasis_low">Even</string>
+    <string name="conj_setup_emphasis_mid">Lean irregular</string>
+    <string name="conj_setup_emphasis_high">Irregular only</string>
+    <string name="conj_setup_vosotros">Include vosotros</string>
+
+    <!-- Conjugation drill: results -->
+    <string name="conj_results_title">Session complete</string>
+    <string name="conj_results_accuracy">Accuracy</string>
+    <string name="conj_results_answered">Answered</string>
+    <string name="conj_results_speed">Average time</string>
+    <string name="conj_results_by_tense">By tense</string>
+    <string name="conj_results_by_family">By pattern</string>
+    <string name="conj_results_seconds">%1$.1fs</string>
+    <string name="conj_summary_mastered">%1$d of %2$d forms solid</string>
+    <plurals name="conj_summary_accuracy">
+        <item quantity="one">%1$d%% correct, from %2$d answer so far</item>
+        <item quantity="other">%1$d%% correct, from %2$d answers so far</item>
+    </plurals>
+
+    <!-- Conjugation drill: card types -->
+    <string name="conj_direction_produce">Conjugate it</string>
+    <string name="conj_direction_decode">Name the form</string>
+    <string name="conj_direction_transform">Derive it</string>
+    <string name="conj_direction_generalize">Apply the pattern</string>
+    <string name="conj_transform_pret_to_subimp">→ imperfect subjunctive</string>
+    <string name="conj_transform_yo_to_subpres">→ present subjunctive</string>
+    <string name="conj_transform_fut_to_cond">→ conditional</string>
+    <string name="conj_transform_pres_to_pret">→ preterite</string>
+
+    <!-- Conjugation drill: paradigm names. Tenses follow the interface language; the subject pronouns
+         stay Spanish, since they are the words the learner actually says. -->
+    <string name="conj_tense_present">present</string>
+    <string name="conj_tense_preterite">preterite</string>
+    <string name="conj_tense_imperfect">imperfect</string>
+    <string name="conj_tense_future">future</string>
+    <string name="conj_tense_conditional">conditional</string>
+    <string name="conj_tense_present_subjunctive">present subjunctive</string>
+    <string name="conj_tense_imperfect_subjunctive">imperfect subjunctive</string>
+    <string name="conj_person_yo">yo</string>
+    <string name="conj_person_tu">tú</string>
+    <string name="conj_person_el">él / ella</string>
+    <string name="conj_person_nosotros">nosotros</string>
+    <string name="conj_person_vosotros">vosotros</string>
+    <string name="conj_person_ellos">ellos / ellas</string>
+
+    <!-- Conjugation drill: irregularity families (proficiency buckets) -->
+    <string name="conj_family_regular">Regular</string>
+    <string name="conj_family_stem_change">Stem changes</string>
+    <string name="conj_family_yo">Irregular yo</string>
+    <string name="conj_family_strong_pret">Strong preterites</string>
+    <string name="conj_family_fut_stem">Future stems</string>
+    <string name="conj_family_orth">Spelling changes</string>
+    <string name="conj_family_suppletive">Wholly irregular</string>
+
+    <!-- Conjugation drill: irregularity classes -->
+    <string name="conj_class_stem_e_ie">e → ie stem change</string>
+    <string name="conj_class_stem_o_ue">o → ue stem change</string>
+    <string name="conj_class_stem_e_i">e → i stem change</string>
+    <string name="conj_class_stem_u_ue">u → ue stem change</string>
+    <string name="conj_class_stem_i_ie">i → ie stem change</string>
+    <string name="conj_class_stem_raise_pret">Preterite stem raise</string>
+    <string name="conj_class_yo_go">-go yo form</string>
+    <string name="conj_class_yo_zco">-zco yo form</string>
+    <string name="conj_class_yo_oy">-oy yo form</string>
+    <string name="conj_class_yo_other">Irregular yo form</string>
+    <string name="conj_class_subj_yo_stem">Subjunctive off the yo stem</string>
+    <string name="conj_class_strong_pret_u">u-stem preterite</string>
+    <string name="conj_class_strong_pret_i">i-stem preterite</string>
+    <string name="conj_class_strong_pret_j">j-stem preterite</string>
+    <string name="conj_class_strong_pret_ending">Unstressed preterite ending</string>
+    <string name="conj_class_fut_dr">-dr- future stem</string>
+    <string name="conj_class_fut_drop">Vowel-drop future stem</string>
+    <string name="conj_class_fut_irregular">Contracted future stem</string>
+    <string name="conj_class_orth_car_gar_zar">-car / -gar / -zar spelling</string>
+    <string name="conj_class_orth_ger_gir_guir">-ger / -gir / -guir spelling</string>
+    <string name="conj_class_orth_y_hiatus">i → y between vowels</string>
+    <string name="conj_class_orth_i_loss">Dropped unstressed i</string>
+    <string name="conj_class_accent_shift">Written accent</string>
+    <string name="conj_class_suppletive">Suppletive</string>
+    <string name="conj_class_imperfect_irregular">Irregular imperfect</string>
+    <string name="conj_class_subj_irregular">Irregular subjunctive</string>
+    <string name="conj_class_other">Irregular</string>
+
+    <!-- Conjugation reference tables -->
+    <string name="conj_reference_open">Conjugation reference</string>
+    <string name="conj_reference_title">Reference</string>
+    <string name="conj_reference_patterns">Regular patterns</string>
+    <string name="conj_reference_patterns_desc">How each class conjugates when nothing deviates.</string>
+    <string name="conj_reference_irregular">Irregular patterns</string>
+    <string name="conj_reference_irregular_desc">Every class of deviation, with the verbs that show it.</string>
+    <string name="conj_reference_current">Current</string>
+    <string name="conj_reference_verbs_desc">Search any of the %1$d most common Spanish verbs.</string>
+    <string name="conj_reference_search">Search verbs</string>
+    <string name="conj_reference_no_match">No verb matches that.</string>
+    <string name="conj_reference_legend">Colour key</string>
+
+    <!-- Stats: conjugation -->
+    <string name="stats_conjugation_section">Conjugation</string>
+    <string name="stats_conj_drills">Drilled</string>
+    <string name="stats_conj_recall">Avg recall</string>
+    <string name="stats_conj_mastered">Solid</string>
+    <string name="stats_conj_seen">Forms met</string>
 </resources>

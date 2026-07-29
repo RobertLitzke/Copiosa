@@ -89,21 +89,53 @@ class WordColorizer(
         /** Shared word normalization; delegates to the highlight layer's [normalizeWord]. */
         fun normalize(word: String): String = normalizeWord(word)
 
-        // Spanish definite + indefinite articles, grouped by grammatical gender. Number is intentionally
-        // ignored (both "la fiesta" and "las fiestas" should highlight), since real text agrees in gender.
+        // Definite + indefinite articles grouped by grammatical gender, per language. Number is
+        // intentionally ignored (both "la fiesta" and "las fiestas" should highlight), since real text
+        // agrees in gender. German is approximate — its cases make article→gender ambiguous — which is
+        // fine here: this only decides whether to reach the tint back over a preceding article.
         private val ES_MASCULINE = setOf("el", "los", "un", "unos")
         private val ES_FEMININE = setOf("la", "las", "una", "unas")
+        private val PT_MASCULINE = setOf("o", "os", "um", "uns")
+        private val PT_FEMININE = setOf("a", "as", "uma", "umas")
+        private val FR_MASCULINE = setOf("le", "un", "du")
+        private val FR_FEMININE = setOf("la", "une")
+        private val FR_PLURAL = setOf("les", "des")
+        private val DE_MASCULINE = setOf("der", "den", "dem", "ein", "einen", "einem")
+        private val DE_FEMININE = setOf("die", "eine", "einer")
+        private val DE_NEUTER = setOf("das", "dem", "ein", "einem")
 
         /**
-         * Articles that may precede a noun with the stored [genderCode] (M/F/MF/MPL/FPL) in [lang], or
-         * null when [lang] has no article table (article highlighting is Spanish-only for now).
+         * Articles that may precede a noun with the stored [genderCode] (M/F/MF/N/MPL/FPL) in [lang],
+         * or null when [lang] has no article table.
          */
         private fun articlesFor(lang: String, genderCode: String): Set<String>? {
-            if (lang != "es") return null
-            return when {
-                genderCode.equals("MF", ignoreCase = true) -> ES_MASCULINE + ES_FEMININE
-                genderCode.startsWith("F", ignoreCase = true) -> ES_FEMININE
-                genderCode.startsWith("M", ignoreCase = true) -> ES_MASCULINE
+            val g = genderCode.uppercase()
+            return when (lang.lowercase().substringBefore('-')) {
+                "es" -> when {
+                    g == "MF" -> ES_MASCULINE + ES_FEMININE
+                    g.startsWith("F") -> ES_FEMININE
+                    g.startsWith("M") -> ES_MASCULINE
+                    else -> null
+                }
+                "pt" -> when {
+                    g == "MF" -> PT_MASCULINE + PT_FEMININE
+                    g.startsWith("F") -> PT_FEMININE
+                    g.startsWith("M") -> PT_MASCULINE
+                    else -> null
+                }
+                "fr" -> when {
+                    g == "MF" -> FR_MASCULINE + FR_FEMININE + FR_PLURAL
+                    g.startsWith("F") -> FR_FEMININE + FR_PLURAL
+                    g.startsWith("M") -> FR_MASCULINE + FR_PLURAL
+                    else -> null
+                }
+                "de" -> when (g) {
+                    "M" -> DE_MASCULINE
+                    "F" -> DE_FEMININE
+                    "N" -> DE_NEUTER
+                    "MF" -> DE_MASCULINE + DE_FEMININE
+                    else -> null
+                }
                 else -> null
             }
         }

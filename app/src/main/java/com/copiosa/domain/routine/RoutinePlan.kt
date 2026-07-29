@@ -106,6 +106,33 @@ data class RapidFireItem(
     val answerIndex: Int,
 )
 
+/**
+ * A conjugation-drill block, built offline from the bundled verb lexicon rather than by the LLM.
+ *
+ * Only the coordinates are stored: the forms, their irregularity classes, the colour-coded segments
+ * and the naive counterparts are all re-derived at render time by
+ * [com.copiosa.domain.conjugation.ConjugationEngine], so a saved plan stays tiny and can never carry
+ * a stale conjugation.
+ */
+@Serializable
+@SerialName("conjugation_drill")
+data class ConjugationDrillContent(val items: List<ConjugationDrillItem>) : ActivityContent
+
+/**
+ * One drill card, mirroring the fields of
+ * [com.copiosa.domain.conjugation.DrillItem]'s persistence key. [subject] is an infinitive, or an
+ * irregularity-class slug for a generalize card; [sourceCell] is set only for transform cards.
+ */
+@Serializable
+data class ConjugationDrillItem(
+    val direction: String,
+    val subject: String,
+    val targetCell: String,
+    val sourceCell: String? = null,
+    /** The verb actually shown for a generalize card, whose [subject] names a class instead. */
+    val shownInfinitive: String? = null,
+)
+
 /** What a [SwipeSortContent] sorts by; the player derives the bin labels from this. */
 @Serializable
 enum class SortDimension { GENDER }

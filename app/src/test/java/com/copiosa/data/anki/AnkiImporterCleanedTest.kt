@@ -52,7 +52,7 @@ class AnkiImporterCleanedTest {
     fun spanishFrontVocabExtractsStructuredFields() {
         val note = RawNote(
             id = 1, guid = "g-cerdo", mid = 1000,
-            tags = " casa la:kind:vocab la:tgt:0 la:gender:m la:pos:noun la:region:mx ",
+            tags = " casa la:kind:vocab la:tgt:0 la:gender:m la:pos:noun la:country:mx ",
             fields = listOf("cerdo; chancho", "pig"),
         )
         val res = import(listOf(note))
@@ -62,7 +62,8 @@ class AnkiImporterCleanedTest {
         assertEquals("pig", forward.back)
         assertEquals("chancho", forward.altForms)
         assertEquals("M", forward.gender)
-        assertEquals("mx", forward.region)
+        assertEquals("mx", forward.country)
+        assertNull(forward.region)
         assertEquals("noun", forward.partOfSpeech)
         assertEquals(CardKind.VOCAB, forward.cardKind)
         assertTrue(forward.frontIsTarget)

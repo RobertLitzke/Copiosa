@@ -110,6 +110,14 @@ private val SpainLight = CountryPalette(
     accent2 = Color(0xFFD7A10C),
     accent2Ink = Color(0xFF472400),
     shadow = Color(0x14783214),
+    tints = listOf(
+        Color(0xFFFFF2E3),
+        Color(0xFFE2F9F8),
+        Color(0xFFFFEDD8),
+        Color(0xFFD7F8F5),
+        Color(0xFFF9EAD9),
+        Color(0xFFD9F3F1),
+    ),
 )
 
 private val SpainDark = CountryPalette(
@@ -127,6 +135,14 @@ private val SpainDark = CountryPalette(
     accent2 = Color(0xFFE8B631),
     accent2Ink = Color(0xFF341600),
     shadow = Color(0x66000000),
+    tints = listOf(
+        Color(0xFF2B2319),
+        Color(0xFF182827),
+        Color(0xFF332717),
+        Color(0xFF152E2D),
+        Color(0xFF372C20),
+        Color(0xFF1E3331),
+    ),
 )
 
 private val PortugalLight = CountryPalette(
@@ -144,6 +160,14 @@ private val PortugalLight = CountryPalette(
     accent2 = Color(0xFFC51E21),
     accent2Ink = Color(0xFFFFFBF9),
     shadow = Color(0x1214461E),
+    tints = listOf(
+        Color(0xFFE2F9FA),
+        Color(0xFFFCEFFE),
+        Color(0xFFD7F8FA),
+        Color(0xFFFBE9FE),
+        Color(0xFFD8F3F4),
+        Color(0xFFF6E7F9),
+    ),
 )
 
 private val PortugalDark = CountryPalette(
@@ -161,6 +185,14 @@ private val PortugalDark = CountryPalette(
     accent2 = Color(0xFFED4B40),
     accent2Ink = Color(0xFF100605),
     shadow = Color(0x61000000),
+    tints = listOf(
+        Color(0xFF172829),
+        Color(0xFF2A212B),
+        Color(0xFF142E30),
+        Color(0xFF312433),
+        Color(0xFF1E3234),
+        Color(0xFF342A36),
+    ),
 )
 
 private val MexicoLight = CountryPalette(
@@ -178,6 +210,14 @@ private val MexicoLight = CountryPalette(
     accent2 = Color(0xFFCC2827),
     accent2Ink = Color(0xFFFFFBF9),
     shadow = Color(0x1214462D),
+    tints = listOf(
+        Color(0xFFE2F9F9),
+        Color(0xFFFAEFFF),
+        Color(0xFFD7F8F7),
+        Color(0xFFF8EAFF),
+        Color(0xFFD8F3F3),
+        Color(0xFFF4E8FA),
+    ),
 )
 
 private val MexicoDark = CountryPalette(
@@ -195,6 +235,14 @@ private val MexicoDark = CountryPalette(
     accent2 = Color(0xFFED4B40),
     accent2Ink = Color(0xFF100605),
     shadow = Color(0x5C000000),
+    tints = listOf(
+        Color(0xFF172828),
+        Color(0xFF29212C),
+        Color(0xFF142E2E),
+        Color(0xFF2F2534),
+        Color(0xFF1E3332),
+        Color(0xFF332A37),
+    ),
 )
 
 private val GermanyLight = CountryPalette(
@@ -212,6 +260,14 @@ private val GermanyLight = CountryPalette(
     accent2 = Color(0xFFD5A209),
     accent2Ink = Color(0xFF331B06),
     shadow = Color(0x1A0F0F19),
+    tints = listOf(
+        Color(0xFFFEF2E3),
+        Color(0xFFE2F9F8),
+        Color(0xFFFFEDD8),
+        Color(0xFFD7F8F6),
+        Color(0xFFF9EAD9),
+        Color(0xFFD8F3F2),
+    ),
 )
 
 private val GermanyDark = CountryPalette(
@@ -229,6 +285,14 @@ private val GermanyDark = CountryPalette(
     accent2 = Color(0xFFE6B731),
     accent2Ink = Color(0xFF2B1401),
     shadow = Color(0x6B000000),
+    tints = listOf(
+        Color(0xFF2B2319),
+        Color(0xFF182827),
+        Color(0xFF332717),
+        Color(0xFF152E2E),
+        Color(0xFF362C20),
+        Color(0xFF1E3332),
+    ),
 )
 
 private val BrazilLight = CountryPalette(
@@ -246,6 +310,14 @@ private val BrazilLight = CountryPalette(
     accent2 = Color(0xFF0049B3),
     accent2Ink = Color(0xFFF9FCFF),
     shadow = Color(0x14143C5A),
+    tints = listOf(
+        Color(0xFFE2F9F9),
+        Color(0xFFFBEFFF),
+        Color(0xFFD7F8F8),
+        Color(0xFFF9EAFF),
+        Color(0xFFD8F3F3),
+        Color(0xFFF5E7FA),
+    ),
 )
 
 private val BrazilDark = CountryPalette(
@@ -263,6 +335,14 @@ private val BrazilDark = CountryPalette(
     accent2 = Color(0xFF427FF7),
     accent2Ink = Color(0xFFF9FCFF),
     shadow = Color(0x66000000),
+    tints = listOf(
+        Color(0xFF172828),
+        Color(0xFF29212C),
+        Color(0xFF142E2F),
+        Color(0xFF302434),
+        Color(0xFF1E3233),
+        Color(0xFF342A37),
+    ),
 )
 
 private val Spain = CountryTheme(

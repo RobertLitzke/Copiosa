@@ -8,13 +8,17 @@ import com.copiosa.data.local.ActivityAttemptDao
 import com.copiosa.data.local.ActivityProficiencyDao
 import com.copiosa.data.local.AppDatabase
 import com.copiosa.data.local.AudioItemDao
+import com.copiosa.data.local.BookDao
+import com.copiosa.data.local.ConjugationDrillDao
 import com.copiosa.data.local.ConversationDao
 import com.copiosa.data.local.FlashcardDao
+import com.copiosa.data.local.FocusStatsDao
 import com.copiosa.data.local.MessageDao
 import com.copiosa.data.local.QuizDao
 import com.copiosa.data.local.ReviewLogDao
 import com.copiosa.data.local.RoutineRunDao
 import com.copiosa.data.local.StoryThreadDao
+import com.copiosa.data.local.SuggestedTopicDao
 import com.copiosa.data.local.TopicDao
 import dagger.Module
 import dagger.Provides
@@ -392,6 +396,276 @@ private val MIGRATION_21_22 = object : Migration(21, 22) {
     }
 }
 
+/**
+ * Phrase-based rapid-fire (Restaurant, …) stores its pre-seeded answer options on the cue row. Purely
+ * additive — a nullable column existing Numbers/Times cues leave null — so no pool rebuild is needed.
+ */
+private val MIGRATION_22_23 = object : Migration(22, 23) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE quiz_cues ADD COLUMN optionsJson TEXT")
+    }
+}
+
+/**
+ * Background-maintenance state, in one migration: a real played-at timestamp for audio retention
+ * (previously proxied by createdAt), per-conversation auto-retry bookkeeping, and the
+ * suggested-topics table.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration23To24Test`.
+ */
+internal val MIGRATION_23_24_SQL = listOf(
+    "ALTER TABLE audio_items ADD COLUMN playedAt INTEGER",
+    // One-time backfill: already-played rows adopt createdAt as their played-at proxy, so the
+    // retention sweep needs no COALESCE and no legacy row is immortal.
+    "UPDATE audio_items SET playedAt = createdAt WHERE played = 1",
+    "ALTER TABLE conversations ADD COLUMN autoRetryAttempts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE conversations ADD COLUMN lastAutoRetryAt INTEGER",
+    "CREATE TABLE IF NOT EXISTS `suggested_topics` (" +
+        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+        "`phrase` TEXT NOT NULL, " +
+        "`rationale` TEXT, " +
+        "`targetLanguage` TEXT NOT NULL, " +
+        "`score` REAL NOT NULL, " +
+        "`generatedAt` INTEGER NOT NULL, " +
+        "`dismissedAt` INTEGER)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS `index_suggested_topics_phrase_targetLanguage` " +
+        "ON `suggested_topics` (`phrase`, `targetLanguage`)",
+)
+
+private val MIGRATION_23_24 = object : Migration(23, 24) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_23_24_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * Focus-time stats: the raw `focus_sessions` log plus the `focus_daily_stats` daily rollups
+ * (see `FocusStatsDao` for the union semantics between the two).
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration24To25Test`.
+ */
+internal val MIGRATION_24_25_SQL = listOf(
+    "CREATE TABLE IF NOT EXISTS `focus_sessions` (" +
+        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+        "`langTag` TEXT NOT NULL, " +
+        "`activityType` TEXT NOT NULL, " +
+        "`startedAt` INTEGER NOT NULL, " +
+        "`durationMs` INTEGER NOT NULL, " +
+        "`epochDay` INTEGER NOT NULL, " +
+        "`sourceId` INTEGER, " +
+        "`rolledUp` INTEGER NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS `index_focus_sessions_langTag_epochDay` " +
+        "ON `focus_sessions` (`langTag`, `epochDay`)",
+    "CREATE INDEX IF NOT EXISTS `index_focus_sessions_rolledUp` ON `focus_sessions` (`rolledUp`)",
+    "CREATE TABLE IF NOT EXISTS `focus_daily_stats` (" +
+        "`langTag` TEXT NOT NULL, " +
+        "`epochDay` INTEGER NOT NULL, " +
+        "`activityType` TEXT NOT NULL, " +
+        "`totalDurationMs` INTEGER NOT NULL, " +
+        "`sessionCount` INTEGER NOT NULL, " +
+        "PRIMARY KEY(`langTag`, `epochDay`, `activityType`))",
+)
+
+private val MIGRATION_24_25 = object : Migration(24, 25) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_24_25_SQL.forEach(db::execSQL)
+    }
+}
+
+/** Adds the per-card usage-note column (kept separate from the translation field). */
+private val MIGRATION_25_26 = object : Migration(25, 26) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE flashcards ADD COLUMN usageNote TEXT")
+    }
+}
+
+/**
+ * Adds the per-card user-set [FlashcardEntity.country] (the country a word is specific to, shown below
+ * the language flag). Supersedes the retired auto-imported `region` slug, which is left in place.
+ */
+private val MIGRATION_26_27 = object : Migration(26, 27) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE flashcards ADD COLUMN country TEXT")
+    }
+}
+
+/** Adds the raw model-output column on messages (a debug aid, kept only for the 30 most recent chats). */
+internal val MIGRATION_27_28_SQL = listOf(
+    "ALTER TABLE messages ADD COLUMN rawResponse TEXT",
+)
+
+private val MIGRATION_27_28 = object : Migration(27, 28) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_27_28_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * The conjugation drill's own store: `conjugation_item_stats` is the per-item aggregate the selector
+ * reads, `conjugation_attempts` the append-only per-answer log the stats screen aggregates.
+ *
+ * The drill can't reuse `activity_attempts` — its `routineRunId` is NOT NULL, so it only holds
+ * attempts made inside a routine — and it feeds `activity_proficiency` through
+ * `RoutineAdaptation.recordStandalone` instead, exactly as the standalone quiz does.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration28To29Test`.
+ */
+internal val MIGRATION_28_29_SQL = listOf(
+    "CREATE TABLE IF NOT EXISTS `conjugation_item_stats` (" +
+        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+        "`itemKey` TEXT NOT NULL, " +
+        "`targetLanguage` TEXT NOT NULL, " +
+        "`attempts` INTEGER NOT NULL, " +
+        "`correct` INTEGER NOT NULL, " +
+        "`mastery` REAL NOT NULL, " +
+        "`avgLatencyMs` INTEGER NOT NULL, " +
+        "`lastLatencyMs` INTEGER, " +
+        "`lastSeenAt` INTEGER)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS `index_conjugation_item_stats_itemKey_targetLanguage` " +
+        "ON `conjugation_item_stats` (`itemKey`, `targetLanguage`)",
+    "CREATE TABLE IF NOT EXISTS `conjugation_attempts` (" +
+        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+        "`itemKey` TEXT NOT NULL, " +
+        "`infinitive` TEXT NOT NULL, " +
+        "`tense` TEXT NOT NULL, " +
+        "`person` TEXT NOT NULL, " +
+        "`direction` TEXT NOT NULL, " +
+        "`family` TEXT NOT NULL, " +
+        "`targetLanguage` TEXT NOT NULL, " +
+        "`grade` TEXT NOT NULL, " +
+        "`correct` INTEGER NOT NULL, " +
+        "`latencyMs` INTEGER NOT NULL, " +
+        "`createdAt` INTEGER NOT NULL, " +
+        "`epochDay` INTEGER NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS `index_conjugation_attempts_targetLanguage_epochDay` " +
+        "ON `conjugation_attempts` (`targetLanguage`, `epochDay`)",
+    "CREATE INDEX IF NOT EXISTS `index_conjugation_attempts_itemKey` " +
+        "ON `conjugation_attempts` (`itemKey`)",
+)
+
+private val MIGRATION_28_29 = object : Migration(28, 29) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_28_29_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * Imported EPUB books: the `books` header table plus per-paragraph `book_paragraphs` rows (a novel
+ * is never one TEXT column the way imported texts are). The unique (bookId, ord) index is the
+ * reader's paging key; (bookId, sectionIndex) serves the section-translation queries.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration29To30Test`.
+ */
+internal val MIGRATION_29_30_SQL = listOf(
+    "CREATE TABLE IF NOT EXISTS `books` (" +
+        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+        "`title` TEXT NOT NULL, " +
+        "`originalTitle` TEXT NOT NULL, " +
+        "`author` TEXT, " +
+        "`coverFile` TEXT, " +
+        "`sourceFileName` TEXT, " +
+        "`level` TEXT NOT NULL, " +
+        "`country` TEXT NOT NULL, " +
+        "`targetLanguage` TEXT NOT NULL, " +
+        "`nativeLanguage` TEXT NOT NULL, " +
+        "`provider` TEXT NOT NULL, " +
+        "`model` TEXT NOT NULL, " +
+        "`totalParagraphs` INTEGER NOT NULL, " +
+        "`wordCount` INTEGER NOT NULL, " +
+        "`totalSections` INTEGER NOT NULL, " +
+        "`translatedSections` INTEGER NOT NULL, " +
+        "`autoTranslate` INTEGER NOT NULL, " +
+        "`posParagraph` INTEGER NOT NULL, " +
+        "`posOffset` INTEGER NOT NULL, " +
+        "`finishedReading` INTEGER NOT NULL, " +
+        "`starred` INTEGER NOT NULL, " +
+        "`createdAt` INTEGER NOT NULL, " +
+        "`updatedAt` INTEGER NOT NULL, " +
+        "`autoRetryAttempts` INTEGER NOT NULL, " +
+        "`lastAutoRetryAt` INTEGER)",
+    "CREATE INDEX IF NOT EXISTS `index_books_targetLanguage` ON `books` (`targetLanguage`)",
+    "CREATE TABLE IF NOT EXISTS `book_paragraphs` (" +
+        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+        "`bookId` INTEGER NOT NULL, " +
+        "`ord` INTEGER NOT NULL, " +
+        "`chapterIndex` INTEGER NOT NULL, " +
+        "`sectionIndex` INTEGER NOT NULL, " +
+        "`kind` TEXT NOT NULL, " +
+        "`originalText` TEXT NOT NULL, " +
+        "`translatedText` TEXT, " +
+        "FOREIGN KEY(`bookId`) REFERENCES `books`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+    "CREATE UNIQUE INDEX IF NOT EXISTS `index_book_paragraphs_bookId_ord` " +
+        "ON `book_paragraphs` (`bookId`, `ord`)",
+    "CREATE INDEX IF NOT EXISTS `index_book_paragraphs_bookId_sectionIndex` " +
+        "ON `book_paragraphs` (`bookId`, `sectionIndex`)",
+)
+
+private val MIGRATION_29_30 = object : Migration(29, 30) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_29_30_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * Clears the cached highlight forms on reverse cards (frontIsTarget = 0), whose front holds the native
+ * gloss: they were previously expanded from that front, so reading text was matched against native
+ * words. NULL means "not computed yet", so FlashcardRepository.ensureFormsBackfilled recomputes them —
+ * now from the target side (see HighlightTargetProvider) — on the next reader open.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration30To31Test`.
+ */
+internal val MIGRATION_30_31_SQL = listOf(
+    "UPDATE flashcards SET inflectedForms = NULL WHERE frontIsTarget = 0",
+)
+
+private val MIGRATION_30_31 = object : Migration(30, 31) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_30_31_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * Adds the book translation direction. Every book that existed before this column was translated
+ * *into* the target language, which is exactly what the FORWARD default says — so no backfill.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration31To32Test`.
+ */
+internal val MIGRATION_31_32_SQL = listOf(
+    "ALTER TABLE books ADD COLUMN direction TEXT NOT NULL DEFAULT 'FORWARD'",
+)
+
+private val MIGRATION_31_32 = object : Migration(31, 32) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_31_32_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * Clears every cached highlight form so they are recomputed with the part-of-speech filter added to
+ * HighlightTargetProvider. Without it a homograph headword hopped into the wrong lemma's paradigm —
+ * the noun "son" (the music genre) collected soy/eres/es/… from the verb "ser", so tapping "es" in a
+ * text landed on the noun card. The bad forms are already baked into the column, and the backfill
+ * only visits NULL rows, so a full clear is what forces the repair.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration32To33Test`.
+ */
+internal val MIGRATION_32_33_SQL = listOf(
+    "UPDATE flashcards SET inflectedForms = NULL",
+)
+
+private val MIGRATION_32_33 = object : Migration(32, 33) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_32_33_SQL.forEach(db::execSQL)
+    }
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
@@ -405,6 +679,9 @@ object DatabaseModule {
                 MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
                 MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
                 MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
+                MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27,
+                MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32,
+                MIGRATION_32_33,
             )
             .build()
 
@@ -436,8 +713,20 @@ object DatabaseModule {
     fun provideTopicDao(db: AppDatabase): TopicDao = db.topicDao()
 
     @Provides
+    fun provideSuggestedTopicDao(db: AppDatabase): SuggestedTopicDao = db.suggestedTopicDao()
+
+    @Provides
     fun provideStoryThreadDao(db: AppDatabase): StoryThreadDao = db.storyThreadDao()
 
     @Provides
     fun provideQuizDao(db: AppDatabase): QuizDao = db.quizDao()
+
+    @Provides
+    fun provideFocusStatsDao(db: AppDatabase): FocusStatsDao = db.focusStatsDao()
+
+    @Provides
+    fun provideConjugationDrillDao(db: AppDatabase): ConjugationDrillDao = db.conjugationDrillDao()
+
+    @Provides
+    fun provideBookDao(db: AppDatabase): BookDao = db.bookDao()
 }

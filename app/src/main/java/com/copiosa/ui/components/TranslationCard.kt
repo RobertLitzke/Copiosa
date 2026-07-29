@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -12,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -27,15 +27,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.IntOffset
@@ -79,13 +80,19 @@ sealed interface DefinitionView {
 fun TranslationCard(
     original: String,
     translation: String?,
+    /** Non-null when [translation] is the meaning of this base form rather than of the selection. */
+    translationOf: String?,
     loading: Boolean,
     definition: DefinitionView,
     canExplain: Boolean,
     anchorYPx: Float,
     savedCard: FlashcardEntity?,
     lemmaSuggestion: String?,
+    /** Part of speech of the currently picked entry, to mark it among same-lemma alternatives. */
+    savePos: String?,
     onSave: (headword: String) -> Unit,
+    /** Picks which dictionary entry a save uses; the lemma may be [original] to save it as written. */
+    onSelectEntry: (lemma: String, pos: String?) -> Unit,
     onExplain: () -> Unit,
     onDownloadDictionary: () -> Unit,
     onOpenSaved: () -> Unit,
@@ -152,7 +159,20 @@ fun TranslationCard(
                                 shape = MaterialTheme.shapes.medium,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) { MarkdownText(translation) }
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    MarkdownText(translation)
+                                    // Say so when the meaning came from the base form, not the selection.
+                                    translationOf?.let {
+                                        Text(
+                                            stringResource(R.string.translate_of_lemma, it),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
                             }
                             else -> Text(
                                 stringResource(R.string.translate_unavailable),
@@ -162,17 +182,16 @@ fun TranslationCard(
                         }
                     }
 
-                    DefinitionSection(definition, onDownloadDictionary)
-
-                    // Conjugated verb selected → offer to save the surface form instead of the lemma.
-                    if (savedCard == null && lemmaSuggestion != null) {
-                        TextButton(
-                            onClick = { onSave(original) },
-                            contentPadding = PaddingValues(0.dp),
-                        ) {
-                            Text(stringResource(R.string.action_save_form_instead, original))
-                        }
-                    }
+                    DefinitionSection(
+                        definition = definition,
+                        original = original,
+                        // A saved word shows its stored entry; there is nothing left to pick.
+                        pickable = savedCard == null,
+                        selectedLemma = lemmaSuggestion ?: original,
+                        selectedPos = savePos,
+                        onSelectEntry = onSelectEntry,
+                        onDownloadDictionary = onDownloadDictionary,
+                    )
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -243,6 +262,11 @@ private fun SavedEntry(card: FlashcardEntity) {
             }
         }
 
+        card.usageNote?.takeIf { it.isNotBlank() }?.let { note ->
+            SectionLabel(stringResource(R.string.vocab_usage_note_label))
+            MarkdownText(note)
+        }
+
         card.explanation?.takeIf { it.isNotBlank() }?.let { MarkdownText(it) }
 
         card.contextSentence?.takeIf { it.isNotBlank() }?.let { sentence ->
@@ -256,8 +280,22 @@ private fun SavedEntry(card: FlashcardEntity) {
     }
 }
 
+/**
+ * The offline-dictionary block. A word often resolves to several headwords — "placas" is a form of both
+ * the noun *placa* and the verb *placar* — so when there's more than one candidate the entries become a
+ * radio group and the tapped one is what the Save button saves. The selection itself gets a row too
+ * (it isn't always a headword), which is how you save a plural or a conjugation as written.
+ */
 @Composable
-private fun DefinitionSection(definition: DefinitionView, onDownloadDictionary: () -> Unit) {
+private fun DefinitionSection(
+    definition: DefinitionView,
+    original: String,
+    pickable: Boolean,
+    selectedLemma: String,
+    selectedPos: String?,
+    onSelectEntry: (lemma: String, pos: String?) -> Unit,
+    onDownloadDictionary: () -> Unit,
+) {
     when (definition) {
         DefinitionView.Hidden, DefinitionView.NotFound -> Unit
         DefinitionView.NeedsDownload -> OutlinedButton(onClick = onDownloadDictionary) {
@@ -266,15 +304,81 @@ private fun DefinitionSection(definition: DefinitionView, onDownloadDictionary: 
         }
         DefinitionView.Downloading -> LoadingRow(stringResource(R.string.dict_downloading))
         DefinitionView.Loading -> LoadingRow(stringResource(R.string.dict_loading))
-        is DefinitionView.Ready -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            HorizontalDivider()
-            definition.entries.forEach { EntryView(it) }
+        is DefinitionView.Ready -> {
+            val entries = definition.entries
+            // The selection needs its own row only when it isn't itself one of the headwords listed.
+            val asWritten = pickable &&
+                entries.none { it.lemma.equals(original.trim(), ignoreCase = true) }
+            // One candidate and nothing else to offer → no radio group, just the definition.
+            val picking = pickable && entries.size + (if (asWritten) 1 else 0) > 1
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                HorizontalDivider()
+                if (picking) {
+                    SectionLabel(stringResource(R.string.dict_pick_headword))
+                }
+                entries.forEach { entry ->
+                    val selected = entry.lemma.equals(selectedLemma, ignoreCase = true) &&
+                        entry.pos == selectedPos
+                    ChoiceRow(
+                        selected = selected,
+                        enabled = picking,
+                        onSelect = { onSelectEntry(entry.lemma, entry.pos) },
+                    ) {
+                        // While picking, keep each candidate short enough that the whole choice fits on
+                        // screen — a headword with five senses each pushes the other options out of
+                        // view, so you can't see what you're choosing between (or what's selected).
+                        EntryView(entry, maxDefinitions = if (picking) PICKING_DEFINITIONS else ALL_DEFINITIONS)
+                    }
+                }
+                if (picking && asWritten) {
+                    ChoiceRow(
+                        selected = selectedLemma.equals(original.trim(), ignoreCase = true),
+                        enabled = true,
+                        onSelect = { onSelectEntry(original, selectedPos) },
+                    ) {
+                        Text(
+                            stringResource(R.string.dict_as_written, original),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
+/**
+ * One entry of the headword radio group. With [enabled] false (a single candidate, or a word that's
+ * already saved) it lays the content out plain, with no radio button and no click target.
+ */
 @Composable
-private fun EntryView(entry: DictionaryEntry) {
+private fun ChoiceRow(
+    selected: Boolean,
+    enabled: Boolean,
+    onSelect: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    if (!enabled) {
+        content()
+        return
+    }
+    Row(
+        // Top, not centre: an entry is several lines tall, and a centred radio floats halfway down its
+        // definitions instead of sitting beside the headword it selects.
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect),
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Column(modifier = Modifier.weight(1f).padding(top = 12.dp)) { content() }
+    }
+}
+
+@Composable
+private fun EntryView(entry: DictionaryEntry, maxDefinitions: Int = ALL_DEFINITIONS) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(entry.lemma, style = MaterialTheme.typography.titleSmall)
@@ -289,11 +393,15 @@ private fun EntryView(entry: DictionaryEntry) {
         entry.inflectionOf?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        entry.definitions.take(5).forEach { def ->
+        entry.definitions.take(maxDefinitions).forEach { def ->
             Text("•  $def", style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
+
+/** Senses listed per dictionary entry: fewer while the entries are a pick-one list (see [ChoiceRow]). */
+private const val ALL_DEFINITIONS = 5
+private const val PICKING_DEFINITIONS = 2
 
 @Composable
 private fun LoadingRow(label: String) {

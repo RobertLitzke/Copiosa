@@ -49,6 +49,8 @@ data class RoutineStatusUi(
     val multipleChoiceCloze: BucketStatus? = null,
     /** Rapid-fire listening comfort per cue type (all languages, not just Spanish). */
     val rapidFire: List<BucketStatus> = emptyList(),
+    /** Conjugation comfort per irregularity family (Spanish only). */
+    val conjugation: List<BucketStatus> = emptyList(),
     val level: Cefr = Cefr.B2,
 )
 
@@ -79,6 +81,9 @@ class RoutineStatusViewModel @Inject constructor(
                     referentialPi = readout(label = null, byBucket[ActivityType.REFERENTIAL_PI.name]),
                     multipleChoiceCloze = readout(label = null, byBucket[ActivityType.MULTIPLE_CHOICE_CLOZE.name]),
                     rapidFire = ActivityRegistry[ActivityType.RAPID_FIRE_LISTENING].statusCategories.map { cat ->
+                        readout(cat.label, byBucket[cat.slug])
+                    },
+                    conjugation = ActivityRegistry[ActivityType.CONJUGATION_DRILL].statusCategories.map { cat ->
                         readout(cat.label, byBucket[cat.slug])
                     },
                     level = settings.defaultLevel,

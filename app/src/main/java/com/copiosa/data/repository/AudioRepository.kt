@@ -38,6 +38,11 @@ class AudioRepository @Inject constructor(
     fun observeReady(): Flow<List<AudioItemEntity>> =
         settingsRepo.activeProfileTag.flatMapLatest { lang -> dao.observeReady(lang) }
 
+    /** How many rendered-and-unheard items await in the active profile, for the Home screen. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeUnplayedReadyCount(): Flow<Int> =
+        settingsRepo.activeProfileTag.flatMapLatest { lang -> dao.observeUnplayedReadyCount(lang) }
+
     suspend fun getById(id: Long): AudioItemEntity? = dao.getById(id)
 
     suspend fun unrendered(): List<AudioItemEntity> = dao.unrendered()
@@ -75,9 +80,13 @@ class AudioRepository @Inject constructor(
     suspend fun setFailed(id: Long, error: String?) =
         dao.setResult(id, AudioStatus.FAILED, null, null, error)
 
-    /** Marks an item played and sinks it to the very bottom of the list. */
-    suspend fun markPlayed(id: Long) =
-        dao.setPlayedAndOrder(id, played = true, sortOrder = (dao.maxSortOrder() ?: 0.0) + 1.0)
+    /** Marks an item played, stamps the retention clock, and sinks it to the very bottom of the list. */
+    suspend fun markPlayed(id: Long) = dao.setPlayedAndOrder(
+        id,
+        played = true,
+        sortOrder = (dao.maxSortOrder() ?: 0.0) + 1.0,
+        playedAt = System.currentTimeMillis(),
+    )
 
     /** "Mark unlistened": returns the item to the unplayed group (at its current order position). */
     suspend fun markUnplayed(id: Long) = dao.setPlayed(id, played = false)
@@ -100,15 +109,14 @@ class AudioRepository @Inject constructor(
     }
 
     /**
-     * Retention pass: deletes played items whose [AudioItemEntity.createdAt] is older than the
-     * active profile's auto-delete window (createdAt is the proxy age — there is no played-at
-     * timestamp). No-op when the setting is 0 ("keep forever"). Applies across all languages.
+     * Retention pass for one language: deletes items played longer than [days] ago. No-op when
+     * [days] is 0 ("keep forever"). Both arguments are explicit because this runs from background
+     * maintenance for every profile, not just the active one.
      */
-    suspend fun pruneOldPlayed() {
-        val days = settingsRepo.settings.first().autoDeletePlayedAfterDays
+    suspend fun pruneOldPlayed(lang: String, days: Int) {
         if (days <= 0) return
         val cutoff = System.currentTimeMillis() - days * 24L * 60 * 60 * 1000
-        for (item in dao.playedBefore(cutoff)) {
+        for (item in dao.playedBefore(lang, cutoff)) {
             item.filePath?.let { runCatching { File(it).delete() } }
             dao.delete(item.id)
         }

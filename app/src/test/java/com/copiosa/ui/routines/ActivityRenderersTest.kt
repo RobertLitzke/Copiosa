@@ -4,6 +4,7 @@ import com.copiosa.domain.routine.ActivityContent
 import com.copiosa.domain.routine.AffectivePiContent
 import com.copiosa.domain.routine.BedtimeStoryContent
 import com.copiosa.domain.routine.CognateHuntContent
+import com.copiosa.domain.routine.ConjugationDrillContent
 import com.copiosa.domain.routine.ContrastClozeContent
 import com.copiosa.domain.routine.GuessThenFlipContent
 import com.copiosa.domain.routine.MultipleChoiceClozeContent
@@ -39,6 +40,7 @@ class ActivityRenderersTest {
             CognateHuntContent::class,
             SerialStoryContent::class,
             RapidFireContent::class,
+            ConjugationDrillContent::class,
         )
         assertEquals(allContentClasses, ActivityRenderers.byContent.keys)
     }

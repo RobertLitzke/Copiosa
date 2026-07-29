@@ -36,6 +36,9 @@ data class RoutineBlueprint(
  * ordered by descending arousal; the closer (bedtime story) is always appended last in Drift. So the
  * de-escalating curve is guaranteed while the picks vary night to night.
  *
+ * A routine draws freely from [RoutineType.maxArousal] and below, plus a small quota of more
+ * activating activities confined to [RoutineType.highArousalBand] — see [RoutineType].
+ *
  * Pure and seedable: pass a fixed [Random] for deterministic tests.
  */
 class RoutinePlanner(private val random: Random = Random.Default) {
@@ -51,19 +54,25 @@ class RoutinePlanner(private val random: Random = Random.Default) {
          */
         unavailable: Set<ActivityType> = emptySet(),
     ): RoutineBlueprint {
-        // Hard activation cap: the bedtime wind-down never includes a HIGH-arousal activity, no matter
-        // how the bands fill — so adding day-mode-only drills later can't leak into a calm routine.
-        val available = ActivityDefinition.forLanguage(targetLanguage)
-            .filter { it.arousalLevel.ordinal <= routineType.maxArousal.ordinal && it.type !in unavailable }
+        // Softened activation cap: the routine draws freely from its own tier and below, and may
+        // additionally admit up to [RoutineType.highArousalSlots] activities from above it — but only
+        // in [RoutineType.highArousalBand] (Engage), where a jolt still has the rest of the routine to
+        // decay. Below SKIP_ENGAGE_MAX_MINUTES the Engage band gets no budget at all, so a very short
+        // wind-down still cannot contain anything above the cap.
+        val available = ActivityDefinition.forLanguage(targetLanguage).filter { it.type !in unavailable }
         val budgets = bandBudgets(durationMinutes)
         val usedTypes = mutableSetOf<ActivityType>()
         val slots = mutableListOf<ActivitySlot>()
+        var aboveCapRemaining = routineType.highArousalSlots
 
         // ArousalBand.entries is ENGAGE, SETTLE, DRIFT in declaration order — the macro de-escalation.
         for (band in ArousalBand.entries) {
             val budget = budgets[band] ?: 0.0
             if (budget <= 0.0) continue
-            slots += fillBand(band, budget, available, stats, usedTypes)
+            val quota = if (band == routineType.highArousalBand) aboveCapRemaining else 0
+            val filled = fillBand(band, budget, available, stats, usedTypes, routineType, quota)
+            aboveCapRemaining -= filled.count { routineType.isAboveCap(ActivityDefinition[it.type]) }
+            slots += filled
         }
         return RoutineBlueprint(routineType, durationMinutes, targetLanguage, slots)
     }
@@ -88,10 +97,18 @@ class RoutinePlanner(private val random: Random = Random.Default) {
         available: List<ActivityDefinition>,
         stats: Map<String, ActivityStats>,
         usedTypes: MutableSet<ActivityType>,
+        routineType: RoutineType,
+        /** How many above-cap activities this band may take; zero for every band but the first. */
+        aboveCapQuota: Int,
     ): List<ActivitySlot> {
-        val closer = available.firstOrNull { it.isCloser && band in it.eligibleBands }
+        // A closer is never above the cap — however the routine opens, it has to end calm.
+        val closer = available.firstOrNull {
+            it.isCloser && band in it.eligibleBands && !routineType.isAboveCap(it)
+        }
+        var aboveCapLeft = aboveCapQuota
         val pool = available
             .filter { band in it.eligibleBands && !it.isCloser && it.type !in usedTypes }
+            .filter { !routineType.isAboveCap(it) || aboveCapLeft > 0 }
             .toMutableList()
         val reserved = closer?.estMinutes ?: 0.0
         val cap = budget - reserved
@@ -115,6 +132,11 @@ class RoutinePlanner(private val random: Random = Random.Default) {
                 if (chosen.isEmpty() && forceFirst) pick = candidates[random.nextInt(candidates.size)] else break
             }
             pool.remove(pick)
+            if (routineType.isAboveCap(pick)) {
+                aboveCapLeft--
+                // Quota spent: drop the rest so one band can't take two above-cap activities.
+                if (aboveCapLeft <= 0) pool.removeAll { routineType.isAboveCap(it) }
+            }
             chosen += pick
             used += pick.estMinutes
             if (used >= cap) break

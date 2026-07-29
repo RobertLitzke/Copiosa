@@ -21,6 +21,12 @@ interface RoutineBuildServices {
 
     /** A single-topic rapid-fire block from the pre-rendered quiz pool; null when it can't field one. */
     suspend fun buildRapidFire(lang: String, stats: Map<String, ActivityStats>): RapidFireContent?
+
+    /**
+     * A conjugation block from the bundled verb lexicon; null when it can't field enough items. The
+     * slot's difficulty widens which tenses and card types are in play.
+     */
+    suspend fun buildConjugationDrill(lang: String, slot: ActivitySlot): ConjugationDrillContent?
 }
 
 /** Everything a descriptor may need to assemble content for one slot. */

@@ -5,6 +5,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.copiosa.domain.model.AudioStatus
+import com.copiosa.domain.model.BookDirection
 import com.copiosa.domain.model.CardKind
 import com.copiosa.domain.model.Cefr
 import com.copiosa.domain.model.FlashcardState
@@ -15,6 +16,7 @@ import com.copiosa.domain.model.ReviewRating
 import com.copiosa.domain.model.Role
 import com.copiosa.domain.quiz.CueType
 import com.copiosa.domain.routine.ActivityType
+import com.copiosa.domain.stats.FocusActivityType
 import com.copiosa.domain.routine.RoutineRunStatus
 import com.copiosa.domain.routine.RoutineType
 import com.copiosa.domain.routine.TopicSource
@@ -56,6 +58,12 @@ data class ConversationEntity(
     val scrollIndex: Int = 0,
     val scrollOffset: Int = 0,
     val finishedReading: Boolean = false,
+    // Background-retry bookkeeping only. Failure itself is still *derived* (a chat whose newest
+    // message is a USER turn is awaiting a reply) — these two just bound how often the maintenance
+    // task retries one, so a permanently-broken chat eventually stops costing calls. Reset once a
+    // reply lands.
+    val autoRetryAttempts: Int = 0,
+    val lastAutoRetryAt: Long? = null,
 )
 
 @Entity(
@@ -84,6 +92,10 @@ data class MessageEntity(
     // Structured metadata for assistant turns: a JSON-encoded ReplyMetadata (next topics, distinctive
     // words, vocab used/unused) parsed from the reply's trailing block. Null for user turns / no block.
     val metadata: String? = null,
+    // The model's unparsed output for an assistant turn (body + trailing metadata block), kept only as
+    // a debug aid and only for the most recent chats — see ConversationRepository.pruneRawResponses.
+    // Null for user turns, older/pruned replies, and replies made before this was tracked.
+    val rawResponse: String? = null,
 )
 
 @Entity(tableName = "flashcards", indices = [Index("targetLanguage")])
@@ -95,20 +107,29 @@ data class FlashcardEntity(
     val sourceConversationId: Long? = null,
     // LLM-generated enrichment, populated on demand (single "explain" or batched "fill").
     val explanation: String? = null,
+    // Short usage/register note kept separate from [back] so the translation field stays clean (just
+    // the 1-3 gloss strings). Split out of a crammed [back] on save/import, or typed by the user.
+    val usageNote: String? = null,
     val partOfSpeech: String? = null,
     val cefrLevel: String? = null,
     // Structured content fields, set on import (from a cleaned Anki deck's `la:*` tags) or on save.
     // [cardKind] gates LLM-vocab use + highlighting (only VOCAB/PHRASE). [gender] is M/F/MF/MPL/FPL
-    // for display ("el"/"la"), null when not a gendered noun. [region] is a dialect slug (e.g. "mx").
-    // [altForms] holds "; "-joined synonyms/gendered variants (primary stays in [front]), shown as
-    // accepted answers on a back-to-front review. [frontIsTarget] is whether [front] is the target
-    // language (false for a reverse card whose front is native) — drives the review prompt's flag.
+    // for display ("el"/"la"), null when not a gendered noun. [country] is a user-set free-text
+    // country the word is specific to (e.g. "México"), shown below the language flag; null when not
+    // country-specific. [altForms] holds "; "-joined synonyms/gendered variants (primary stays in
+    // [front]), shown as accepted answers on a back-to-front review. [frontIsTarget] is whether
+    // [front] is the target language (false for a reverse card whose front is native) — drives the
+    // review prompt's flag.
+    // [region] is a retired auto-imported dialect slug: no longer read, written, or displayed, but the
+    // column is kept so existing rows migrate without a destructive table rebuild.
     val cardKind: CardKind = CardKind.VOCAB,
     val gender: String? = null,
     val region: String? = null,
+    val country: String? = null,
     val altForms: String? = null,
     // Precomputed surface forms for highlighting: a ";"-joined set of normalized inflections
-    // (plurals/conjugations) of [front], so the renderer can light up "gatos" for a saved "gato"
+    // (plurals/conjugations) of the card's target-language side ([front], or [back] when
+    // [frontIsTarget] is false), so the renderer can light up "gatos" for a saved "gato"
     // without a per-open dictionary lookup. Filled on save/edit and by a one-time background backfill
     // (see FlashcardRepository); null means "not computed yet" (renderer falls back to the headword).
     val inflectedForms: String? = null,
@@ -178,6 +199,9 @@ data class AudioItemEntity(
     val filePath: String? = null,
     val durationMs: Long? = null,
     val played: Boolean = false,
+    // Epoch-ms when playback finished, and the clock the retention sweep runs off. Null for
+    // never-played items; cleared again when an item is marked unlistened.
+    val playedAt: Long? = null,
     val sortOrder: Double,
     val createdAt: Long,
     val sourceConversationId: Long? = null,
@@ -317,6 +341,29 @@ data class TopicEntity(
 )
 
 /**
+ * A conversation topic proposed *for* the learner by background maintenance, mined from their recent
+ * chat subjects and recorded [TopicEntity] interests weighted toward recency.
+ *
+ * Distinct from [TopicEntity], which records what the user has already engaged with; this is the
+ * forward-looking suggestion set. Refreshed at most every few days and replaced wholesale, so stale
+ * suggestions never accumulate. [dismissedAt] is set when the user waves one away.
+ */
+@Entity(
+    tableName = "suggested_topics",
+    indices = [Index(value = ["phrase", "targetLanguage"], unique = true)],
+)
+data class SuggestedTopicEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val phrase: String,
+    /** Why this was suggested, shown as supporting copy where the suggestion surfaces. */
+    val rationale: String? = null,
+    val targetLanguage: String,
+    val score: Double = 0.0,
+    val generatedAt: Long,
+    val dismissedAt: Long? = null,
+)
+
+/**
  * One rapid-fire listening pool per (language, cue type): the user's [configJson] (a serialized
  * QuizPoolConfig) plus the cue rows below. Numbers and Times are separate top-level activities, each
  * with its own independent pool, so a rebuild of one type never touches the other. Rebuilding a pool
@@ -365,6 +412,155 @@ data class QuizCueEntity(
     val durationMs: Long? = null,
     // Short failure reason for a FAILED cue.
     val error: String? = null,
+    // Serialized PhraseOptions for a PHRASE cue (correct + four stored distractors); null for
+    // algorithmic cues, which re-derive their distractors at session time.
+    val optionsJson: String? = null,
+)
+
+/**
+ * An imported EPUB book, read as a level-adapted translation. Unlike imported texts (which keep the
+ * whole source in [ConversationEntity.originalText]), a book's content lives in per-paragraph
+ * [BookParagraphEntity] rows so a whole novel is never loaded (or re-written) at once.
+ *
+ * Translation happens in "sections" (~2 pages of source text, assigned at import); the frontier is
+ * the single counter [translatedSections] — sections `0..translatedSections-1` are fully stored —
+ * mirroring the conversations' translatedChunks/totalChunks resume pattern. Content is always
+ * persisted before the counter advances, so a crash never over-claims.
+ *
+ * [direction] decides what that translation is *for*. A [BookDirection.REVERSE] book is already in
+ * the target language and is readable in full the moment it is imported; its translation pass is an
+ * optional native-language gloss, gated behind [autoTranslate], so such a book can cost nothing.
+ */
+@Entity(tableName = "books", indices = [Index("targetLanguage")])
+data class BookEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    // Target-language title once section 0's title call lands; the original title until then.
+    val title: String,
+    val originalTitle: String,
+    val author: String? = null,
+    // Filename inside files/book_covers (never a path), so backups restore cleanly. Null = no cover.
+    val coverFile: String? = null,
+    val sourceFileName: String? = null,
+    // Settings snapshot at import time, as conversations do.
+    // [level] is the grading target for FORWARD books. REVERSE books still carry it (it is the
+    // profile default at import) but nothing reads it — a native-language gloss is never levelled.
+    val level: Cefr,
+    val direction: BookDirection = BookDirection.FORWARD,
+    val country: String,
+    val targetLanguage: String,
+    val nativeLanguage: String,
+    val provider: ProviderId,
+    val model: String,
+    val totalParagraphs: Int,
+    // Source-word count, for the library row's reading-time estimate.
+    val wordCount: Int,
+    val totalSections: Int,
+    val translatedSections: Int = 0,
+    // "Slow translate": the background maintenance task keeps translating this book to the end.
+    val autoTranslate: Boolean = false,
+    // Reading position: ord of the first visible paragraph + pixel offset within it (the
+    // scrollIndex/scrollOffset pattern from conversations).
+    val posParagraph: Int = 0,
+    val posOffset: Int = 0,
+    val finishedReading: Boolean = false,
+    val starred: Boolean = false,
+    val createdAt: Long,
+    val updatedAt: Long,
+    // Background-retry bookkeeping for the slow-translate task, reset on every successful section
+    // (the conversations idiom: bounds how often maintenance retries a permanently-broken book).
+    val autoRetryAttempts: Int = 0,
+    val lastAutoRetryAt: Long? = null,
+)
+
+/**
+ * One paragraph of an imported book. [ord] is dense (`0..totalParagraphs-1`), assigned once at
+ * import and never edited, so the reader's list index maps 1:1 onto rows. The translation is stored
+ * **on the same row** — that 1:1 identity is what makes the original/translated toggle exact
+ * (same list items, no index remapping).
+ *
+ * [kind] is a plain TEXT slug ("PARA" | "HEADING") rather than an enum through [Converters], so an
+ * unknown future value can never crash a read. [chapterIndex] is the 0-based content-chapter the
+ * paragraph came from; grouping by it is what the reader's table of contents is built from (see
+ * `com.copiosa.domain.book.buildToc`).
+ *
+ * Which of [originalText]/[translatedText] the learner is *studying* depends on the book's
+ * [BookEntity.direction] — see `com.copiosa.domain.book.targetText`.
+ */
+@Entity(
+    tableName = "book_paragraphs",
+    foreignKeys = [
+        ForeignKey(
+            entity = BookEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["bookId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [
+        Index(value = ["bookId", "ord"], unique = true),
+        Index(value = ["bookId", "sectionIndex"]),
+    ],
+)
+data class BookParagraphEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bookId: Long,
+    val ord: Int,
+    val chapterIndex: Int,
+    // The translation unit (section) this paragraph belongs to, assigned at import.
+    val sectionIndex: Int,
+    val kind: String,
+    // Markdown: "## Title" headings, *italic*, **bold**.
+    val originalText: String,
+    // Null until the paragraph's section is translated; a null inside a translated section is an
+    // alignment miss and the reader falls back to showing the original in a muted style.
+    val translatedText: String? = null,
+) {
+    companion object {
+        // Frozen identifiers — persisted as TEXT.
+        const val KIND_PARA = "PARA"
+        const val KIND_HEADING = "HEADING"
+    }
+}
+
+/**
+ * One focused-study session: a contiguous stretch of one [FocusActivityType] in one profile.
+ * Append-only, written by the FocusTimeTracker: inserted on the first heartbeat flush and its
+ * [durationMs] grown on later flushes, so a crash loses at most one heartbeat interval.
+ *
+ * [epochDay] is `LocalDate.toEpochDay()` of [startedAt] in the device zone, denormalized so daily
+ * aggregation never re-derives day boundaries; the tracker splits sessions at midnight so a row
+ * never spans days. [rolledUp] flips once a [FocusDailyStatEntity] row has absorbed this session —
+ * aggregate queries UNION rollups with `rolledUp = 0` raw rows so each session counts exactly once.
+ * [sourceId] is a seam for future per-source stats (conversation / audio item / run id).
+ */
+@Entity(
+    tableName = "focus_sessions",
+    indices = [Index(value = ["langTag", "epochDay"]), Index("rolledUp")],
+)
+data class FocusSessionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val langTag: String,
+    val activityType: FocusActivityType,
+    val startedAt: Long,
+    val durationMs: Long,
+    val epochDay: Long,
+    val sourceId: Long? = null,
+    val rolledUp: Boolean = false,
+)
+
+/**
+ * Daily rollup of [FocusSessionEntity] rows for one (profile, day, activity), maintained by the
+ * focus-stats maintenance task for completed days only — today always comes from raw sessions.
+ * Future per-day stats either become columns here or sibling tables sharing the (langTag, epochDay)
+ * key.
+ */
+@Entity(tableName = "focus_daily_stats", primaryKeys = ["langTag", "epochDay", "activityType"])
+data class FocusDailyStatEntity(
+    val langTag: String,
+    val epochDay: Long,
+    val activityType: FocusActivityType,
+    val totalDurationMs: Long,
+    val sessionCount: Int,
 )
 
 /**
@@ -378,4 +574,62 @@ data class StoryThreadEntity(
     val chapter: Int = 0,
     val summary: String = "",
     val updatedAt: Long,
+)
+
+/**
+ * Per-item state for the conjugation drill: what the selector reads to decide what to ask next.
+ *
+ * [itemKey] is the drill's own composite key (`1|produce|hablar||pres.1s`) built by
+ * [com.copiosa.domain.conjugation.DrillItem]; a generalize card's key names an irregularity class
+ * rather than a verb, because the skill it measures is the pattern. [mastery] is an EMA over graded
+ * answers, weighted by how fast they came — see
+ * [com.copiosa.domain.conjugation.ConjugationMastery], whose fast threshold is deliberately much
+ * tighter than the routine engine's.
+ */
+@Entity(
+    tableName = "conjugation_item_stats",
+    indices = [Index(value = ["itemKey", "targetLanguage"], unique = true)],
+)
+data class ConjugationItemStatEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val itemKey: String,
+    val targetLanguage: String,
+    val attempts: Int = 0,
+    val correct: Int = 0,
+    val mastery: Double = 0.3,
+    val avgLatencyMs: Long = 0,
+    val lastLatencyMs: Long? = null,
+    val lastSeenAt: Long? = null,
+)
+
+/**
+ * One graded conjugation answer, append-only.
+ *
+ * This exists because [ActivityAttemptEntity.routineRunId] is non-null, so it cannot hold attempts
+ * from a standalone drill. [latencyMs] is the **raw** prompt-to-reveal time, stored unscaled so the
+ * mastery thresholds can be retuned later and the history re-scored; only the copy handed to the
+ * routine planner is rescaled.
+ *
+ * [infinitive] records the verb actually shown, which [itemKey] omits for generalize cards. The enum
+ * columns hold slugs as plain text rather than going through [Converters] because the stats queries
+ * group by them in SQL, the same trade-off `activity_proficiency.bucketKey` makes.
+ */
+@Entity(
+    tableName = "conjugation_attempts",
+    indices = [Index(value = ["targetLanguage", "epochDay"]), Index("itemKey")],
+)
+data class ConjugationAttemptEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val itemKey: String,
+    val infinitive: String,
+    val tense: String,
+    val person: String,
+    val direction: String,
+    val family: String,
+    val targetLanguage: String,
+    val grade: String,
+    val correct: Boolean,
+    val latencyMs: Long,
+    val createdAt: Long,
+    val epochDay: Long,
 )

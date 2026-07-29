@@ -8,6 +8,7 @@ import com.copiosa.data.tts.SupertonicVoices
 import com.copiosa.domain.model.AudioStatus
 import com.copiosa.domain.quiz.CueType
 import com.copiosa.domain.quiz.GeneratedCue
+import com.copiosa.domain.quiz.PhraseOptions
 import com.copiosa.domain.quiz.QuizPoolConfig
 import com.copiosa.domain.quiz.ReadyCue
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.security.MessageDigest
 import javax.inject.Inject
@@ -123,6 +125,7 @@ class QuizPoolRepository @Inject constructor(
                     sid = sid,
                     status = if (cached != null) AudioStatus.READY else AudioStatus.PENDING,
                     filePath = cached?.absolutePath,
+                    optionsJson = cue.options?.let { PhraseOptionsCodec.encode(it) },
                 )
             },
         )
@@ -172,5 +175,16 @@ fun QuizCueEntity.toReadyCue(): ReadyCue? {
         displayText = displayText,
         filePath = path,
         durationMs = durationMs,
+        options = optionsJson?.let { PhraseOptionsCodec.decode(it) },
     )
+}
+
+/** Serializes [PhraseOptions] for the quiz_cues.optionsJson column. Lenient decode never throws. */
+object PhraseOptionsCodec {
+    private val json = Json { ignoreUnknownKeys = true }
+
+    fun encode(options: PhraseOptions): String = json.encodeToString(PhraseOptions.serializer(), options)
+
+    fun decode(stored: String): PhraseOptions? =
+        runCatching { json.decodeFromString(PhraseOptions.serializer(), stored) }.getOrNull()
 }

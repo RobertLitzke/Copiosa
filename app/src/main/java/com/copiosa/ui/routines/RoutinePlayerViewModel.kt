@@ -3,6 +3,7 @@ package com.copiosa.ui.routines
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.copiosa.data.conjugation.ConjugationDrillRepository
 import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.data.local.RoutineRunEntity
 import com.copiosa.data.repository.ConversationRepository
@@ -11,6 +12,9 @@ import com.copiosa.data.routine.RoutineAdaptation
 import com.copiosa.data.routine.RoutineRepository
 import com.copiosa.data.routine.RoutineSynthesisManager
 import com.copiosa.data.tts.SupertonicModelStore
+import com.copiosa.domain.conjugation.ConjugatedForm
+import com.copiosa.domain.conjugation.DrillGrade
+import com.copiosa.domain.conjugation.DrillItem
 import com.copiosa.domain.highlight.HighlightTargetProvider
 import com.copiosa.domain.routine.ActivityInstance
 import com.copiosa.domain.routine.RoutineRunStatus
@@ -40,6 +44,7 @@ class RoutinePlayerViewModel @Inject constructor(
     highlightProvider: HighlightTargetProvider,
     private val synthesizer: RoutineSynthesisManager,
     private val adaptation: RoutineAdaptation,
+    private val drillRepo: ConjugationDrillRepository,
     private val ttsModelStore: SupertonicModelStore,
 ) : ViewModel() {
 
@@ -65,7 +70,7 @@ class RoutinePlayerViewModel @Inject constructor(
         conversationRepo = conversationRepo,
         flashcardRepo = flashcardRepo,
         highlightProvider = highlightProvider,
-        sourceConversationId = null,
+        sourceConversationId = { null },
         readingText = _readingText,
     )
     val translate = selection.translate
@@ -75,6 +80,8 @@ class RoutinePlayerViewModel @Inject constructor(
         selection.onSelectionTranslate(text, anchorY, sourceText)
 
     fun saveSelection(headword: String) = selection.saveCurrentTranslation(headword)
+
+    fun selectSaveEntry(lemma: String, pos: String?) = selection.selectSaveEntry(lemma, pos)
 
     fun downloadDictionary() = selection.downloadDictionary()
 
@@ -106,22 +113,52 @@ class RoutinePlayerViewModel @Inject constructor(
      * Records one attempt and updates the adaptation estimate. [correct] is null for no-score items;
      * [speed] is the listening rate a rapid-fire cue was heard at (1.0 for everything else), so faster
      * comprehension earns more mastery credit.
+     *
+     * [categoryOverride] lets a block whose items span several proficiency buckets attribute each
+     * answer to the right one. The conjugation drill needs it: a single block mixes stem changes,
+     * strong preterites and irregular yo forms, so the activity's own category is left null.
      */
-    fun recordAttempt(activity: ActivityInstance, correct: Boolean?, latencyMs: Long?, speed: Float = 1.0f) {
+    fun recordAttempt(
+        activity: ActivityInstance,
+        correct: Boolean?,
+        latencyMs: Long?,
+        speed: Float = 1.0f,
+        categoryOverride: String? = null,
+    ) {
         viewModelScope.launch {
             val current = routineRepo.getRun(runId) ?: return@launch
+            val category = categoryOverride ?: activity.category
             routineRepo.logAttempt(
                 routineRunId = runId,
                 activityType = activity.type,
                 targetLanguage = current.targetLanguage,
-                category = activity.category,
+                category = category,
                 correct = correct,
                 latencyMs = latencyMs,
                 difficulty = activity.difficultyLevel,
             )
             if (correct != null) {
-                adaptation.recordOutcome(activity, current.targetLanguage, correct, latencyMs, speed)
+                adaptation.recordOutcome(
+                    activity.copy(category = category), current.targetLanguage, correct, latencyMs, speed,
+                )
             }
+        }
+    }
+
+    /**
+     * Persists one conjugation answer into the drill's own store, so practice inside a routine trains
+     * the same per-item mastery as the standalone drill. The proficiency bucket is handled separately
+     * by [recordAttempt], which is why this doesn't touch adaptation itself.
+     */
+    fun recordConjugation(item: DrillItem, form: ConjugatedForm, grade: DrillGrade, latencyMs: Long) {
+        viewModelScope.launch {
+            val current = routineRepo.getRun(runId) ?: return@launch
+            drillRepo.record(
+                lang = current.targetLanguage, item = item, form = form,
+                grade = grade, latencyMs = latencyMs,
+                // recordAttempt already moves this answer's proficiency bucket.
+                updateProficiency = false,
+            )
         }
     }
 

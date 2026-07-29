@@ -121,11 +121,16 @@ class AnkiImportService @Inject constructor(
                             createdAt = existing.createdAt,
                             sourceConversationId = existing.sourceConversationId,
                             explanation = existing.explanation,
+                            // Keep a user-typed usage note; otherwise adopt the freshly-split one.
+                            usageNote = existing.usageNote ?: imported.card.usageNote,
                             partOfSpeech = existing.partOfSpeech,
                             cefrLevel = existing.cefrLevel,
                             // The deck's tags win when present; otherwise keep any LLM-enriched value.
                             gender = imported.card.gender ?: existing.gender,
-                            region = imported.card.region ?: existing.region,
+                            // The deck's `la:country` wins; otherwise keep the user's existing country.
+                            country = imported.card.country ?: existing.country,
+                            // Retired: never re-imported, but preserve any legacy value on the existing row.
+                            region = existing.region,
                         ),
                     )
                     reviewLogDao.deleteForCard(existing.id)

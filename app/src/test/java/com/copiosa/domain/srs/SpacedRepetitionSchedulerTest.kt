@@ -78,6 +78,77 @@ class SpacedRepetitionSchedulerTest {
     }
 
     @Test
+    fun longIntervalCard_isCappedAtFiveYears() {
+        // Left alone, FSRS will schedule an extremely stable card a decade or more out. The ceiling
+        // keeps it in rotation; five years is loose enough that ordinary mature cards never hit it.
+        val veryStable = reviewCard().copy(intervalDays = 9_000.0, stability = 9_000.0)
+        val result = scheduler.schedule(veryStable, ReviewRating.EASY, now)
+        assertTrue(
+            "interval should be capped at five years, was ${result.card.intervalDays}",
+            result.card.intervalDays <= 5 * 365.0 + 1,
+        )
+    }
+
+    @Test
+    fun ordinaryMatureCard_isNotClippedByTheCeiling() {
+        // Guards the cap being loose rather than load-bearing: a two-year-stable card must come back
+        // on the retention curve, not flattened onto the ceiling.
+        val mature = reviewCard().copy(intervalDays = 730.0, stability = 730.0)
+        val result = scheduler.schedule(mature, ReviewRating.GOOD, now)
+        assertTrue(
+            "interval should follow the curve, not the cap, was ${result.card.intervalDays}",
+            result.card.intervalDays < 5 * 365.0,
+        )
+    }
+
+    @Test
+    fun retentionCurve_schedulesWellInsideTheFsrsDefault() {
+        // Guards the tightened default retention: at the stock 0.90 a card with stability S comes back
+        // in ≈S days, so a GOOD review here would land near 200. Ours must be meaningfully sooner.
+        val stable = reviewCard().copy(intervalDays = 200.0, stability = 200.0)
+        val result = scheduler.schedule(stable, ReviewRating.GOOD, now)
+        assertTrue(
+            "interval should be well under the 0.90-retention schedule, was ${result.card.intervalDays}",
+            result.card.intervalDays < 200.0,
+        )
+    }
+
+    @Test
+    fun higherRetention_schedulesSoonerThanLower() {
+        // The per-language setting has to actually reach the engine: same card, same grade, two
+        // retentions -> the stricter one must come back first.
+        val card = reviewCard().copy(intervalDays = 100.0, stability = 100.0)
+        val lax = scheduler.schedule(card, ReviewRating.GOOD, now, retention = 0.88).card.intervalDays
+        val strict = scheduler.schedule(card, ReviewRating.GOOD, now, retention = 0.96).card.intervalDays
+        assertTrue("0.96 ($strict) should schedule sooner than 0.88 ($lax)", strict < lax)
+    }
+
+    @Test
+    fun retentionOutOfRange_isClampedRatherThanRejected() {
+        // A corrupt stored value must not blow up or reach FSRS unclamped.
+        val card = reviewCard()
+        val absurd = scheduler.schedule(card, ReviewRating.GOOD, now, retention = 5.0).card.intervalDays
+        val atMax = scheduler.schedule(
+            card, ReviewRating.GOOD, now, retention = SpacedRepetitionScheduler.MAX_RETENTION,
+        ).card.intervalDays
+        assertEquals(atMax, absurd, 0.001)
+    }
+
+    @Test
+    fun retentionRatio_isOneAtTheFsrsBaseline() {
+        // projectInterval's arithmetic leans on this being normalised to 0.90.
+        assertEquals(1.0, scheduler.retentionRatio(0.90), 0.001)
+    }
+
+    @Test
+    fun projectInterval_shortensWhenRetentionRises_andRespectsTheCap() {
+        assertTrue(scheduler.projectInterval(365.0, from = 0.90, to = 0.94) < 365.0)
+        // Relaxing retention stretches the interval, but never past the ceiling.
+        assertTrue(scheduler.projectInterval(365.0, from = 0.94, to = 0.90) > 365.0)
+        assertTrue(scheduler.projectInterval(4_000.0, from = 0.94, to = 0.85) <= 5 * 365.0 + 1)
+    }
+
+    @Test
     fun legacySm2Card_isSeededNotResetOnFirstFsrsReview() {
         // A pre-FSRS review card (no stability) with a long interval must keep its progress: seeding
         // sets stability ≈ interval, so a GOOD review schedules far out rather than restarting it.

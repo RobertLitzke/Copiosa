@@ -8,6 +8,28 @@ enum class Cefr {
     fun next(): Cefr = entries.getOrElse(ordinal + 1) { this }
 }
 
+/**
+ * Which way an imported book is translated — decided once, at import, and never changed after.
+ *
+ * The reader always shows the *target*-language text as the primary column and the *native* one as a
+ * subordinate gloss; [FORWARD] and [REVERSE] differ only in which side of a paragraph row holds
+ * which language (see `com.copiosa.domain.book.targetText`).
+ */
+enum class BookDirection {
+    /**
+     * The EPUB is in some other language; the LLM produces graded target-language text into
+     * `translatedText`. The historical (and default) behaviour.
+     */
+    FORWARD,
+
+    /**
+     * The EPUB is already in the target language, so `originalText` is what the learner reads. The
+     * LLM, if asked at all, produces an ungraded native-language gloss into `translatedText` —
+     * nothing is levelled, since the output is the learner's own language.
+     */
+    REVERSE,
+}
+
 /** Which kind of session a conversation represents. */
 enum class Mode {
     CONVERSATION,

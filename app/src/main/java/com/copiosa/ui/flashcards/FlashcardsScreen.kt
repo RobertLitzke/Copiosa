@@ -21,11 +21,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
@@ -37,7 +35,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -58,8 +55,11 @@ import com.copiosa.R
 import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.domain.model.Cloze
 import com.copiosa.ui.components.EmptyState
+import com.copiosa.ui.components.HeaderSearch
+import com.copiosa.ui.components.ScreenHeader
 import com.copiosa.ui.components.SegmentedToggle
 import com.copiosa.ui.components.llmErrorText
+import com.copiosa.ui.components.stripInlineMarkdown
 import com.copiosa.ui.theme.SourceSerif
 
 /**
@@ -206,66 +206,46 @@ private fun VocabHeader(
     onImport: () -> Unit,
     onExport: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    ScreenHeader(
+        title = stringResource(R.string.flashcards_title),
+        search = HeaderSearch(
+            active = searching,
+            query = query,
+            onQueryChange = onQueryChange,
+            onToggle = onToggleSearch,
+            hintRes = R.string.vocab_search_hint,
+        ),
     ) {
-        if (searching) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                placeholder = { Text(stringResource(R.string.vocab_search_hint)) },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
+        var menuOpen by remember { mutableStateOf(false) }
+        IconButton(onClick = { menuOpen = true }) {
+            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.action_more))
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        if (fill.running) stringResource(R.string.fill_progress, fill.done, fill.total)
+                        else stringResource(R.string.action_fill_explanations),
+                    )
+                },
+                enabled = !fill.running && hasPending,
+                onClick = { menuOpen = false; onFill() },
             )
-            IconButton(onClick = onToggleSearch) {
-                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.action_search))
-            }
-        } else {
-            Text(
-                stringResource(R.string.flashcards_title),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.action_add_images)) },
+                enabled = hasCards,
+                onClick = { menuOpen = false; onAddImages() },
             )
-            IconButton(onClick = onToggleSearch) {
-                Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.action_search))
-            }
-            var menuOpen by remember { mutableStateOf(false) }
-            IconButton(onClick = { menuOpen = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.action_more))
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (fill.running) stringResource(R.string.fill_progress, fill.done, fill.total)
-                            else stringResource(R.string.action_fill_explanations),
-                        )
-                    },
-                    enabled = !fill.running && hasPending,
-                    onClick = { menuOpen = false; onFill() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.action_add_images)) },
-                    enabled = hasCards,
-                    onClick = { menuOpen = false; onAddImages() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.action_import_anki)) },
-                    enabled = !importing,
-                    onClick = { menuOpen = false; onImport() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.action_export_anki)) },
-                    enabled = !exporting && hasCards,
-                    onClick = { menuOpen = false; onExport() },
-                )
-}
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.action_import_anki)) },
+                enabled = !importing,
+                onClick = { menuOpen = false; onImport() },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.action_export_anki)) },
+                enabled = !exporting && hasCards,
+                onClick = { menuOpen = false; onExport() },
+            )
         }
     }
     Row(
@@ -483,8 +463,9 @@ private fun VocabRow(
                 titleText = Cloze.question(clozeText, activeOrd)
                 subtitleText = Cloze.activeAnswers(clozeText, activeOrd).joinToString(", ")
             } else {
-                titleText = card.front
-                subtitleText = card.back
+                // Headword + translation are plain — strip any stored Markdown so the list rows stay clean.
+                titleText = stripInlineMarkdown(card.front)
+                subtitleText = stripInlineMarkdown(card.back)
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(

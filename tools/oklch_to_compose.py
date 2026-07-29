@@ -143,6 +143,47 @@ PALETTES = {
     },
 }
 
+# --- Reader correspondence tints --------------------------------------------
+#
+# Six soft paragraph tints per country x mode, cycled by paragraph ord in the book reader. The set
+# is deliberately small and repetitive: TWO core hues per country, three variations of each,
+# interleaved so consecutive paragraphs always alternate cores. Seven independent hues read as a
+# rainbow; two families read as one palette that happens to distinguish paragraphs.
+#
+# The cores are the country's primary accent hue rotated +45 and +165 deg: near enough to stay
+# recognisably that country's colour world, far enough never to be mistaken for the accent itself
+# (accent/accent2 are UI colors -- a paragraph wearing one would read as a highlight). The +120 deg
+# gap between the two cores is what keeps neighbouring paragraphs apart at this chroma.
+
+TINT_CORES = {
+    "Spain": (71, 191),        # gold, teal      (accent 26)
+    "Portugal": (201, 321),    # azulejo blue, plum (accent 156)
+    "Mexico": (195, 315),      # cyan, orchid    (accent 150)
+    "Germany": (73, 193),      # gold, steel     (accent 28)
+    "Brazil": (197, 317),      # sea blue, rose  (accent 152)
+    # The stock forest/cream scheme (accent ~160); lives in AppSkin.kt, not CountryThemes.
+    "Stock": (205, 325),       # blue, rose
+}
+
+# mode -> the three (lightness, chroma) variations applied to each core. Lightness stays within a
+# few percent of the mode's bg (~0.975 light, ~0.20 dark) and chroma is a third of the accents':
+# these wash a paragraph, they do not highlight it.
+TINT_VARIATIONS = {
+    "light": [(0.966, 0.024), (0.955, 0.034), (0.945, 0.028)],
+    "dark": [(0.262, 0.022), (0.282, 0.032), (0.302, 0.026)],
+}
+
+
+def tint_hexes(country, mode):
+    core_a, core_b = TINT_CORES[country]
+    # Interleaved A, B, A, B, ... so adjacent ords never share a core.
+    return [
+        oklch_to_hex(lightness, chroma, hue)
+        for lightness, chroma in TINT_VARIATIONS[mode]
+        for hue in (core_a, core_b)
+    ]
+
+
 # Elevation shadow color per country x mode (from the spec's CSS box-shadows; strongest layer).
 SHADOWS = {
     "Spain": {"light": "0x14783214", "dark": "0x66000000"},
@@ -152,6 +193,13 @@ SHADOWS = {
     "Brazil": {"light": "0x14143C5A", "dark": "0x66000000"},
 }
 
+def print_tints(country, mode, indent="    "):
+    print(f"{indent}tints = listOf(")
+    for hex_value in tint_hexes(country, mode):
+        print(f"{indent}    Color({hex_value}),")
+    print(f"{indent}),")
+
+
 if __name__ == "__main__":
     for country, modes in PALETTES.items():
         for mode, tokens in modes.items():
@@ -160,5 +208,12 @@ if __name__ == "__main__":
             for token in TOKENS:
                 print(f"    {token} = Color({oklch_to_hex(*tokens[token])}),")
             print(f"    shadow = Color({SHADOWS[country][mode]}),")
+            print_tints(country, mode)
             print(")")
             print()
+
+    # The stock palettes are hand-written in AppSkin.kt; only their tints are generated.
+    for mode in ("light", "dark"):
+        print(f"// Stock{mode.capitalize()}")
+        print_tints("Stock", mode)
+        print()

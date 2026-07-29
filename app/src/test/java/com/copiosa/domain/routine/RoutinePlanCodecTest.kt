@@ -25,6 +25,13 @@ class RoutinePlanCodecTest {
         CognateHuntContent(listOf(CognateWord("animal"), CognateWord("embarazada", falseFriend = true, gloss = "pregnant"))),
         SerialStoryContent(3, "El faro", listOf("El guardián subió la escalera.")),
         RapidFireContent("rf_numbers", listOf(RapidFireItem(1L, "/x/a.m4a", "73", listOf("73", "37"), 0)), 0.9f),
+        ConjugationDrillContent(
+            listOf(
+                ConjugationDrillItem("produce", "tener", "pres.1s"),
+                ConjugationDrillItem("transform", "saber", "sub_imp.1s", sourceCell = "pret.3p"),
+                ConjugationDrillItem("generalize", "strong_pret_u", "pret.1s", shownInfinitive = "andar"),
+            ),
+        ),
     )
 
     @Test
@@ -62,6 +69,7 @@ class RoutinePlanCodecTest {
             "cognate_hunt" to CognateHuntContent::class,
             "serial_story" to SerialStoryContent::class,
             "rapid_fire_listening" to RapidFireContent::class,
+            "conjugation_drill" to ConjugationDrillContent::class,
         )
         for ((kind, klass) in expected) {
             val content = allContents.first { it::class == klass }
@@ -94,6 +102,7 @@ class RoutinePlanCodecTest {
         is CognateHuntContent -> ActivityType.COGNATE_HUNT
         is SerialStoryContent -> ActivityType.SERIAL_STORY
         is RapidFireContent -> ActivityType.RAPID_FIRE_LISTENING
+        is ConjugationDrillContent -> ActivityType.CONJUGATION_DRILL
     }
 
     private fun categoryFor(content: ActivityContent): String? = when (content) {

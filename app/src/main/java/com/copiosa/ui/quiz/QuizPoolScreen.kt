@@ -16,7 +16,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -36,10 +35,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.copiosa.R
 import com.copiosa.data.quiz.PoolSeedState
+import com.copiosa.domain.quiz.CueKind
 import com.copiosa.domain.quiz.CueType
 import com.copiosa.domain.quiz.QuizPoolConfig
 import com.copiosa.domain.quiz.TimeStyle
 import com.copiosa.ui.audio.TtsDownloadPrompt
+import com.copiosa.ui.components.ProgressBar
 import com.copiosa.ui.components.ScreenHeader
 
 /**
@@ -96,7 +97,7 @@ fun QuizPoolScreen(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         if (progress.ready < progress.total && progress.failed < progress.total - progress.ready) {
-                            LinearProgressIndicator(
+                            ProgressBar(
                                 progress = { if (progress.total == 0) 0f else progress.ready.toFloat() / progress.total },
                                 modifier = Modifier.fillMaxWidth(),
                             )
@@ -130,6 +131,14 @@ fun QuizPoolScreen(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
+
+                    if (cueType.kind == CueKind.PHRASE) {
+                        Text(
+                            stringResource(R.string.quiz_pool_phrase_note),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
 
                     if (cueType == CueType.NUMBER) {
                         SectionLabel(stringResource(R.string.quiz_pool_number_range))
@@ -266,6 +275,7 @@ private fun cueLabel(cue: CueType): String = stringResource(
     when (cue) {
         CueType.NUMBER -> R.string.quiz_cue_numbers
         CueType.TIME -> R.string.quiz_cue_times
+        CueType.RESTAURANT -> R.string.quiz_cue_restaurant
     },
 )
 
