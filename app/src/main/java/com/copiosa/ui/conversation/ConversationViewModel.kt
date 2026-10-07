@@ -20,6 +20,7 @@ import com.copiosa.domain.model.ProviderId
 import com.copiosa.domain.model.Role
 import com.copiosa.domain.highlight.HighlightTargetProvider
 import com.copiosa.domain.prompt.StructuredReplyParser
+import com.copiosa.domain.vocab.WordSource
 import com.copiosa.ui.components.ReadingSelectionController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -51,6 +52,8 @@ data class ChatConfig(
     val provider: ProviderId = ProviderId.GEMINI,
     val country: String = "Mexico",
     val targetLanguage: String = "es",
+    /** How [model] is named in the UI — an OpenRouter nickname if it has one, else the pretty id. */
+    val modelLabel: String = AppSettings.displayName(model),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -105,9 +108,24 @@ class ConversationViewModel @Inject constructor(
     val config: StateFlow<ChatConfig> =
         combine(conversation, _draftLevel, _draftProvider, settingsRepo.settings) { conv, dLevel, dProvider, settings ->
             if (conv != null) {
-                ChatConfig(conv.level, conv.model, conv.provider, conv.country, conv.targetLanguage)
+                ChatConfig(
+                    conv.level,
+                    conv.model,
+                    conv.provider,
+                    conv.country,
+                    conv.targetLanguage,
+                    settings.label(conv.model),
+                )
             } else {
-                ChatConfig(dLevel, settings.modelFor(dProvider), dProvider, settings.defaultCountry, settings.targetLanguage)
+                val model = settings.modelFor(dProvider)
+                ChatConfig(
+                    dLevel,
+                    model,
+                    dProvider,
+                    settings.defaultCountry,
+                    settings.targetLanguage,
+                    settings.label(model),
+                )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatConfig())
 
@@ -128,24 +146,30 @@ class ConversationViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ConversationUiState())
 
     /**
+     * Whether due vocabulary is tinted in this chat: its own override if it has one, else the
+     * language's setting. A draft has no row to override, so it simply follows the setting.
+     */
+    val highlightWords: StateFlow<Boolean> =
+        combine(conversation, settingsRepo.settings) { c, s -> c?.highlightWords ?: s.highlightSavedWords }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    /**
      * The selectable-reader engine shared with the Texts reader and routine reading steps:
      * tap-to-translate/define + save-to-vocab + saved-word highlighting + passive review of saved
      * words appearing in assistant replies. Saved cards are stamped with this chat's id (null while
      * still a draft — though a draft has no replies to select from).
      */
-    private val selection = ReadingSelectionController(
+    val readingSelection = ReadingSelectionController(
         scope = viewModelScope,
         conversationRepo = conversationRepo,
         flashcardRepo = flashcardRepo,
         highlightProvider = highlightProvider,
-        sourceConversationId = { _activeId.value.takeIf { it != DRAFT } },
+        source = { WordSource.conversation(_activeId.value.takeIf { it != DRAFT }) },
         readingText = messages.map { msgs ->
             msgs.filter { it.role == Role.ASSISTANT }.joinToString("\n") { it.content }
         },
+        highlightEnabled = highlightWords,
     )
-    val translate = selection.translate
-    val savedNotice = selection.savedNotice
-    val highlightTargets = selection.highlightTargets
 
     /**
      * Suggested next subjects, shown as tappable chips below the latest reply. Tracks the freshest
@@ -204,7 +228,7 @@ class ConversationViewModel @Inject constructor(
         if (_activeId.value == DRAFT) return
         _activeId.value = DRAFT
         _ui.value = ConversationUiState()
-        selection.dismissTranslate()
+        readingSelection.dismissTranslate()
         _nextTopics.value = emptyList()
         viewModelScope.launch {
             val settings = settingsRepo.settings.first()
@@ -267,6 +291,17 @@ class ConversationViewModel @Inject constructor(
         viewModelScope.launch { conversationRepo.setStarred(id, next) }
     }
 
+    /**
+     * Flips highlighting for this chat, writing an explicit override: having turned it off here, the
+     * learner would not expect a later change to the language default to switch it back on. The
+     * overflow menu that calls this is only shown for a saved chat, so there is always a row.
+     */
+    fun toggleHighlightWords() {
+        val id = _activeId.value.takeIf { it != DRAFT } ?: return
+        val next = !highlightWords.value
+        viewModelScope.launch { conversationRepo.setHighlightWords(id, next) }
+    }
+
     /** Marks the open conversation unread so it stands out again in the list (overflow menu). */
     fun markUnread() {
         val id = _activeId.value.takeIf { it != DRAFT } ?: return
@@ -285,10 +320,13 @@ class ConversationViewModel @Inject constructor(
     /** Starts the (opt-in) voice download — only ever called from the "Send to audio" prompt. */
     fun startTtsDownload() = ttsModelStore.download()
 
-    /** Queues an assistant reply for on-device TTS; it renders once the voice is ready. */
-    fun sendToAudio(messageId: Long) {
-        val msg = messages.value.firstOrNull { it.id == messageId } ?: return
-        if (msg.role != Role.ASSISTANT || msg.content.isBlank()) return
+    /**
+     * Queues an assistant reply for on-device TTS; it renders once the voice is ready. False when
+     * there was nothing to queue (an empty or missing reply), so the screen can say so.
+     */
+    fun sendToAudio(messageId: Long): Boolean {
+        val msg = messages.value.firstOrNull { it.id == messageId } ?: return false
+        if (msg.role != Role.ASSISTANT || msg.content.isBlank()) return false
         val conv = conversation.value
         // Use the list title (target-language), not the native-language subject, so the audio item
         // matches what the chat list shows.
@@ -301,18 +339,20 @@ class ConversationViewModel @Inject constructor(
             sourceConversationId = _activeId.value.takeIf { it != DRAFT },
             sourceMessageId = messageId,
         )
+        return true
     }
 
-    /** Queues a highlighted selection (a word, phrase, or sentence) for on-device TTS. */
-    fun sendSelectionToAudio(text: String) {
+    /** Queues a highlighted selection (a word, phrase, or sentence) for on-device TTS; false as above. */
+    fun sendSelectionToAudio(text: String): Boolean {
         val clean = text.trim()
-        if (clean.isBlank()) return
+        if (clean.isBlank()) return false
         audioGeneration.enqueue(
             text = clean,
             title = clean.take(60),
             langCode = config.value.targetLanguage,
             sourceConversationId = _activeId.value.takeIf { it != DRAFT },
         )
+        return true
     }
 
     /**
@@ -353,7 +393,7 @@ class ConversationViewModel @Inject constructor(
         // An explanation is a vocabulary aside: it omits next-topics (so the chips persist) and doesn't
         // seed the routine topic table — see ConversationRepository.sendMessage.
         _ui.value = _ui.value.copy(error = null, selectionMessageId = null)
-        selection.dismissTranslate()
+        readingSelection.dismissTranslate()
         generation.sendUserTurn(id, text, isExplanation = true)
     }
 
@@ -366,14 +406,11 @@ class ConversationViewModel @Inject constructor(
     fun onSelectionTranslate(messageId: Long, text: String, anchorY: Float) {
         val sourceText = messages.value.firstOrNull { it.id == messageId }?.content.orEmpty()
         _ui.value = _ui.value.copy(selectionMessageId = messageId)
-        selection.onSelectionTranslate(text, anchorY, sourceText)
+        readingSelection.onSelectionTranslate(text, anchorY, sourceText)
     }
 
-    /** Triggered by the card's "download dictionary" button; fetches the pack then re-runs lookup. */
-    fun downloadDictionary() = selection.downloadDictionary()
-
     fun dismissTranslate() {
-        selection.dismissTranslate()
+        readingSelection.dismissTranslate()
         _ui.value = _ui.value.copy(selectionMessageId = null)
     }
 
@@ -383,19 +420,15 @@ class ConversationViewModel @Inject constructor(
      * Multi-word selections are saved as phrase cards.
      */
     fun saveCurrentTranslation(headword: String? = null) {
-        selection.saveCurrentTranslation(headword)
+        readingSelection.saveCurrentTranslation(headword)
         _ui.value = _ui.value.copy(selectionMessageId = null)
     }
-
-    /** Which dictionary entry the card's save should use, when the word resolved to several. */
-    fun selectSaveEntry(lemma: String, pos: String?) = selection.selectSaveEntry(lemma, pos)
 
     fun consumeError() {
         _ui.value = _ui.value.copy(error = null)
         val id = _activeId.value
         if (id != DRAFT) generation.consumeError(id)
     }
-    fun consumeSavedNotice() = selection.consumeSavedNotice()
 
     private companion object {
         const val DRAFT = 0L

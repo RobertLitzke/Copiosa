@@ -6,12 +6,16 @@ import androidx.lifecycle.viewModelScope
 import com.copiosa.data.generation.AudioGenerationManager
 import com.copiosa.data.generation.GenerationManager
 import com.copiosa.data.local.ConversationEntity
+import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.data.remote.LlmError
 import com.copiosa.data.repository.ConversationRepository
 import com.copiosa.data.repository.FlashcardRepository
+import com.copiosa.data.settings.SettingsRepository
 import com.copiosa.data.tts.SupertonicModelStore
 import com.copiosa.domain.highlight.HighlightTargetProvider
 import com.copiosa.domain.model.Role
+import com.copiosa.domain.reading.ReadMode
+import com.copiosa.domain.vocab.WordSource
 import com.copiosa.ui.components.ReadingSelectionController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -46,6 +50,7 @@ class TextReadingViewModel @Inject constructor(
     private val audioGeneration: AudioGenerationManager,
     private val ttsModelStore: SupertonicModelStore,
     private val highlightProvider: HighlightTargetProvider,
+    settingsRepo: SettingsRepository,
 ) : ViewModel() {
 
     private val id: Long = savedStateHandle.get<Long>("conversationId") ?: 0L
@@ -62,6 +67,15 @@ class TextReadingViewModel @Inject constructor(
     /** Saved reading position to restore on open: (first-visible block index, pixel offset). */
     val savedScroll: StateFlow<Pair<Int, Int>?> =
         conversation.map { c -> c?.let { it.scrollIndex to it.scrollOffset } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * The language version this text was last read in. Null only means the row hasn't loaded yet —
+     * the reader restores on the first non-null value and leaves it alone after that, so a tap that
+     * lands before the load can't be overwritten by it.
+     */
+    val savedMode: StateFlow<ReadMode?> =
+        conversation.map { it?.readMode }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val messages = conversationRepo.observeMessages(id)
@@ -91,33 +105,31 @@ class TextReadingViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReadingState.Importing)
 
     /**
+     * Whether due vocabulary is tinted in this text: its own override if it has one, else the
+     * language's setting. Also drives the overflow menu's check mark.
+     */
+    val highlightWords: StateFlow<Boolean> =
+        combine(conversation, settingsRepo.settings) { c, s -> c?.highlightWords ?: s.highlightSavedWords }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    /**
      * The selectable-reader engine: tap-to-translate/define + save-to-vocab + saved-word highlighting +
      * passive review (of words appearing in [translation]). Saved cards are stamped with this text's id.
+     * The screen drives it directly rather than through passthroughs here.
      */
-    private val selection = ReadingSelectionController(
+    val readingSelection = ReadingSelectionController(
         scope = viewModelScope,
         conversationRepo = conversationRepo,
         flashcardRepo = flashcardRepo,
         highlightProvider = highlightProvider,
-        sourceConversationId = { id },
+        source = { WordSource.conversation(id) },
         readingText = translation,
+        highlightEnabled = highlightWords,
     )
-    val translate = selection.translate
-    val savedNotice = selection.savedNotice
-    val highlightTargets = selection.highlightTargets
 
-    fun onSelectionTranslate(text: String, anchorY: Float, sourceText: String) =
-        selection.onSelectionTranslate(text, anchorY, sourceText)
-
-    fun saveCurrentTranslation(headword: String? = null) = selection.saveCurrentTranslation(headword)
-
-    fun selectSaveEntry(lemma: String, pos: String?) = selection.selectSaveEntry(lemma, pos)
-
-    fun downloadDictionary() = selection.downloadDictionary()
-
-    fun dismissTranslate() = selection.dismissTranslate()
-
-    fun consumeSavedNotice() = selection.consumeSavedNotice()
+    /** The words saved while reading this text, newest first. */
+    val savedWords: StateFlow<List<FlashcardEntity>> = flashcardRepo.observeSavedFrom(WordSource.conversation(id))
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Re-runs the import/translation for this text after a failure. */
     fun retry() { generation.translate(id) }
@@ -127,10 +139,24 @@ class TextReadingViewModel @Inject constructor(
         viewModelScope.launch { conversationRepo.setScroll(id, index, offset) }
     }
 
+    /** Persists the language version being read, so reopening the text resumes in it. */
+    fun saveReadMode(mode: ReadMode) {
+        viewModelScope.launch { conversationRepo.setReadMode(id, mode) }
+    }
+
     /** Marks the text finished once the reader reaches the bottom (drives the list coloring). */
     fun markFinishedReading() {
         if (conversation.value?.finishedReading == true) return
         viewModelScope.launch { conversationRepo.setFinishedReading(id, true) }
+    }
+
+    /**
+     * Flips highlighting for this text, writing an explicit override: having turned it off here, the
+     * learner would not expect a later change to the language default to switch it back on.
+     */
+    fun toggleHighlightWords() {
+        val next = !highlightWords.value
+        viewModelScope.launch { conversationRepo.setHighlightWords(id, next) }
     }
 
     /** Toggles this text's starred flag (overflow menu). */
@@ -150,11 +176,14 @@ class TextReadingViewModel @Inject constructor(
     /** Starts the (opt-in) voice download — only ever called from the "Send to audio" prompt. */
     fun startTtsDownload() = ttsModelStore.download()
 
-    /** Queues the translated body for on-device TTS; it renders once the voice is ready. */
-    fun sendToAudio() {
-        val conv = conversation.value ?: return
+    /**
+     * Queues the translated body for on-device TTS; it renders once the voice is ready. False when
+     * there was nothing to queue (the translation has not arrived), so the screen can say so.
+     */
+    fun sendToAudio(): Boolean {
+        val conv = conversation.value ?: return false
         val body = translation.value
-        if (body.isBlank()) return
+        if (body.isBlank()) return false
         audioGeneration.enqueue(
             text = body,
             // The list title is the target-language title; originalTitle is the source language.
@@ -162,18 +191,20 @@ class TextReadingViewModel @Inject constructor(
             langCode = conv.targetLanguage,
             sourceConversationId = id,
         )
+        return true
     }
 
-    /** Queues a highlighted selection (a word, phrase, or sentence) for on-device TTS. */
-    fun sendSelectionToAudio(text: String) {
+    /** Queues a highlighted selection (a word, phrase, or sentence) for on-device TTS; false as above. */
+    fun sendSelectionToAudio(text: String): Boolean {
         val clean = text.trim()
-        val lang = conversation.value?.targetLanguage ?: return
-        if (clean.isBlank()) return
+        val lang = conversation.value?.targetLanguage ?: return false
+        if (clean.isBlank()) return false
         audioGeneration.enqueue(
             text = clean,
             title = clean.take(60),
             langCode = lang,
             sourceConversationId = id,
         )
+        return true
     }
 }

@@ -23,13 +23,15 @@ import org.junit.Test
  */
 class NaiveSuppressionTest {
 
+    private val SPANISH = ConjugationSpecs.SPANISH
+
     private fun shows(verb: VerbEntry, tense: Tense, person: Person): Boolean =
-        ConjugationEngine.conjugate(verb, tense, person)!!.showsNaive
+        SPANISH.engine.conjugate(verb, tense, person)!!.showsNaive
 
     @Test
     fun plausibleErrors_areShown() {
         // The canonical case: the regular form is a well-formed word and the obvious wrong guess.
-        val supimos = ConjugationEngine.conjugate(SABER, Tense.PRETERITE, Person.NOSOTROS)!!
+        val supimos = SPANISH.engine.conjugate(SABER, Tense.PRETERITE, Person.NOSOTROS)!!
         assertEquals("supimos", supimos.form)
         assertEquals("sabimos", supimos.naiveForm)
         assertTrue(supimos.showsNaive)
@@ -46,7 +48,7 @@ class NaiveSuppressionTest {
     @Test
     fun suppletiveForms_areSuppressed() {
         // Nobody has ever produced "o" for "voy".
-        val voy = ConjugationEngine.conjugate(IR, Tense.PRESENT, Person.YO)!!
+        val voy = SPANISH.engine.conjugate(IR, Tense.PRESENT, Person.YO)!!
         assertEquals("voy", voy.form)
         assertEquals("o", voy.naiveForm)
         assertFalse(voy.showsNaive)
@@ -83,7 +85,7 @@ class NaiveSuppressionTest {
                 ),
             ),
         )
-        val form = ConjugationEngine.conjugate(verb, Tense.PRESENT, Person.YO)!!
+        val form = SPANISH.engine.conjugate(verb, Tense.PRESENT, Person.YO)!!
         assertEquals("probo", form.naiveForm)
         assertFalse("suppressNaive must override the heuristics", form.showsNaive)
     }
@@ -91,9 +93,9 @@ class NaiveSuppressionTest {
     @Test
     fun aShownNaiveFormAlwaysDiffersFromTheRealOne() {
         ConjugationFixtures.ALL.forEach { verb ->
-            Tense.entries.forEach { tense ->
-                Person.entries.forEach { person ->
-                    val form = ConjugationEngine.conjugate(verb, tense, person)!!
+            SPANISH.tenses.forEach { tense ->
+                SPANISH.persons.forEach { person ->
+                    val form = SPANISH.engine.conjugate(verb, tense, person)!!
                     if (form.showsNaive) {
                         assertTrue(
                             "${verb.infinitive} $tense $person shows an identical naive form",

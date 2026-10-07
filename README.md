@@ -13,8 +13,9 @@ Copiosa is an Android app for learning a language as an adult.
 You chat with an AI tutor in the language you're learning. You paste in an article, or import an
 EPUB, and read it with a translation beside it. Tap any word you don't know and it tells you what it
 means — tap again and it becomes a flashcard. Those flashcards come back on a proper
-spaced-repetition schedule. At night, the app builds you a short wind-down routine out of whatever
-you've been studying.
+spaced-repetition schedule. When you'd rather be taught than immersed, short grammar courses start
+from zero. At night, the app builds you a short wind-down routine out of whatever you've been
+studying.
 
 You bring one API key. There's no account, no subscription, and no server: your vocabulary, your
 reading, and your progress live on your phone.
@@ -27,22 +28,43 @@ reading, and your progress live on your phone.
   readers.
 - **Articles and texts.** Paste a URL or any text — or share an article straight from your browser
   into Copiosa — and get a clean, chunked translation that survives being interrupted.
-- **Books.** Import an EPUB and read it with a Target / Native / Both toggle. A book already in your
-  target language is readable the moment it lands and can cost no API calls at all.
+- **Books.** Import an EPUB and read it with a Target / Native / Both toggle, its tables, footnotes
+  and images intact. A book already in your target language is readable the moment it lands and can
+  cost no API calls at all. For the rest you choose, book by book, how eagerly it translates: only
+  as you read, quietly in the background, or the whole novel in one run. Any book exports back out
+  as an EPUB, either a clean copy in the language you're learning or a bilingual one with each
+  paragraph followed by its translation.
 - **Tap to define.** Tap a word or drag across a phrase for an instant definition and translation,
   from a fully offline dictionary and on-device translation. One more tap saves it as a flashcard —
   and words you've saved stay highlighted everywhere you read.
-- **Flashcards.** A real FSRS scheduler with bidirectional review, cloze cards, images, audio, and
-  one-tap undo. Anki `.apkg` decks move in and out losslessly, review history included. Words you
-  merely *meet* while reading earn quiet passive credit.
+- **Vocabulary.** A real FSRS scheduler with cloze cards, images, audio, and one-tap undo. Every
+  word is learned in both directions, recognising it and producing it, each on its own schedule.
+  Anki `.apkg` decks move in and out losslessly, review history included, and a plain JSON export
+  lets you edit cards in bulk outside the app and merge them back. Words you merely *meet* while
+  reading earn quiet passive credit.
+- **The commonest words first.** The 2,000 most frequent words of Spanish and Portuguese are built
+  in. See how much of that list your deck covers, drill the most frequent words you have, and let
+  the app fill the gaps a few at a time.
+- **Grammar courses.** Authored courses that teach one grammar point from zero, then hand what you
+  learned to the scheduler. Spanish ships four: the preterite, the imperfect, choosing between the
+  two, and *por* against *para*. Lessons introduce a couple of forms at a time and spend most of
+  their length on practice.
+- **Cloze bank.** Fill-in-the-blank practice built from sentences you already own: your cards'
+  examples, the dictionary's, and the pages of your books you've actually read. The mining happens
+  on the phone and costs nothing.
 - **Listen anywhere.** Turn any conversation, text, or selection into a playlist item spoken by a
-  neural voice running on the phone itself. Background playback, per-item voices, adjustable speed.
+  neural voice running on the phone itself. A whole book becomes a folder of chapter tracks.
+  Background playback, per-item voices, adjustable speed.
 - **Drills.** Rapid-fire listening for the things that only come with reps — numbers, clock times,
-  restaurant phrases — plus a Spanish conjugation drill with a reference table behind it. Both speed
-  up as you improve.
-- **Bedtime routines.** A nightly wind-down assembled from thirteen kinds of activity — review,
-  grammar drills, cognate hunts, a serial story that continues night after night — arranged into a
-  calming arc and tuned to what you're weakest at.
+  restaurant phrases. Listen-and-rebuild, where you hear a sentence and tap its shuffled words back
+  into order before you see it written. And a conjugation drill for Spanish and European
+  Portuguese. Rapid-fire and conjugation speed up as you improve.
+- **Reference.** Full conjugation tables and a guide to what each tense and mood is for, one tap
+  from the drill that just stumped you.
+- **Routines.** A nightly wind-down assembled from fifteen kinds of activity — review, grammar
+  drills, cognate hunts, a serial story that continues night after night — arranged into a calming
+  arc and tuned to what you're weakest at. A daytime routine runs the arc the other way, warming up
+  gently and finishing sharp.
 - **Home and progress.** What's due, a daily goal, time spent, accuracy, and streaks.
 - **A look you'll want to open.** Country palettes, persona skins, dark mode, adjustable reading
   fonts — and per-language profiles that keep settings, decks, playlists and progress separate.
@@ -73,6 +95,7 @@ spoken audio and offline definitions.
 
 - **Bring your own key.** Copiosa talks to Gemini or OpenRouter (and so to any model they route,
   including Claude and GPT) with *your* key. No backend, no account, no telemetry, no middleman.
+  Settings keeps a running tally of what the month's calls have cost, by feature and by model.
 - **Everything else runs on the phone.** Dictionary lookups, word-form resolution, translation of
   taps and selections, speech synthesis, scheduling, and the routine adaptation engine are all
   local. Airplane mode breaks nothing except generating new material.
@@ -107,12 +130,15 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 
 - The sherpa-onnx TTS AAR (~55 MB) is **downloaded automatically** by the `downloadSherpaOnnxAar`
   Gradle task on first build — no manual step.
-- The offline dictionary pack (`dict_es.sqlite.gz`) is built by
+- The offline dictionary packs (`dict_es.sqlite.gz`, `dict_pt.sqlite.gz`) are built by
   [tools/build_dictionary.py](tools/build_dictionary.py) from a [kaikki.org](https://kaikki.org)
-  Wiktextract dump and downloaded in-app on demand — it is not in the repo.
+  Wiktextract dump and downloaded in-app on demand — they are not in the repo.
+- The User-Agent sent to Wikimedia Commons (flashcard image search) names a contact. It defaults to
+  this project's URL; to send your own, add `copiosa.contact=you@example.com` to the gitignored
+  `local.properties`. Nothing needs setting for a build to work.
 - Language support: conversations, texts, books, flashcards, and audio work for any language your
-  LLM speaks; the grammar and conjugation drills are Spanish-first, and rapid-fire quizzes cover
-  en/es/fr/de/it/pt.
+  LLM speaks. The grammar courses are Spanish; the conjugation drill, frequency lists and offline
+  dictionary cover Spanish and Portuguese; rapid-fire quizzes cover en/es/fr/de/it/pt.
 
 ### Status
 

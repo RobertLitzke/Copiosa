@@ -41,7 +41,6 @@ import com.copiosa.domain.conjugation.ConjugationDrillConfig
 import com.copiosa.domain.conjugation.ConjugationSessionStats
 import com.copiosa.domain.conjugation.DrillDirection
 import com.copiosa.domain.conjugation.IrregularityFamily
-import com.copiosa.domain.conjugation.Tense
 import com.copiosa.domain.stats.FocusActivityType
 import com.copiosa.ui.components.ScreenHeader
 import com.copiosa.ui.components.SectionLabel
@@ -99,6 +98,7 @@ fun ConjugationDrillScreen(
 
             else -> ConjugationDrillActivity(
                 items = active.items,
+                spec = home.spec!!,
                 onGrade = viewModel::onGrade,
                 onComplete = viewModel::onSessionComplete,
                 modifier = Modifier.padding(horizontal = 20.dp),
@@ -116,6 +116,7 @@ private fun SetupPane(
     onStart: () -> Unit,
 ) {
     val config = home.config
+    val spec = home.spec ?: return
     Column(
         Modifier
             .fillMaxSize()
@@ -163,8 +164,9 @@ private fun SetupPane(
             }
         }
 
+        // The language's own paradigms, not every Tense there is: Portuguese has two Spanish hasn't.
         SetupSection(stringResource(R.string.conj_setup_tenses)) {
-            Tense.entries.forEach { tense ->
+            spec.tenses.forEach { tense ->
                 val on = tense in config.tenses
                 FilterChip(
                     selected = on,
@@ -198,12 +200,22 @@ private fun SetupPane(
             }
         }
 
-        FilterChip(
-            selected = config.includeVosotros,
-            onClick = { onConfig(config.copy(includeVosotros = !config.includeVosotros)) },
-            label = { Text(stringResource(R.string.conj_setup_vosotros)) },
-        )
+        // Named after whichever person the language lets you switch off — vosotros, vós.
+        spec.optionalPerson?.let { optional ->
+            FilterChip(
+                selected = config.includeVosotros,
+                onClick = { onConfig(config.copy(includeVosotros = !config.includeVosotros)) },
+                label = { Text(stringResource(R.string.conj_setup_optional_person, optional.label(spec))) },
+            )
+        }
 
+        if (home.nothingToDrill) {
+            Text(
+                stringResource(R.string.conj_nothing_to_drill),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.conj_start))
         }

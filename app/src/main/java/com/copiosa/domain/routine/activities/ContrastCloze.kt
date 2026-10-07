@@ -1,6 +1,8 @@
 package com.copiosa.domain.routine.activities
 
+import com.copiosa.domain.language.LanguageFeature
 import com.copiosa.domain.prompt.RoutineContentParser
+import com.copiosa.domain.language.LanguageProfiles
 import com.copiosa.domain.prompt.RoutineContentPrompt
 import com.copiosa.domain.routine.ActivityBuildContext
 import com.copiosa.domain.routine.ActivityContent
@@ -24,7 +26,8 @@ object ContrastCloze : ActivityDescriptor {
         type = ActivityType.CONTRAST_CLOZE,
         eligibleBands = setOf(ArousalBand.SETTLE),
         arousalWeight = 0.50, estMinutes = 2.5,
-        supportedLanguages = setOf("es"), needsLlm = true, needsDict = true,
+        supportedLanguages = null, needsLlm = true, needsDict = true,
+        requires = setOf(LanguageFeature.GRAMMAR),
     )
 
     override val statusCategories: List<BucketCategory> =
@@ -38,8 +41,10 @@ object ContrastCloze : ActivityDescriptor {
             "does NOT trigger it (so the indicative is the answer) — and vary which position (0 or 1) holds " +
             "the correct option. Aim for a roughly even split."
 
-    override fun requestLine(id: Int, slot: ActivitySlot, ctx: RequestContext): String {
-        val cat = ContrastCategory.fromSlug(slot.category)?.label ?: "ser vs estar"
+    override fun requestLine(id: Int, slot: ActivitySlot, ctx: RequestContext): String? {
+        val cat = ContrastCategory.fromSlug(slot.category)?.label
+            ?: ctx.profile?.contrasts?.firstOrNull()?.label
+            ?: return null
         return "- id $id: contrast_cloze on $cat, " +
             "${RoutineContentPrompt.CLOZE_ITEMS + RoutineContentPrompt.SPARES} items" +
             difficultyNote(slot.difficultyLevel)
@@ -52,6 +57,9 @@ object ContrastCloze : ActivityDescriptor {
     ): ActivityContent? {
         val items = dto?.items.orEmpty().map { ClozeItem(it.sentence, it.options, it.answerIndex, it.explanation) }
         val valid = ctx.validator.validClozeItems(items, ctx.lang, RoutineContentPrompt.CLOZE_ITEMS)
-        return if (valid.size >= MIN_ACTIVITY_ITEMS) ContrastClozeContent(slot.category ?: "ser_estar", valid) else null
+        val category = slot.category
+            ?: LanguageProfiles.forTag(ctx.lang)?.contrasts?.firstOrNull()?.slug
+            ?: return null
+        return if (valid.size >= MIN_ACTIVITY_ITEMS) ContrastClozeContent(category, valid) else null
     }
 }

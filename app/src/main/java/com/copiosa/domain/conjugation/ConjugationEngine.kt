@@ -27,7 +27,7 @@ data class ConjugatedForm(
     val tense: Tense,
     val person: Person,
     val form: String,
-    /** What [RegularConjugator] alone produces. Equal to [form] for a regular cell. */
+    /** What [Conjugator] alone produces. Equal to [form] for a regular cell. */
     val naiveForm: String,
     /**
      * Whether the naive form is worth showing struck through. It earns its place only when it is the
@@ -63,30 +63,40 @@ data class ConjugatedForm(
 }
 
 /**
- * Turns a [VerbEntry] plus a paradigm cell into a displayable [ConjugatedForm].
+ * Turns a [VerbEntry] plus a paradigm cell into a displayable [ConjugatedForm], for one language's
+ * [ConjugationSpec]. Reach one through [ConjugationSpec.engine] rather than constructing it.
  *
  * The key move is that nothing about the *highlight* is authored: the lexicon stores only the correct
  * string and its irregularity class, and the span to colour is recovered by diffing that string
- * against [RegularConjugator]'s output. So there are no character indices to keep in sync, and the
+ * against [Conjugator]'s output. So there are no character indices to keep in sync, and the
  * struck-through naive form the learner sees is by construction the same string the diff was taken
  * against.
  */
-object ConjugationEngine {
+class ConjugationEngine(private val spec: ConjugationSpec) {
+
+    private val conjugator get() = spec.conjugator
 
     fun conjugate(verb: VerbEntry, tense: Tense, person: Person): ConjugatedForm? {
-        val naive = RegularConjugator.regular(verb.infinitive, tense, person) ?: return null
-        val cls = RegularConjugator.classOf(verb.infinitive) ?: return null
+        val naive = conjugator.regular(verb.infinitive, tense, person) ?: return null
+        val cls = conjugator.classOf(verb.infinitive) ?: return null
 
-        val resolved = if (tense == Tense.IMPERFECT_SUBJUNCTIVE) {
-            // Derived, never stored: the imperfect subjunctive is built off the third-person plural
-            // preterite, so it inherits that cell's irregularity (and its suppression) for free.
-            val source = verb.overrideAt(Tense.PRETERITE, Person.ELLOS)
-            val pret3p = source?.form ?: RegularConjugator.regular(verb.infinitive, Tense.PRETERITE, Person.ELLOS)
-            val form = pret3p?.let { RegularConjugator.imperfectSubjunctive(it, person) } ?: return null
-            Resolved(form, source?.classes.orEmpty(), source?.suppressNaive == true)
+        val derived = spec.derived[tense]
+        val stored = verb.overrideAt(tense, person)
+        val resolved = if (derived != null && stored == null) {
+            // Normally never stored: a derived tense is built off its source cell, so it inherits that
+            // cell's irregularity (and its suppression) for free — supieron -> supiera, fizeram ->
+            // fizer. An explicit override still wins, which is how Portuguese carries the handful of
+            // imperfect-subjunctive stems whose written accent the general rule can't predict
+            // (tivéssemos takes an acute where the regular comêssemos takes a circumflex).
+            val sourceCell = derived.source
+            val sourceOverride = sourceCell?.let { verb.overrideAt(it.tense, it.person) }
+            val sourceForm = sourceOverride?.form
+                ?: sourceCell?.let { conjugator.regular(verb.infinitive, it.tense, it.person) }
+                ?: verb.infinitive
+            val form = conjugator.derive(sourceForm, derived, person) ?: return null
+            Resolved(form, sourceOverride?.classes.orEmpty(), sourceOverride?.suppressNaive == true)
         } else {
-            val override = verb.overrideAt(tense, person)
-            Resolved(override?.form ?: naive, override?.classes.orEmpty(), override?.suppressNaive == true)
+            Resolved(stored?.form ?: naive, stored?.classes.orEmpty(), stored?.suppressNaive == true)
         }
 
         val deviates = resolved.form != naive
@@ -120,7 +130,7 @@ object ConjugationEngine {
      */
     internal fun naivePlausible(verb: VerbEntry, classes: List<IrregularityClass>): Boolean {
         if (classes.any { it.family == IrregularityFamily.SUPPLETIVE }) return false
-        return RegularConjugator.stem(verb.infinitive).length >= MIN_PLAUSIBLE_STEM
+        return conjugator.stem(verb.infinitive).length >= MIN_PLAUSIBLE_STEM
     }
 
     /**
@@ -166,7 +176,7 @@ object ConjugationEngine {
             if (split != null) {
                 val stemClass = classes.firstOrNull { it.spanPolicy == SpanPolicy.SPLIT_STEM_ENDING } ?: primary
                 add(FormSegment(form.substring(start, split), SegmentRole.IRREGULAR, stemClass))
-                add(FormSegment(form.substring(split, end), SegmentRole.IRREGULAR, IrregularityClass.STRONG_PRET_ENDING))
+                add(FormSegment(form.substring(split, end), SegmentRole.IRREGULAR, spec.strongPreteriteEndingClass))
             } else {
                 add(FormSegment(form.substring(start, end), SegmentRole.IRREGULAR, primary))
             }
@@ -201,7 +211,7 @@ object ConjugationEngine {
      */
     private fun strongPreteriteSplit(form: String, start: Int, end: Int): Int? {
         if (end != form.length) return null
-        return IrregularityClass.STRONG_PRETERITE_ENDINGS
+        return spec.strongPreteriteEndings
             .sortedByDescending { it.length }
             .firstOrNull { form.endsWith(it) && end - start > it.length }
             ?.let { form.length - it.length }
@@ -213,7 +223,7 @@ object ConjugationEngine {
      * itself; that falls out of measuring the ending rather than the stem.
      */
     private fun regularEndingLength(cls: VerbClass, tense: Tense, person: Person, naive: String): Int =
-        RegularConjugator.ending(cls, tense, person).length.coerceAtMost(naive.length)
+        conjugator.ending(cls, tense, person).length.coerceAtMost(naive.length)
 
     private fun isAllNucleus(text: String, start: Int, end: Int): Boolean =
         start < end && (start until end).all { text.isNucleus(it) }
@@ -238,6 +248,8 @@ object ConjugationEngine {
         return true
     }
 
-    private const val VOWELS = "aeiouáéíóúü"
-    private const val MIN_PLAUSIBLE_STEM = 2
+    private companion object {
+        const val VOWELS = "aeiouáéíóúüâêôãõà"
+        const val MIN_PLAUSIBLE_STEM = 2
+    }
 }

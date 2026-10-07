@@ -1,7 +1,7 @@
 package com.copiosa.domain.conjugation
 
 /**
- * One cell that deviates from [RegularConjugator]. Only deviations are stored — regular cells are
+ * One cell that deviates from [Conjugator]. Only deviations are stored — regular cells are
  * produced by rule — which is what keeps the bundled lexicon to roughly 1,200 rows rather than 8,400.
  *
  * No character indices here: the highlighted span is derived at runtime by diffing [form] against

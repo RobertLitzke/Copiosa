@@ -70,6 +70,13 @@ class AudioGenerationManager @Inject constructor(
         queue.kick()
     }
 
+    /**
+     * Starts the drain for rows inserted by another owner — [com.copiosa.data.generation.BookAudioManager]
+     * enqueues book chapters into the same table, and one render queue for the whole playlist is the
+     * point: two would put two synthesis jobs on the same native engine at once.
+     */
+    fun kick() = queue.kick()
+
     /** Re-queues a FAILED item. */
     fun retry(id: Long) {
         scope.launch {

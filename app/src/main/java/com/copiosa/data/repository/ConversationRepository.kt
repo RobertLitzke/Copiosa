@@ -13,7 +13,9 @@ import com.copiosa.data.remote.LlmException
 import com.copiosa.data.remote.LlmMessage
 import com.copiosa.data.remote.LlmRequest
 import com.copiosa.data.remote.ProviderRegistry
+import com.copiosa.data.remote.chatOrEmpty
 import com.copiosa.data.settings.SettingsRepository
+import com.copiosa.data.translate.DictionaryDownload
 import com.copiosa.data.translate.DictionaryResult
 import com.copiosa.data.translate.LocalDictionary
 import com.copiosa.data.translate.LocalTranslateResult
@@ -30,8 +32,10 @@ import com.copiosa.domain.prompt.ReplyMetadata
 import com.copiosa.domain.prompt.StructuredReplyParser
 import com.copiosa.domain.prompt.VocabHint
 import com.copiosa.domain.prompt.VocabUsageDetector
+import com.copiosa.domain.reading.ReadMode
 import com.copiosa.domain.routine.TopicSource
 import com.copiosa.domain.srs.ReviewWindows
+import com.copiosa.domain.usage.LlmFeature
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -117,20 +121,22 @@ class ConversationRepository @Inject constructor(
 
     suspend fun getConversation(id: Long): ConversationEntity? = conversationDao.getById(id)
 
-    /** The active profile's most recent conversation, used to decide whether to resume on launch. */
-    suspend fun mostRecentConversation(): ConversationEntity? =
-        conversationDao.getMostRecent(settingsRepo.activeProfileTag.first())
-
     suspend fun delete(id: Long) = conversationDao.delete(id)
 
     /** Flags (or unflags) a conversation as a favourite. */
     suspend fun setStarred(id: Long, starred: Boolean) = conversationDao.setStarred(id, starred)
+
+    /** Per-chat/text override of the language's highlight setting; null follows the setting again. */
+    suspend fun setHighlightWords(id: Long, on: Boolean?) = conversationDao.setHighlightWords(id, on)
 
     /** Marks a conversation read (opened) or unread; drives the chat list's read-status coloring. */
     suspend fun setRead(id: Long, read: Boolean) = conversationDao.setRead(id, read)
 
     /** Persists an imported text's reading position so the reader can resume where it left off. */
     suspend fun setScroll(id: Long, index: Int, offset: Int) = conversationDao.setScroll(id, index, offset)
+
+    /** Persists the language version a text was last read in, restored beside the position. */
+    suspend fun setReadMode(id: Long, mode: ReadMode) = conversationDao.setReadMode(id, mode)
 
     /** Marks a text as finished (scrolled to the end); drives the Texts list's read coloring. */
     suspend fun setFinishedReading(id: Long, finished: Boolean) =
@@ -207,8 +213,9 @@ class ConversationRepository @Inject constructor(
             providers.forId(conversation.provider).chat(
                 LlmRequest(
                     systemPrompt = prepared.prompt,
-                    messages = history,
+                    messages = withTurnNote(history, prepared.note),
                     model = conversation.model,
+                    feature = LlmFeature.CHAT,
                 ),
             )
         } catch (t: Throwable) {
@@ -241,8 +248,9 @@ class ConversationRepository @Inject constructor(
         val reply = providers.forId(conversation.provider).chat(
             LlmRequest(
                 systemPrompt = prepared.prompt,
-                messages = history,
+                messages = withTurnNote(history, prepared.note),
                 model = conversation.model,
+                feature = LlmFeature.CHAT,
             ),
         )
         insertReply(conversation, reply.text, recordTopics = !isExplanation, injectedVocab = prepared.vocab)
@@ -330,11 +338,6 @@ class ConversationRepository @Inject constructor(
         conversationDao.update(c.copy(level = level))
     }
 
-    suspend fun setConversationModel(id: Long, model: String) {
-        val c = conversationDao.getById(id) ?: return
-        conversationDao.update(c.copy(model = model))
-    }
-
     /** Switches the provider of a saved conversation, snapshotting that provider's active model. */
     suspend fun setConversationProvider(id: Long, provider: ProviderId) {
         val c = conversationDao.getById(id) ?: return
@@ -373,20 +376,29 @@ class ConversationRepository @Inject constructor(
     /** Whether offline definitions are wired up at all (a download URL has been configured). */
     fun dictionaryConfigured(): Boolean = dictionary.isConfigured()
 
+    /** Roughly how big the active profile's pack is, in MB; null when that language has no figure. */
+    suspend fun dictionarySizeMb(): Int? =
+        dictionary.approxSizeMb(settingsRepo.settings.first().targetLanguage)
+
     /** Whether the target-language dictionary pack is already on the device. */
     suspend fun dictionaryDownloaded(): Boolean =
         dictionary.isDownloaded(settingsRepo.settings.first().targetLanguage)
 
-    /** Downloads the target-language dictionary pack; returns true once a usable pack is present. */
-    suspend fun downloadDictionary(): Boolean =
+    /** Downloads the target-language dictionary pack, reporting what happened. */
+    suspend fun downloadDictionary(): DictionaryDownload =
         dictionary.ensureDownloaded(settingsRepo.settings.first().targetLanguage)
 
     /** Looks up an offline definition for [word] in the target language. */
     suspend fun defineSelection(word: String): DictionaryResult =
         dictionary.lookup(word, settingsRepo.settings.first().targetLanguage)
 
-    /** A built system prompt paired with the saved words it wove in, so the reply can record them. */
-    private data class PreparedPrompt(val prompt: String, val vocab: List<VocabHint>)
+    /**
+     * A turn's guidance in its two halves, with the saved words it offered so the reply can record
+     * them. [prompt] is the system prompt, the same for every ordinary turn of the chat; [note] is
+     * what is particular to this one (see [PromptBuilder.turnNote]) and rides on the learner's
+     * message via [withTurnNote].
+     */
+    private data class PreparedPrompt(val prompt: String, val vocab: List<VocabHint>, val note: String)
 
     private suspend fun systemPromptFor(
         c: ConversationEntity,
@@ -400,7 +412,7 @@ class ConversationRepository @Inject constructor(
         val vocabToUse = vocabOverride ?: pickVocabToUse(c.targetLanguage)
         // The prompt only needs each word's front/back; the forms travel with the hint for later scoring.
         val vocabPairs = vocabToUse.map { it.front to it.back }
-        val reuseWords = latestDistinctiveWords(c.id)
+        val note = prompts.turnNote(vocabToUse = vocabPairs, reuseWords = latestDistinctiveWords(c.id))
         val prompt = when (c.mode) {
             Mode.CONVERSATION -> prompts.buildConversationPrompt(
                 core = settings.corePrompt,
@@ -410,8 +422,7 @@ class ConversationRepository @Inject constructor(
                 nativeLang = c.nativeLanguage,
                 level = c.level,
                 subject = c.subject.orEmpty(),
-                vocabToUse = vocabPairs,
-                reuseWords = reuseWords,
+                includeVocabReport = vocabPairs.isNotEmpty(),
                 includeTitle = includeTitle,
                 includeTopics = includeTopics,
             )
@@ -422,12 +433,24 @@ class ConversationRepository @Inject constructor(
                 targetLang = c.targetLanguage,
                 nativeLang = c.nativeLanguage,
                 level = c.level,
-                vocabToUse = vocabPairs,
-                reuseWords = reuseWords,
+                includeVocabReport = vocabPairs.isNotEmpty(),
                 includeTopics = includeTopics,
             )
         }
-        return PreparedPrompt(prompt, vocabToUse)
+        return PreparedPrompt(prompt, vocabToUse, note)
+    }
+
+    /**
+     * [history] with [note] appended to its last learner turn. Only the request carries the note:
+     * the stored message is untouched, so the next turn sends this one as the learner wrote it and
+     * everything ahead of the new message is byte-for-byte what the provider saw last time.
+     */
+    private fun withTurnNote(history: List<LlmMessage>, note: String): List<LlmMessage> {
+        val last = history.indexOfLast { it.role == Role.USER }
+        if (note.isEmpty() || last < 0) return history
+        return history.toMutableList().also {
+            it[last] = it[last].copy(content = it[last].content + "\n\n" + note)
+        }
     }
 
     /**
@@ -593,14 +616,19 @@ class ConversationRepository @Inject constructor(
         } else {
             // Fresh start: (re)translate the short title, then clear any stale partial body.
             if (hasTitle) {
-                val translatedTitle = provider.chat(
+                // A few words of translation: the background slot's kind of call. The text's own
+                // model is the fallback, since that — not the profile's — is what the body uses.
+                val titleModel = settingsRepo.settingsFor(conversation.targetLanguage)
+                    .backgroundModelFor(conversation.provider, fallback = conversation.model)
+                val translatedTitle = provider.chatOrEmpty(
                     LlmRequest(
                         systemPrompt = textTranslationPrompt(conversation, part = 1, total = 1),
                         messages = listOf(LlmMessage(Role.USER, conversation.originalTitle!!.trim())),
-                        model = conversation.model,
+                        model = titleModel,
+                        feature = LlmFeature.TEXT,
                         maxTokens = 256,
                     ),
-                ).text.trim().ifBlank { conversation.title }
+                ).trim().ifBlank { conversation.title }
                 conversation = conversation.copy(title = translatedTitle.take(120))
             }
             messageDao.updateContent(messageId, "")
@@ -628,6 +656,7 @@ class ConversationRepository @Inject constructor(
                     systemPrompt = textTranslationPrompt(conversation, part = done + 1, total = total, distinctiveBudget = distinctiveBudget),
                     messages = listOf(LlmMessage(Role.USER, chunks[done])),
                     model = conversation.model,
+                    feature = LlmFeature.TEXT,
                     maxTokens = CHUNK_MAX_TOKENS,
                 ),
             ).text

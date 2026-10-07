@@ -3,11 +3,13 @@ package com.copiosa.data.anki
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
+import com.copiosa.data.exportTo
 import com.copiosa.data.local.FlashcardDao
 import com.copiosa.data.local.ReviewLogDao
 import com.copiosa.data.settings.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -37,7 +39,10 @@ class AnkiExportService @Inject constructor(
     /** Thrown when there are no cards to export, so the UI can explain rather than write an empty deck. */
     class NothingToExportException : Exception("You don't have any saved words to export yet.")
 
-    suspend fun export(uri: Uri, now: Long = System.currentTimeMillis()): Summary = withContext(Dispatchers.IO) {
+    suspend fun export(uri: Uri, now: Long = System.currentTimeMillis()): Summary =
+        context.contentResolver.exportTo(uri) { write(uri, now) }
+
+    private suspend fun write(uri: Uri, now: Long): Summary = withContext(Dispatchers.IO) {
         // The export is the active language profile's deck; reviews self-scope via the card list.
         val cards = flashcardDao.getAll(settingsRepo.activeProfileTag.first())
         if (cards.isEmpty()) throw NothingToExportException()
@@ -65,6 +70,9 @@ class AnkiExportService @Inject constructor(
                 AnkiMedia.file(context, name).takeIf { it.exists() }?.let { name to it }
             }
 
+            // The last point a cancel is honoured: everything before this is preparation, and a
+            // destination once opened is written through to the end rather than left half a deck.
+            ensureActive()
             context.contentResolver.openOutputStream(uri)?.use { os ->
                 ApkgPackager.pack(os, collFile, mediaPairs)
             } ?: throw IllegalStateException("Could not open the destination file.")

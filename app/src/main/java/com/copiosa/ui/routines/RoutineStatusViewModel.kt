@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.copiosa.data.local.ActivityProficiencyEntity
 import com.copiosa.data.routine.RoutineRepository
 import com.copiosa.data.settings.SettingsRepository
+import com.copiosa.domain.language.LanguageProfiles
 import com.copiosa.domain.model.Cefr
 import com.copiosa.domain.routine.ActivityRegistry
 import com.copiosa.domain.routine.ActivityType
@@ -37,13 +38,13 @@ data class BucketStatus(
 )
 
 /**
- * The routine status readout: the adaptation engine's per-bucket comfort for the Spanish-only scored
+ * The routine status readout: the adaptation engine's per-bucket comfort for each scored
  * drills (the five contrast-cloze categories + referential PI), plus the input level that drives the
  * unscored affective-PI difficulty.
  */
 data class RoutineStatusUi(
     val loading: Boolean = true,
-    val isSpanish: Boolean = true,
+    val hasGrammarProfile: Boolean = true,
     val clozeCategories: List<BucketStatus> = emptyList(),
     val referentialPi: BucketStatus? = null,
     val multipleChoiceCloze: BucketStatus? = null,
@@ -74,8 +75,9 @@ class RoutineStatusViewModel @Inject constructor(
                 // (or categorized activity) surfaces here without touching this ViewModel.
                 RoutineStatusUi(
                     loading = false,
-                    isSpanish = settings.targetLanguage == "es",
-                    clozeCategories = ActivityRegistry[ActivityType.CONTRAST_CLOZE].statusCategories.map { cat ->
+                    hasGrammarProfile = LanguageProfiles.forTag(settings.targetLanguage) != null,
+                    // Only the contrasts this language actually drills, not the whole catalog.
+                    clozeCategories = contrastsFor(settings.targetLanguage).map { cat ->
                         readout(cat.label, byBucket[cat.slug])
                     },
                     referentialPi = readout(label = null, byBucket[ActivityType.REFERENTIAL_PI.name]),
@@ -83,8 +85,12 @@ class RoutineStatusViewModel @Inject constructor(
                     rapidFire = ActivityRegistry[ActivityType.RAPID_FIRE_LISTENING].statusCategories.map { cat ->
                         readout(cat.label, byBucket[cat.slug])
                     },
-                    conjugation = ActivityRegistry[ActivityType.CONJUGATION_DRILL].statusCategories.map { cat ->
-                        readout(cat.label, byBucket[cat.slug])
+                    conjugation = if (LanguageProfiles.forTag(settings.targetLanguage)?.conjugation == null) {
+                        emptyList()
+                    } else {
+                        ActivityRegistry[ActivityType.CONJUGATION_DRILL].statusCategories.map { cat ->
+                            readout(cat.label, byBucket[cat.slug])
+                        }
                     },
                     level = settings.defaultLevel,
                 )
@@ -104,4 +110,7 @@ class RoutineStatusViewModel @Inject constructor(
             lastSeenAt = row?.lastSeenAt,
         )
     }
+
+    /** The contrasts this language drills — the catalog is app-wide, the profile's list is not. */
+    private fun contrastsFor(lang: String) = LanguageProfiles.forTag(lang)?.contrasts.orEmpty()
 }

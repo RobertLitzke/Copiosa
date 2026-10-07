@@ -19,22 +19,22 @@ class RoutinePlannerTest {
     }
 
     @Test
-    fun everyPlan_endsWithBedtimeStory_exactlyOnce() = forManyPlans { bp ->
+    fun everyBedtimePlan_endsWithTheShortText_exactlyOnce() = forManyPlans { bp ->
         assertTrue("expected at least one slot for ${bp.durationMinutes}m", bp.slots.isNotEmpty())
         assertEquals(
             "exactly one closer for ${bp.durationMinutes}m",
             1,
-            bp.slots.count { it.type == ActivityType.BEDTIME_STORY },
+            bp.slots.count { it.type == ActivityType.SHORT_TEXT },
         )
         assertEquals(
             "story is last for ${bp.durationMinutes}m",
-            ActivityType.BEDTIME_STORY,
+            ActivityType.SHORT_TEXT,
             bp.slots.last().type,
         )
     }
 
     @Test
-    fun everyPlan_hasMonotonicNonIncreasingArousal() = forManyPlans { bp ->
+    fun everyBedtimePlan_hasMonotonicNonIncreasingArousal() = forManyPlans { bp ->
         var prev = Double.MAX_VALUE
         for (slot in bp.slots) {
             assertTrue(
@@ -52,7 +52,7 @@ class RoutinePlannerTest {
             assertFalse("5m must skip Engage", bp.slots.any { it.band == ArousalBand.ENGAGE })
             // The documented shape: a Settle then the Drift closer.
             assertTrue("5m has a Settle", bp.slots.any { it.band == ArousalBand.SETTLE })
-            assertEquals(ActivityType.BEDTIME_STORY, bp.slots.last().type)
+            assertEquals(ActivityType.SHORT_TEXT, bp.slots.last().type)
         }
     }
 
@@ -85,11 +85,11 @@ class RoutinePlannerTest {
             for (seed in 0L until 40L) {
                 val bp = plan(duration, seed, language = "fr")
                 assertTrue(
-                    "fr plan must use no Spanish-only activities",
+                    "fr plan must use no activity needing a grammar profile it lacks",
                     bp.slots.none { it.type in spanishOnly },
                 )
                 // Still a usable wind-down: reading + a story closer.
-                assertEquals(ActivityType.BEDTIME_STORY, bp.slots.last().type)
+                assertEquals(ActivityType.SHORT_TEXT, bp.slots.last().type)
             }
         }
     }
@@ -207,5 +207,110 @@ class RoutinePlannerTest {
         val guess = bp.slots.firstOrNull { it.type == ActivityType.GUESS_THEN_FLIP }
         assertTrue("expected a guess-then-flip slot at 20m", guess != null)
         assertEquals(3, guess!!.difficultyLevel)
+    }
+
+    /**
+     * The short text asks for 2.0 minutes against a Drift budget of 1.5-6.0 across the offered
+     * durations. Its predecessor (the serial story) asked for 5.0 and so could never actually be
+     * planned — this guards against the merged activity drifting back out of budget.
+     */
+    @Test
+    fun theShortText_fitsTheDriftBudgetAtEveryDuration() {
+        for (duration in listOf(5, 10, 20)) {
+            for (seed in 0L until 60L) {
+                assertTrue(
+                    "${duration}m must be able to plan the short text",
+                    plan(duration, seed).slots.any { it.type == ActivityType.SHORT_TEXT },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun anActivityTaggedForOneRoutineType_neverAppearsInTheOther() {
+        // The gate is on the definition, so exercise it through the real registry entry.
+        val bedtimeOnly = ActivityDefinition[ActivityType.SHORT_TEXT].copy(
+            routineTypes = setOf(RoutineType.BEDTIME),
+        )
+        assertTrue("BEDTIME must admit its own activity", RoutineType.BEDTIME.admits(bedtimeOnly))
+        assertFalse("DAYTIME must reject it", RoutineType.DAYTIME.admits(bedtimeOnly))
+    }
+
+    // --- Daytime activation: the mirror image of the wind-down ---
+
+    private fun dayPlan(duration: Int, seed: Long, language: String = "es") =
+        RoutinePlanner(Random(seed)).plan(RoutineType.DAYTIME, duration, language)
+
+    private fun forManyDayPlans(language: String = "es", check: (RoutineBlueprint) -> Unit) {
+        for (duration in listOf(5, 10, 15)) {
+            for (seed in 0L until 60L) check(dayPlan(duration, seed, language))
+        }
+    }
+
+    @Test
+    fun everyDaytimePlan_hasMonotonicNonDecreasingArousal() = forManyDayPlans { bp ->
+        var prev = -1.0
+        for (slot in bp.slots) {
+            assertTrue(
+                "arousal must not fall (${bp.durationMinutes}m): ${bp.slots.map { it.type to it.arousalWeight }}",
+                slot.arousalWeight >= prev - 1e-9,
+            )
+            prev = slot.arousalWeight
+        }
+    }
+
+    @Test
+    fun daytimePlan_playsBandsDriftSettleEngage() {
+        for (seed in 0L until 60L) {
+            val bands = dayPlan(15, seed).slots.map { it.band }.distinct()
+            assertEquals(
+                listOf(ArousalBand.DRIFT, ArousalBand.SETTLE, ArousalBand.ENGAGE),
+                bands,
+            )
+        }
+    }
+
+    @Test
+    fun daytimePlan_opensOnTheShortTextAndDoesNotEndOnIt() = forManyDayPlans { bp ->
+        assertTrue("expected at least one slot for ${bp.durationMinutes}m", bp.slots.isNotEmpty())
+        // No pin: the text lands first because Drift leads, and can only ever be the sole Drift pick.
+        assertFalse(
+            "a daytime routine must not end on the prose read",
+            bp.slots.last().type == ActivityType.SHORT_TEXT,
+        )
+        if (bp.slots.any { it.type == ActivityType.SHORT_TEXT }) {
+            assertEquals(ActivityType.SHORT_TEXT, bp.slots.first().type)
+        }
+    }
+
+    @Test
+    fun shortDaytimePlan_skipsDrift() {
+        // The mirror of the wind-down dropping Engage: five minutes shouldn't be spent warming up.
+        for (seed in 0L until 60L) {
+            val bp = dayPlan(5, seed)
+            assertFalse("5m must skip Drift", bp.slots.any { it.band == ArousalBand.DRIFT })
+            assertTrue("5m must reach Engage", bp.slots.any { it.band == ArousalBand.ENGAGE })
+        }
+    }
+
+    @Test
+    fun daytimePlan_reachesTheHighArousalTier() {
+        // Daytime draws freely from every tier, so the drill needs no quota slot to appear.
+        val seen = (0L until 60L).any { seed ->
+            dayPlan(15, seed).slots.any { it.type == ActivityType.CONJUGATION_DRILL }
+        }
+        assertTrue("the conjugation drill should be plannable in a 15m activation", seen)
+    }
+
+    @Test
+    fun daytimePlan_endsOnItsMostActivatingSlot() = forManyDayPlans { bp ->
+        val peak = bp.slots.maxOf { it.arousalWeight }
+        assertEquals(
+            "the last slot should be the peak for ${bp.durationMinutes}m: " +
+                "${bp.slots.map { it.type to it.arousalWeight }}",
+            peak,
+            bp.slots.last().arousalWeight,
+            1e-9,
+        )
     }
 }

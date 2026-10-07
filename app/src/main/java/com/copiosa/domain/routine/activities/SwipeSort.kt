@@ -1,5 +1,6 @@
 package com.copiosa.domain.routine.activities
 
+import com.copiosa.domain.language.LanguageFeature
 import com.copiosa.domain.prompt.RoutineContentParser
 import com.copiosa.domain.routine.ActivityBuildContext
 import com.copiosa.domain.routine.ActivityContent
@@ -20,7 +21,8 @@ object SwipeSort : ActivityDescriptor {
         type = ActivityType.SWIPE_SORT,
         eligibleBands = setOf(ArousalBand.SETTLE, ArousalBand.DRIFT),
         arousalWeight = 0.30, estMinutes = 1.5,
-        supportedLanguages = setOf("es"), needsLlm = false,
+        supportedLanguages = null, needsLlm = false,
+        requires = setOf(LanguageFeature.GENDER),
         arousalLevel = ArousalLevel.LOW,
     )
 

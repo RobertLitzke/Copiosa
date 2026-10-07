@@ -43,10 +43,6 @@ class FocusStatsRepository @Inject constructor(
             { from -> dao.observeActiveDays(lang, from) },
         )
 
-    /** Overall variant: every profile combined. */
-    fun observeWeeklyAll(): Flow<WeeklyFocusStats> =
-        weekly(dao::observeDayTotalsAll, dao::observeActiveDaysAll)
-
     private fun weekly(
         dayTotals: (fromDay: Long) -> Flow<List<DayTotal>>,
         activeDays: (fromDay: Long) -> Flow<List<Long>>,

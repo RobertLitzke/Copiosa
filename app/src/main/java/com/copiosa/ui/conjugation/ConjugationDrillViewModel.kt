@@ -8,6 +8,7 @@ import com.copiosa.data.settings.SettingsRepository
 import com.copiosa.domain.conjugation.ConjugatedForm
 import com.copiosa.domain.conjugation.ConjugationDrillConfig
 import com.copiosa.domain.conjugation.ConjugationSessionStats
+import com.copiosa.domain.conjugation.ConjugationSpec
 import com.copiosa.domain.conjugation.DrillAnswer
 import com.copiosa.domain.conjugation.DrillGrade
 import com.copiosa.domain.conjugation.DrillItem
@@ -22,10 +23,15 @@ import javax.inject.Inject
 /** The drill screen outside a session: its saved setup and how the learner is doing overall. */
 data class ConjugationHomeUi(
     val loading: Boolean = true,
-    val supported: Boolean = true,
+    /** The profile language's paradigm data; null when the drill has none for it. */
+    val spec: ConjugationSpec? = null,
     val config: ConjugationDrillConfig = ConjugationDrillConfig(),
     val summary: DrillSummary = DrillSummary.EMPTY,
-)
+    /** The last Start found no verb fitting [config]; cleared by the next change to it. */
+    val nothingToDrill: Boolean = false,
+) {
+    val supported: Boolean get() = spec != null
+}
 
 /** A running or finished session. */
 data class ConjugationSessionUi(
@@ -58,21 +64,24 @@ class ConjugationDrillViewModel @Inject constructor(
     private suspend fun refresh() {
         val settings = settingsRepo.settings.first()
         val lang = settings.targetLanguage
-        val supported = repo.supports(lang)
+        val spec = repo.specFor(lang)
         _home.value = ConjugationHomeUi(
             loading = false,
-            supported = supported,
+            spec = spec,
             // Nothing saved yet means a first visit: seed vosotros from the profile's country rather
             // than making the learner find the toggle.
             config = ConjugationDrillConfig.decode(settings.conjugationDrillConfigJson)
                 ?: ConjugationDrillConfig.forCountry(settings.defaultCountry),
-            summary = if (supported) repo.summary(lang) else DrillSummary.EMPTY,
+            summary = if (spec != null) repo.summary(lang) else DrillSummary.EMPTY,
+            // A refresh can land on either side of a Start (see "Drill again"); it must not unsay it.
+            nothingToDrill = _home.value.nothingToDrill,
         )
     }
 
     fun setConfig(config: ConjugationDrillConfig) {
-        val clean = config.sanitized()
-        _home.value = _home.value.copy(config = clean)
+        val spec = _home.value.spec ?: return
+        val clean = config.sanitized(spec)
+        _home.value = _home.value.copy(config = clean, nothingToDrill = false)
         viewModelScope.launch {
             settingsRepo.update { it.copy(conjugationDrillConfigJson = clean.encode()) }
         }
@@ -83,6 +92,9 @@ class ConjugationDrillViewModel @Inject constructor(
             val lang = settingsRepo.settings.first().targetLanguage
             val items = repo.selectItems(lang, _home.value.config)
             answers.clear()
+            // A setup can be valid chip by chip and still match no verb ("irregular only" in a tense
+            // with no irregulars); the setup pane says so rather than leaving Start looking dead.
+            _home.value = _home.value.copy(nothingToDrill = items.isEmpty())
             _session.value = if (items.isEmpty()) null else ConjugationSessionUi(items = items)
         }
     }

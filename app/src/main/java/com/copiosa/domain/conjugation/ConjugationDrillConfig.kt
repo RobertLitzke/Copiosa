@@ -17,17 +17,25 @@ data class ConjugationDrillConfig(
      * irregulars only. The default leans irregular because that is what the drill is for.
      */
     val irregularEmphasis: Double = 0.6,
-    /** Off outside Spain: most learners never need vosotros, and it doubles the plural load. */
+    /**
+     * Whether to drill the language's optional second-person plural ([ConjugationSpec.optionalPerson]).
+     * Off outside Spain, and off for Portuguese: most learners never need vosotros or vós, and either
+     * doubles the plural load. The field name is the serialized key and so is frozen.
+     */
     val includeVosotros: Boolean = false,
 ) {
-    /** The persons in play, in paradigm order. */
-    val persons: List<Person>
-        get() = Person.entries.filter { includeVosotros || it != Person.VOSOTROS }
+    /** The persons in play for [spec], in paradigm order. */
+    fun persons(spec: ConjugationSpec): List<Person> =
+        spec.persons.filter { includeVosotros || it != spec.optionalPerson }
 
-    /** Empty selections would yield an empty session; fall back rather than show nothing. */
-    fun sanitized(): ConjugationDrillConfig = copy(
+    /**
+     * Empty selections would yield an empty session; fall back rather than show nothing. Tenses the
+     * language doesn't have are dropped too, so a config saved under one profile can't ask another for
+     * a paradigm it has no endings for.
+     */
+    fun sanitized(spec: ConjugationSpec): ConjugationDrillConfig = copy(
         itemCount = itemCount.coerceIn(MIN_ITEMS, MAX_ITEMS),
-        tenses = tenses.ifEmpty { DEFAULT_TENSES },
+        tenses = tenses.filter { it in spec.tenses }.toSet().ifEmpty { defaultTenses(spec) },
         directions = directions.ifEmpty { DEFAULT_DIRECTIONS },
         irregularEmphasis = irregularEmphasis.coerceIn(0.0, 1.0),
     )
@@ -43,6 +51,10 @@ data class ConjugationDrillConfig(
 
         val DEFAULT_TENSES = setOf(Tense.PRESENT, Tense.PRETERITE)
         val DEFAULT_DIRECTIONS = setOf(DrillDirection.PRODUCE, DrillDirection.DECODE)
+
+        /** Present and preterite where the language has them, else its first two paradigms. */
+        fun defaultTenses(spec: ConjugationSpec): Set<Tense> =
+            DEFAULT_TENSES.filter { it in spec.tenses }.toSet().ifEmpty { spec.tenses.take(2).toSet() }
 
         private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 

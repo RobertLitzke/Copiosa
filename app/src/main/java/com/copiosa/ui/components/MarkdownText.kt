@@ -19,10 +19,31 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.font.FontWeight as Weight
+import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.isSpecified
+import com.copiosa.data.epub.MARKERS
+import com.copiosa.data.epub.listItemBody
+import com.copiosa.data.epub.listMarkupOf
+import com.copiosa.data.epub.parsePipeTable
 import com.copiosa.ui.theme.LocalReadingStyle
+
+/** Annotation tag on a rendered `[^3]` marker, carrying its label. See [SelectableMessage]. */
+const val FOOTNOTE_TAG = "footnote"
+
+/** Longer than this and `[^…` is prose that happens to start with a bracket, not a marker. */
+private const val MAX_FOOTNOTE_LABEL = 16
+
+/** Raised and shrunk, so a marker reads as a reference rather than as part of the sentence. */
+private val FOOTNOTE_STYLE =
+    SpanStyle(baselineShift = BaselineShift.Superscript, fontSize = 0.75.em, fontWeight = Weight.Bold)
+
+/** Indent per list nesting level: real padding in [MarkdownText], spaces in the flat string. */
+private const val NEST_INDENT_DP = 16
+private const val FLAT_INDENT_SPACES = 4
 
 /**
  * A minimal Markdown renderer covering what graded essays use: headings, bullets, bold and
@@ -34,39 +55,97 @@ import com.copiosa.ui.theme.LocalReadingStyle
  */
 @Composable
 fun MarkdownText(markdown: String, modifier: Modifier = Modifier, colorizer: WordColorizer? = null) {
+    // A stored table is one block of several lines, so it has to be recognised before the
+    // line-by-line walk below turns its pipes into prose.
+    val table = remember(markdown) { parsePipeTable(markdown) }
+    if (table != null) {
+        ReadingTable(table, modifier) { text, header, _ ->
+            // Parsed once per cell text, not on every recomposition of the table.
+            val styled = remember(text, colorizer) { inline(text, colorizer) }
+            Text(
+                styled,
+                style = readingStyle(MaterialTheme.typography.bodyLarge)
+                    .let { if (header) it.copy(fontWeight = FontWeight.Bold) else it },
+            )
+        }
+        return
+    }
+    // Parsing is the expensive part and depends only on the text and the tint, so it is done once
+    // per change to either; recomposition (a scroll, a theme change) only lays the result out again.
+    val blocks = remember(markdown, colorizer) { parseBlocks(markdown, colorizer) }
     Column(modifier = modifier.fillMaxWidth()) {
-        markdown.split("\n").forEach { raw ->
-            val line = raw.trimEnd()
-            when {
-                line.isBlank() -> Spacer(Modifier.height(8.dp))
-                isHorizontalRule(line) -> HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                line.startsWith("### ") -> Text(
-                    inline(line.removePrefix("### "), colorizer),
-                    style = readingStyle(MaterialTheme.typography.titleSmall),
+        blocks.forEach { block ->
+            when (block) {
+                MdBlock.Blank -> Spacer(Modifier.height(8.dp))
+                MdBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                is MdBlock.Heading -> Text(
+                    block.text,
+                    style = readingStyle(
+                        when (block.level) {
+                            3 -> MaterialTheme.typography.titleSmall
+                            2 -> MaterialTheme.typography.titleMedium
+                            else -> MaterialTheme.typography.titleLarge
+                        },
+                    ),
                 )
-                line.startsWith("## ") -> Text(
-                    inline(line.removePrefix("## "), colorizer),
-                    style = readingStyle(MaterialTheme.typography.titleMedium),
-                )
-                line.startsWith("# ") -> Text(
-                    inline(line.removePrefix("# "), colorizer),
-                    style = readingStyle(MaterialTheme.typography.titleLarge),
-                )
-                line.startsWith("- ") || line.startsWith("* ") -> Text(
-                    buildAnnotatedString {
-                        append("•  ")
-                        append(inline(line.drop(2), colorizer))
-                    },
+                is MdBlock.ListItem -> Text(
+                    block.text,
                     style = readingStyle(MaterialTheme.typography.bodyLarge),
+                    modifier = Modifier.padding(start = (block.depth * NEST_INDENT_DP).dp),
                 )
-                else -> Text(
-                    inline(line, colorizer),
+                is MdBlock.Paragraph -> Text(
+                    block.text,
                     style = readingStyle(MaterialTheme.typography.bodyLarge),
                 )
             }
         }
     }
 }
+
+/** One rendered line of [MarkdownText], already parsed: what is left to do is to lay it out. */
+private sealed interface MdBlock {
+    data object Blank : MdBlock
+    data object Rule : MdBlock
+    data class Heading(val level: Int, val text: AnnotatedString) : MdBlock
+    data class ListItem(val text: AnnotatedString, val depth: Int) : MdBlock
+    data class Paragraph(val text: AnnotatedString) : MdBlock
+}
+
+private fun parseBlocks(markdown: String, colorizer: WordColorizer?): List<MdBlock> =
+    markdown.split("\n").map { raw ->
+        val line = raw.trimEnd()
+        val list = listMarkupOf(line)
+        when {
+            line.isBlank() -> MdBlock.Blank
+            isHorizontalRule(line) -> MdBlock.Rule
+            line.startsWith("### ") -> MdBlock.Heading(3, inline(line.removePrefix("### "), colorizer))
+            line.startsWith("## ") -> MdBlock.Heading(2, inline(line.removePrefix("## "), colorizer))
+            line.startsWith("# ") -> MdBlock.Heading(1, inline(line.removePrefix("# "), colorizer))
+            list != null -> MdBlock.ListItem(
+                buildAnnotatedString {
+                    append(if (list.ordered) "${list.ordinal}.  " else "•  ")
+                    append(inline(listItemBody(line), colorizer))
+                },
+                list.depth,
+            )
+            else -> MdBlock.Paragraph(inline(line, colorizer))
+        }
+    }
+
+/**
+ * The inline-emphasis renderer on its own, for a single line that is styled by its caller rather
+ * than laid out as a block — a course lesson's example sentence, where the surrounding `Text` owns
+ * the typography. Block-shaped content should use [MarkdownText] instead.
+ *
+ * Pass [italicBase] when that surrounding `Text` is itself set in italics (a card's example
+ * sentence is): `*emphasis*` then comes out upright, the usual way to stress a word inside an
+ * italic passage — set in italics again it would simply vanish into the line around it.
+ */
+fun inlineMarkup(text: String, italicBase: Boolean = false): AnnotatedString =
+    inline(text, emphasis = if (italicBase) UPRIGHT else ITALIC)
+
+private val ITALIC = SpanStyle(fontStyle = FontStyle.Italic)
+private val UPRIGHT = SpanStyle(fontStyle = FontStyle.Normal)
 
 /** Applies the current reading typeface + size scale ([LocalReadingStyle]) on top of [base]. */
 @Composable
@@ -94,14 +173,33 @@ private fun isHorizontalRule(line: String): Boolean {
  * `**bold**`/`__bold__`, `*italic*`/`_italic_`, `` `code` ``, and backslash escapes (`\*` → literal
  * `*`). Underscore emphasis only fires at a word boundary, so `snake_case` and `el/la_x` survive.
  * An unterminated marker is emitted literally rather than swallowing the rest of the line.
+ * [emphasis] is what `*italic*` turns into — italics, unless the caller's text is already italic.
  */
-private fun inline(text: String, colorizer: WordColorizer? = null): AnnotatedString = buildAnnotatedString {
+private fun inline(
+    text: String,
+    colorizer: WordColorizer? = null,
+    emphasis: SpanStyle = ITALIC,
+): AnnotatedString = buildAnnotatedString {
     var i = 0
     while (i < text.length) {
         val c = text[i]
         when {
             c == '\\' && i + 1 < text.length -> {
                 appendColored(text[i + 1].toString(), colorizer); i += 2
+            }
+            text.startsWith("[^", i) -> {
+                val end = text.indexOf(']', i + 2)
+                val label = if (end > i + 2) text.substring(i + 2, end) else null
+                if (label != null && label.length <= MAX_FOOTNOTE_LABEL) {
+                    // Annotated as well as styled: the annotation is what a tap resolves against to
+                    // open the note (see SelectableMessage's onFootnote).
+                    pushStringAnnotation(FOOTNOTE_TAG, label)
+                    withStyle(FOOTNOTE_STYLE) { append(label) }
+                    pop()
+                    i = end + 1
+                } else {
+                    appendColored("[^", colorizer); i += 2
+                }
             }
             text.startsWith("**", i) -> {
                 val end = text.indexOf("**", i + 2)
@@ -120,14 +218,14 @@ private fun inline(text: String, colorizer: WordColorizer? = null): AnnotatedStr
             c == '*' -> {
                 val end = text.indexOf('*', i + 1)
                 if (end > i + 1) {
-                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { appendColored(text.substring(i + 1, end), colorizer) }
+                    withStyle(emphasis) { appendColored(text.substring(i + 1, end), colorizer) }
                     i = end + 1
                 } else { appendColored("*", colorizer); i += 1 }
             }
             c == '_' && atWordStart(text, i) -> {
                 val end = text.indexOf('_', i + 1)
                 if (end > i + 1) {
-                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { appendColored(text.substring(i + 1, end), colorizer) }
+                    withStyle(emphasis) { appendColored(text.substring(i + 1, end), colorizer) }
                     i = end + 1
                 } else { appendColored("_", colorizer); i += 1 }
             }
@@ -140,7 +238,7 @@ private fun inline(text: String, colorizer: WordColorizer? = null): AnnotatedStr
             }
             else -> {
                 var j = i
-                while (j < text.length && text[j] !in "*_`\\") j++
+                while (j < text.length && text[j] !in MARKERS) j++
                 if (j == i) j = i + 1
                 appendColored(text.substring(i, j), colorizer)
                 i = j
@@ -167,6 +265,12 @@ fun stripInlineMarkdown(text: String): String {
         val c = text[i]
         when {
             c == '\\' && i + 1 < text.length -> { out.append(text[i + 1]); i += 2 }
+            text.startsWith("[^", i) -> {
+                // A footnote marker is reference plumbing, not a word: a card's headword must not
+                // inherit one, so it comes out entirely rather than leaving the bare label behind.
+                val end = text.indexOf(']', i + 2)
+                if (end > i + 2 && end - i - 2 <= MAX_FOOTNOTE_LABEL) i = end + 1 else { out.append("[^"); i += 2 }
+            }
             text.startsWith("**", i) -> {
                 val end = text.indexOf("**", i + 2)
                 if (end > i + 1) { out.append(text, i + 2, end); i = end + 2 } else { out.append("**"); i += 2 }
@@ -189,7 +293,7 @@ fun stripInlineMarkdown(text: String): String {
             }
             else -> {
                 var j = i
-                while (j < text.length && text[j] !in "*_`\\") j++
+                while (j < text.length && text[j] !in MARKERS) j++
                 if (j == i) j = i + 1
                 out.append(text, i, minOf(j, text.length)); i = j
             }
@@ -240,10 +344,15 @@ private fun buildMessageString(
             line.startsWith("### ") -> heading(h3, "### ")
             line.startsWith("## ") -> heading(h2, "## ")
             line.startsWith("# ") -> heading(h1, "# ")
-            line.startsWith("- ") || line.startsWith("* ") -> {
-                append("•  "); append(inline(line.drop(2), colorizer))
+            else -> {
+                // Indent is spaces rather than a padding modifier here: this whole block is one
+                // Text, which is what keeps a selection's character offsets mappable.
+                listMarkupOf(line)?.let {
+                    append(" ".repeat(it.depth * FLAT_INDENT_SPACES))
+                    append(if (it.ordered) "${it.ordinal}.  " else "•  ")
+                    append(inline(listItemBody(line), colorizer))
+                } ?: append(inline(line, colorizer))
             }
-            else -> append(inline(line, colorizer))
         }
         if (idx < lines.lastIndex) append("\n")
     }

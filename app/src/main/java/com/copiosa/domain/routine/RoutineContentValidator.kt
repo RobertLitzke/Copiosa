@@ -19,7 +19,7 @@ class RoutineContentValidator @Inject constructor(
     private val dictionary: LocalDictionary,
 ) {
     suspend fun validatePi(item: PiItem, lang: String): Boolean {
-        if (!RoutineValidation.piStructurallyValid(item)) return false
+        if (!RoutineValidation.piStructurallyValid(item, lang)) return false
         if (!dictionary.isDownloaded(lang)) return true
         return containsVerb(RoutineValidation.tokenize(item.sentence), lang)
     }

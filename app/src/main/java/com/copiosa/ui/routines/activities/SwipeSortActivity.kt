@@ -30,6 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.copiosa.domain.language.LanguageProfiles
 import com.copiosa.R
 import com.copiosa.domain.routine.SortDimension
 import com.copiosa.domain.routine.SwipeSortContent
@@ -41,17 +42,16 @@ import kotlin.math.roundToInt
  * dimension). Tactile and one-handed. A brief tint confirms right/wrong, then the next word slides in.
  */
 @Composable
-internal fun SwipeSortActivity(content: SwipeSortContent, onComplete: () -> Unit) {
+internal fun SwipeSortActivity(content: SwipeSortContent, lang: String, onComplete: () -> Unit) {
     val items = content.items
-    if (items.isEmpty()) {
+    // The bins are the target language's own articles ("el (m.)" / "o (m.)"), so they come off the
+    // profile rather than out of a string resource that could only ever name one language's.
+    val binLabels = when (content.dimension) {
+        SortDimension.GENDER -> LanguageProfiles.forTag(lang)?.genderBins?.map { it.label }
+    }
+    if (items.isEmpty() || binLabels.isNullOrEmpty()) {
         LaunchedEffect(Unit) { onComplete() }
         return
-    }
-    val binLabels = when (content.dimension) {
-        SortDimension.GENDER -> listOf(
-            stringResource(R.string.routine_swipe_masculine),
-            stringResource(R.string.routine_swipe_feminine),
-        )
     }
 
     var i by remember { mutableIntStateOf(0) }

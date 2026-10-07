@@ -24,7 +24,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,9 +32,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.copiosa.R
 import com.copiosa.data.settings.AppSettings
 import com.copiosa.domain.model.Cefr
+import com.copiosa.domain.srs.NewCardLimit
 import com.copiosa.domain.srs.SpacedRepetitionScheduler
 import com.copiosa.ui.components.LabeledDropdown
 import com.copiosa.ui.components.SectionLabel
@@ -103,6 +104,7 @@ internal fun LanguageTab(settings: AppSettings, viewModel: SettingsViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SectionLabel(stringResource(R.string.settings_srs_section))
+            NewCardsPicker(settings = settings, viewModel = viewModel)
             RetentionSlider(settings = settings, viewModel = viewModel)
         }
     }
@@ -140,7 +142,7 @@ internal fun LanguageTab(settings: AppSettings, viewModel: SettingsViewModel) {
  */
 @Composable
 private fun BackupCard(viewModel: SettingsViewModel) {
-    val status by viewModel.backup.collectAsState()
+    val status by viewModel.backup.collectAsStateWithLifecycle()
     var pendingRestore by remember { mutableStateOf<Uri?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
@@ -245,6 +247,40 @@ private fun GoalSlider(settings: AppSettings, viewModel: SettingsViewModel) {
  * does *not* persist as you drag: retention reshapes the whole review schedule, so the pending value
  * is held locally, its effect on real intervals is shown, and it only lands via Apply + confirm.
  */
+/**
+ * How many new cards a day's reviews take on. A dropdown rather than a slider: the choices that
+ * matter are a handful of round numbers plus the two ends — none, and no limit.
+ */
+@Composable
+private fun NewCardsPicker(settings: AppSettings, viewModel: SettingsViewModel) {
+    // Precomputed because optionLabel runs outside composition (can't call stringResource).
+    val unlimited = stringResource(R.string.settings_new_cards_unlimited)
+    val none = stringResource(R.string.settings_new_cards_none)
+    val options = (NewCardLimit.CHOICES + settings.newCardsPerDay.coerceAtLeast(NewCardLimit.UNLIMITED))
+        .distinct()
+        .sortedBy { if (NewCardLimit.isUnlimited(it)) Int.MAX_VALUE else it }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LabeledDropdown(
+            label = stringResource(R.string.settings_new_cards),
+            options = options,
+            selected = settings.newCardsPerDay.coerceAtLeast(NewCardLimit.UNLIMITED),
+            optionLabel = {
+                when {
+                    NewCardLimit.isUnlimited(it) -> unlimited
+                    it == 0 -> none
+                    else -> it.toString()
+                }
+            },
+            onSelect = viewModel::setNewCardsPerDay,
+        )
+        Text(
+            stringResource(R.string.settings_new_cards_explainer),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 @Composable
 private fun RetentionSlider(settings: AppSettings, viewModel: SettingsViewModel) {
     val saved = settings.desiredRetention

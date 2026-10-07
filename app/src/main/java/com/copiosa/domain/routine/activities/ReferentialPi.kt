@@ -1,5 +1,6 @@
 package com.copiosa.domain.routine.activities
 
+import com.copiosa.domain.language.LanguageFeature
 import com.copiosa.domain.prompt.RoutineContentParser
 import com.copiosa.domain.prompt.RoutineContentPrompt
 import com.copiosa.domain.routine.ActivityBuildContext
@@ -22,15 +23,20 @@ object ReferentialPi : ActivityDescriptor {
         type = ActivityType.REFERENTIAL_PI,
         eligibleBands = setOf(ArousalBand.SETTLE),
         arousalWeight = 0.55, estMinutes = 2.5,
-        supportedLanguages = setOf("es"), needsLlm = true, needsDict = true,
+        supportedLanguages = null, needsLlm = true, needsDict = true,
+        requires = setOf(LanguageFeature.GRAMMAR),
     )
 
-    override fun systemRule(ctx: PromptContext): String =
-        "referential_pi: each item is ONE fully-conjugated, PRO-DROPPED ${ctx.targetName} sentence whose " +
+    override fun systemRule(ctx: PromptContext): String {
+        val profile = ctx.profile
+        val pronouns = profile?.subjectPronouns.orEmpty().joinToString(", ")
+        val adverbs = profile?.timeAdverbs.orEmpty().joinToString(", ")
+        return "referential_pi: each item is ONE fully-conjugated, PRO-DROPPED ${ctx.targetName} sentence whose " +
             "verb form alone reveals who/when. The sentence must contain NO subject pronoun " +
-            "(yo, tú, usted, él, ella, nosotros, vosotros, ellos, ellas) and NO time adverb " +
-            "(ayer, hoy, mañana, ahora) — the learner must infer the referent from the conjugation. " +
+            "($pronouns) and NO time adverb " +
+            "($adverbs) — the learner must infer the referent from the conjugation. " +
             "\"options\" are the candidate referents; \"answerIndex\" is the correct one (0-based)."
+    }
 
     override fun requestLine(id: Int, slot: ActivitySlot, ctx: RequestContext): String =
         "- id $id: referential_pi, ${RoutineContentPrompt.PI_ITEMS + RoutineContentPrompt.SPARES} items" +

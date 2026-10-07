@@ -23,7 +23,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.ChatBubbleOutline
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Headphones
@@ -31,11 +32,14 @@ import androidx.compose.material.icons.filled.MarkChatRead
 import androidx.compose.material.icons.filled.MarkChatUnread
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,7 +47,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -60,17 +64,25 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.copiosa.R
 import com.copiosa.data.epub.BookMedia
 import com.copiosa.ui.audio.AudioPane
 import com.copiosa.ui.audio.TtsDownloadPrompt
+import com.copiosa.domain.book.bookFullyReadable
+import com.copiosa.ui.books.BookActionDialogs
+import com.copiosa.ui.books.BookAudioDialog
+import com.copiosa.ui.books.BookDownloadModeDialog
+import com.copiosa.ui.books.BookEpubExportDialogs
 import com.copiosa.ui.components.CefrBadge
 import com.copiosa.ui.components.CircleAvatar
 import com.copiosa.ui.components.EmptyState
 import com.copiosa.ui.components.HeaderSearch
+import com.copiosa.ui.components.ReadingProgressRule
 import com.copiosa.ui.components.ScreenHeader
 import com.copiosa.ui.components.SegmentedToggle
-import com.copiosa.ui.flashcards.FileImage
+import com.copiosa.ui.components.llmErrorText
+import com.copiosa.ui.vocab.FileImage
 import com.copiosa.ui.theme.SourceSerif
 import com.copiosa.ui.theme.skin.LocalAppSkin
 import com.copiosa.ui.theme.skin.personaTexture
@@ -82,13 +94,17 @@ fun LibraryScreen(
     onOpenConversation: (Long) -> Unit,
     onOpenText: (Long) -> Unit,
     onOpenBook: (Long) -> Unit,
+    onOpenAudioTag: (String) -> Unit,
+    onNewChat: () -> Unit,
+    onAddText: () -> Unit,
+    onImportBook: () -> Unit,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
-    val query by viewModel.query.collectAsState()
-    val filter by viewModel.filter.collectAsState()
-    val entries by viewModel.entries.collectAsState()
-    val moreCount by viewModel.moreCount.collectAsState()
-    val pending by viewModel.pendingCount.collectAsState()
+    val query by viewModel.query.collectAsStateWithLifecycle()
+    val filter by viewModel.filter.collectAsStateWithLifecycle()
+    val entries by viewModel.entries.collectAsStateWithLifecycle()
+    val moreCount by viewModel.moreCount.collectAsStateWithLifecycle()
+    val pending by viewModel.pendingCount.collectAsStateWithLifecycle()
     var searching by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<LibraryEntry?>(null) }
 
@@ -110,15 +126,26 @@ fun LibraryScreen(
     // "Generate audio" (long-press menu): queue now if the voice is installed, else prompt to download.
     val context = LocalContext.current
     val addedMsg = stringResource(R.string.audio_added)
+    val nothingMsg = stringResource(R.string.audio_nothing_to_add)
     var pendingAudio by remember { mutableStateOf<LibraryEntry?>(null) }
-    fun requestAudio(entry: LibraryEntry) {
-        if (viewModel.isTtsReady()) {
-            viewModel.sendToAudio(entry)
-            Toast.makeText(context, addedMsg, Toast.LENGTH_SHORT).show()
+
+    // A book takes the same voice gate as everything else but opens a confirmation rather than
+    // queueing outright: it is tens of tracks and hours of synthesis, not one item on a queue.
+    fun deliverAudio(entry: LibraryEntry) {
+        if (entry is LibraryEntry.Book) {
+            viewModel.bookActions.openAudio(entry.id)
         } else {
-            pendingAudio = entry
+            // The toast waits on the answer: a row with no reply or translation yet queues nothing.
+            viewModel.sendToAudio(entry) { queued ->
+                Toast.makeText(context, if (queued) addedMsg else nothingMsg, Toast.LENGTH_SHORT).show()
+            }
         }
     }
+
+    fun requestAudio(entry: LibraryEntry) {
+        if (viewModel.isTtsReady()) deliverAudio(entry) else pendingAudio = entry
+    }
+
 
     val skin = LocalAppSkin.current
     Column(modifier = Modifier.fillMaxSize().personaTexture(skin)) {
@@ -140,7 +167,7 @@ fun LibraryScreen(
             labels = listOf(
                 stringResource(R.string.filter_all),
                 stringResource(R.string.filter_chats),
-                stringResource(R.string.filter_translations),
+                stringResource(R.string.filter_texts),
                 stringResource(R.string.filter_books),
                 stringResource(R.string.filter_audio),
             ),
@@ -151,12 +178,20 @@ fun LibraryScreen(
         // The Audio segment isn't a filter over the list — it swaps in the audio queue, which brings
         // its own list, transport bar and state.
         if (filter == LibraryFilter.AUDIO) {
-            AudioPane(Modifier.weight(1f))
+            AudioPane(Modifier.weight(1f), onOpenTag = onOpenAudioTag)
         } else {
             if (pending > 0) BatchProgressBanner(pending)
 
             if (entries.isEmpty()) {
-                EmptyState(stringResource(emptyMessageFor(filter)))
+                EmptyState(
+                    stringResource(emptyMessageFor(filter)),
+                    // A search with no hits isn't an empty library — no "start here" buttons then.
+                    action = if (query.isBlank()) {
+                        { EmptyLibraryActions(filter, onNewChat, onAddText, onImportBook) }
+                    } else {
+                        null
+                    },
+                )
             } else {
                 LazyColumn(
                     state = listState,
@@ -182,7 +217,7 @@ fun LibraryScreen(
                                 onGenerateAudio = { requestAudio(entry) },
                                 onDelete = { pendingDelete = entry },
                             )
-                            is LibraryEntry.Translation -> TextRowItem(
+                            is LibraryEntry.Text -> TextRowItem(
                                 item = entry.item,
                                 onClick = { onOpenText(entry.id) },
                                 onToggleStar = { viewModel.setStarred(entry.id, !entry.item.starred) },
@@ -194,9 +229,10 @@ fun LibraryScreen(
                                 item = entry.item,
                                 onClick = { onOpenBook(entry.id) },
                                 onToggleStar = { viewModel.setBookStarred(entry.id, !entry.item.starred) },
-                                onToggleAutoTranslate = {
-                                    viewModel.setBookAutoTranslate(entry.id, !entry.item.autoTranslate)
-                                },
+                                onToggleRead = { viewModel.setBookRead(entry.id, !entry.item.finishedReading) },
+                                onOpenDownloadMode = { viewModel.bookActions.openDownload(entry.id) },
+                                onGenerateAudio = { requestAudio(entry) },
+                                onExport = { viewModel.bookActions.openExport(entry.id) },
                                 onDelete = { pendingDelete = entry },
                             )
                         }
@@ -211,15 +247,17 @@ fun LibraryScreen(
         }
     }
 
+    BookActionDialogs(viewModel.bookActions)
+
     pendingDelete?.let { target ->
         val title = when (target) {
             is LibraryEntry.Chat -> target.row.conversation.title
-            is LibraryEntry.Translation -> target.item.title
+            is LibraryEntry.Text -> target.item.title
             is LibraryEntry.Book -> target.item.title
         }
         val titleRes = when (target) {
             is LibraryEntry.Chat -> R.string.delete_conversation_title
-            is LibraryEntry.Translation -> R.string.delete_text_title
+            is LibraryEntry.Text -> R.string.delete_text_title
             is LibraryEntry.Book -> R.string.book_delete_title
         }
         AlertDialog(
@@ -241,7 +279,7 @@ fun LibraryScreen(
                 when (target) {
                     is LibraryEntry.Chat ->
                         Text(stringResource(R.string.delete_conversation_message, title))
-                    is LibraryEntry.Translation ->
+                    is LibraryEntry.Text ->
                         Text(stringResource(R.string.delete_text_message, title))
                     is LibraryEntry.Book -> Text(stringResource(R.string.book_delete_confirm))
                 }
@@ -253,21 +291,25 @@ fun LibraryScreen(
         TtsDownloadPrompt(
             onConfirm = {
                 viewModel.startTtsDownload()
-                viewModel.sendToAudio(entry)
-                Toast.makeText(context, addedMsg, Toast.LENGTH_SHORT).show()
+                deliverAudio(entry)
                 pendingAudio = null
             },
             onDismiss = { pendingAudio = null },
         )
     }
+
 }
 
-/** Dispatches "Generate audio" to the right per-type renderer. */
-private fun LibraryViewModel.sendToAudio(entry: LibraryEntry) {
+/**
+ * Dispatches "Generate audio" to the right per-type renderer.
+ *
+ * Books are absent because a novel is not one playlist item: it becomes a folder of per-chapter
+ * tracks via BookAudioManager, which the screen routes to its own confirmation dialog instead.
+ */
+private fun LibraryViewModel.sendToAudio(entry: LibraryEntry, onResult: (queued: Boolean) -> Unit) {
     when (entry) {
-        is LibraryEntry.Chat -> sendChatToAudio(entry.id)
-        is LibraryEntry.Translation -> sendTextToAudio(entry.id)
-        // Books aren't sendable to audio (a whole novel is not one playlist item); the menu omits it.
+        is LibraryEntry.Chat -> sendChatToAudio(entry.id, onResult)
+        is LibraryEntry.Text -> sendTextToAudio(entry.id, onResult)
         is LibraryEntry.Book -> Unit
     }
 }
@@ -275,10 +317,46 @@ private fun LibraryViewModel.sendToAudio(entry: LibraryEntry) {
 private fun emptyMessageFor(filter: LibraryFilter): Int = when (filter) {
     LibraryFilter.ALL -> R.string.library_empty_all
     LibraryFilter.CHATS -> R.string.library_empty
-    LibraryFilter.TRANSLATIONS -> R.string.texts_empty
+    LibraryFilter.TEXTS -> R.string.texts_empty
     LibraryFilter.BOOKS -> R.string.library_empty_books
     // The audio segment renders its own empty state; this branch only satisfies exhaustiveness.
     LibraryFilter.AUDIO -> R.string.audio_empty
+}
+
+/**
+ * The empty list's way in: the FAB dial's actions as visible buttons, narrowed to the segment being
+ * looked at. Same labels and icons as the dial, so learning one teaches the other.
+ */
+@Composable
+private fun EmptyLibraryActions(
+    filter: LibraryFilter,
+    onNewChat: () -> Unit,
+    onAddText: () -> Unit,
+    onImportBook: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (filter == LibraryFilter.ALL || filter == LibraryFilter.CHATS) {
+            EmptyActionButton(Icons.Filled.ChatBubbleOutline, stringResource(R.string.fab_new_chat), onNewChat)
+        }
+        if (filter == LibraryFilter.ALL || filter == LibraryFilter.TEXTS) {
+            EmptyActionButton(Icons.Filled.Translate, stringResource(R.string.action_translate), onAddText)
+        }
+        if (filter == LibraryFilter.ALL || filter == LibraryFilter.BOOKS) {
+            EmptyActionButton(Icons.AutoMirrored.Filled.MenuBook, stringResource(R.string.fab_import_book), onImportBook)
+        }
+    }
+}
+
+@Composable
+private fun EmptyActionButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+    FilledTonalButton(onClick = onClick) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(label)
+    }
 }
 
 // region Chat row
@@ -489,7 +567,7 @@ private fun relativeTime(millis: Long): String =
 
 // endregion
 
-// region Translation row
+// region Text row
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -544,6 +622,7 @@ private fun TextRowItem(
                     CefrBadge(item.level)
                     TextSubtitle(item)
                 }
+                item.progress?.let { RowProgressRule(it) }
             }
             if (failed) {
                 IconButton(onClick = onRetry) {
@@ -634,6 +713,15 @@ private fun TextSubtitle(item: TextItem) {
     }
 }
 
+/**
+ * How far through a book or long text the reader is, under the row's subtitle: the reader's own
+ * [ReadingProgressRule], so the list and the open text say it the same way.
+ */
+@Composable
+private fun RowProgressRule(progress: Float) {
+    ReadingProgressRule(fraction = { progress }, modifier = Modifier.padding(top = 2.dp))
+}
+
 @Composable
 private fun StatusRow(label: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -656,7 +744,10 @@ private fun BookRowItem(
     item: BookItem,
     onClick: () -> Unit,
     onToggleStar: () -> Unit,
-    onToggleAutoTranslate: () -> Unit,
+    onToggleRead: () -> Unit,
+    onOpenDownloadMode: () -> Unit,
+    onGenerateAudio: () -> Unit,
+    onExport: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -709,6 +800,7 @@ private fun BookRowItem(
                     if (item.wantsTranslation) CefrBadge(item.level)
                     BookSubtitle(item)
                 }
+                RowProgressRule(item.progress)
             }
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -723,16 +815,42 @@ private fun BookRowItem(
                 onClick = { onToggleStar(); menuOpen = false },
             )
             DropdownMenuItem(
-                text = { Text(stringResource(R.string.book_translate_background)) },
-                leadingIcon = {
-                    if (item.autoTranslate) {
-                        Icon(Icons.Filled.Check, contentDescription = null)
-                    } else {
-                        Spacer(Modifier.size(24.dp))
-                    }
+                text = {
+                    Text(
+                        stringResource(
+                            if (item.finishedReading) R.string.action_mark_unread else R.string.action_mark_read,
+                        ),
+                    )
                 },
-                onClick = { onToggleAutoTranslate(); menuOpen = false },
+                leadingIcon = {
+                    Icon(
+                        if (item.finishedReading) Icons.Filled.MarkChatUnread else Icons.Filled.MarkChatRead,
+                        contentDescription = null,
+                    )
+                },
+                onClick = { onToggleRead(); menuOpen = false },
             )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.book_download_menu)) },
+                leadingIcon = { Icon(Icons.Filled.Download, contentDescription = null) },
+                onClick = { onOpenDownloadMode(); menuOpen = false },
+            )
+            // Offered from the first translated chapter rather than only on a finished book: the
+            // dialog reports how much is ready, and the rest follows as translation catches up.
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.action_generate_audio)) },
+                leadingIcon = { Icon(Icons.Filled.VolumeUp, contentDescription = null) },
+                onClick = { onGenerateAudio(); menuOpen = false },
+            )
+            // Only once the book reads end to end — same rule as the reader's overflow, taken from
+            // the one shared expression so the two menus cannot drift apart.
+            if (bookFullyReadable(item.wantsTranslation, item.translatedSections, item.totalSections)) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.book_export_menu)) },
+                    leadingIcon = { Icon(Icons.Filled.FileDownload, contentDescription = null) },
+                    onClick = { onExport(); menuOpen = false },
+                )
+            }
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.action_delete)) },
                 leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
@@ -757,8 +875,16 @@ private fun BookSubtitle(item: BookItem) {
                 item.totalSections,
             ),
         )
-        item.failed -> Text(
-            stringResource(R.string.text_failed),
+        // A stalled book still reports how far it got: "81/153" is what makes it obvious the
+        // download stopped short rather than never started, and the reason is what decides whether
+        // it is worth tapping Retry or worth fixing a key first.
+        item.failure != null -> Text(
+            stringResource(
+                R.string.book_failed_progress,
+                item.translatedSections,
+                item.totalSections,
+                llmErrorText(item.failure),
+            ),
             style = labelStyle,
             color = MaterialTheme.colorScheme.error,
         )

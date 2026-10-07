@@ -4,6 +4,7 @@ import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.data.local.ReviewLogEntity
 import com.copiosa.domain.model.CardKind
 import com.copiosa.domain.model.FlashcardState
+import com.copiosa.domain.model.ReviewDirection
 import com.copiosa.domain.model.ReviewRating
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -158,6 +159,61 @@ class AnkiExportRoundTripTest {
         assertFalse("unmarked card stays unmarked", res.card("la-9", 0).card.marked)
         // The flag lives in the `marked` column, not the passthrough tags.
         assertNull(res.card("la-8", 0).card.ankiTags)
+    }
+
+    // ---- notes with a card each way, as the flashcards view returns them: both rows read the term
+    // on the front, and the direction is what tells them apart ----
+
+    private fun viewCard(id: Long, note: Long, direction: ReviewDirection, guid: String? = null, ord: Int? = null) =
+        FlashcardEntity(
+            id = id, noteId = note, front = "gato", back = "cat", cardKind = CardKind.VOCAB,
+            reviewDirection = direction, targetLanguage = "es", nativeLanguage = "en",
+            createdAt = now, dueAt = now, state = FlashcardState.NEW,
+            ankiNoteGuid = guid, ankiOrd = ord,
+            ankiFieldsJson = guid?.let { """["gato","cat"]""" }, ankiNoteTypeId = guid?.let { 1000L },
+        )
+
+    @Test
+    fun aNoteMadeInTheAppExportsAsOneAnkiNoteWithACardEachWay() {
+        val cards = listOf(
+            viewCard(id = 20, note = 12, direction = ReviewDirection.TARGET_FIRST),
+            viewCard(id = 21, note = 12, direction = ReviewDirection.NATIVE_FIRST),
+        ).map { AnkiExporter.Input(it, emptyList()) }
+
+        val collection = AnkiExporter().export(cards, now)
+        assertEquals(1, collection.notes.size)
+        // The guid is the note's, so it is the same guid the note exported under as a single row.
+        assertEquals("la-12", collection.notes.single().guid)
+        assertEquals(listOf(0, 1), collection.cards.map { it.ord }.sorted())
+
+        val res = roundTrip(cards)
+        val forward = res.card("la-12", 0).card
+        assertTrue(forward.frontIsTarget)
+        assertEquals("gato", forward.front)
+        assertEquals(ReviewDirection.TARGET_FIRST, forward.reviewDirection)
+        val reverse = res.card("la-12", 1).card
+        assertFalse(reverse.frontIsTarget)
+        assertEquals("cat", reverse.front)
+        assertEquals("gato", reverse.back)
+        assertEquals(ReviewDirection.NATIVE_FIRST, reverse.reviewDirection)
+    }
+
+    @Test
+    fun aDirectionAddedInTheAppTakesTheTemplateItsImportedSiblingLeftFree() {
+        // Imported with only a native-first card, on template 0; the term-first card was added here.
+        val cards = listOf(
+            viewCard(id = 30, note = 30, direction = ReviewDirection.NATIVE_FIRST, guid = "g-solo", ord = 0),
+            viewCard(id = 31, note = 30, direction = ReviewDirection.TARGET_FIRST, guid = "g-solo", ord = null),
+        ).map { AnkiExporter.Input(it, emptyList()) }
+
+        val collection = AnkiExporter().export(cards, now)
+        assertEquals(1, collection.notes.size)
+        assertEquals("two cards of a note can never share a template", listOf(0, 1), collection.cards.map { it.ord }.sorted())
+
+        // And each comes back facing the way it left.
+        val res = roundTrip(cards)
+        assertEquals(ReviewDirection.NATIVE_FIRST, res.card("g-solo", 0).card.reviewDirection)
+        assertEquals(ReviewDirection.TARGET_FIRST, res.card("g-solo", 1).card.reviewDirection)
     }
 
     @Test

@@ -125,4 +125,51 @@ class BookSectionAlignerTest {
         assertTrue(result is Result.Aligned)
         assertEquals("Uno", result.byOrd[214])
     }
+
+    @Test
+    fun `a multi-line table survives as one paragraph`() {
+        // A table is stored as a single block, so it arrives back under a single marker with its
+        // newlines intact. Bodies run to the next marker rather than to the next blank line.
+        val table = "| Persona | Verbo |\n| --- | --- |\n| yo | hablo |"
+        val result = BookSectionAligner.parse("[[P214]]\n$table\n\n[[P215]]\nDos\n\n[[P216]]\nTres", ords)
+
+        assertTrue(result is Result.Aligned)
+        assertEquals(table, result.byOrd[214])
+    }
+
+    @Test
+    fun `the best-effort split does not tear a table apart`() {
+        // On the misaligned path blocks are split on blank lines. A pipe table has none inside it,
+        // so it stays whole — which is what keeps it parseable as a table on the way out.
+        val table = "| a | b |\n| --- | --- |\n| 1 | 2 |"
+        val result = BookSectionAligner.parse("$table\n\nDos\n\nTres", ords)
+
+        assertTrue(result is Result.Misaligned)
+        assertEquals(table, result.byOrd[214])
+    }
+
+    @Test
+    fun `a reply cut short keeps the paragraphs it finished and drops the one it stopped in`() {
+        val done = BookSectionAligner.completedPrefix("[[P214]]\nUno\n\n[[P215]]\nDos, pero sin ter", ords)
+
+        assertEquals(mapOf(214 to "Uno"), done)
+    }
+
+    @Test
+    fun `a cut inside the last paragraph is not mistaken for a finished section`() {
+        // Every marker is present, so parse() calls this aligned — with half a paragraph in the
+        // final row. The prefix reader is what knows the last one cannot be trusted.
+        val raw = "[[P214]]\nUno\n\n[[P215]]\nDos\n\n[[P216]]\nTres, a med"
+
+        assertTrue(BookSectionAligner.parse(raw, ords) is Result.Aligned)
+        assertEquals(setOf(214, 215), BookSectionAligner.completedPrefix(raw, ords).keys)
+    }
+
+    @Test
+    fun `a cut-off reply that ignored the markers has no usable prefix`() {
+        assertTrue(BookSectionAligner.completedPrefix("Uno\n\nDos", ords).isEmpty())
+        assertTrue(BookSectionAligner.completedPrefix("[[P1]]\nUno\n\n[[P2]]\nDos", ords).isEmpty())
+        // A single paragraph that was itself cut is the stopping point, so nothing is finished.
+        assertTrue(BookSectionAligner.completedPrefix("[[P214]]\nUno, a med", ords).isEmpty())
+    }
 }

@@ -1,6 +1,7 @@
 package com.copiosa.domain.routine.activities
 
 import com.copiosa.domain.conjugation.IrregularityFamily
+import com.copiosa.domain.language.LanguageFeature
 import com.copiosa.domain.prompt.RoutineContentParser
 import com.copiosa.domain.routine.ActivityBuildContext
 import com.copiosa.domain.routine.ActivityContent
@@ -29,7 +30,8 @@ object ConjugationDrill : ActivityDescriptor {
         // maximum, so it sorts first inside Engage and the plan's arousal curve stays monotonically
         // non-increasing — asserted by RoutinePlannerTest.
         arousalWeight = 0.90, estMinutes = 2.0,
-        supportedLanguages = setOf("es"),
+        supportedLanguages = null,
+        requires = setOf(LanguageFeature.CONJUGATION),
         needsLlm = false,
         arousalLevel = ArousalLevel.HIGH,
     )

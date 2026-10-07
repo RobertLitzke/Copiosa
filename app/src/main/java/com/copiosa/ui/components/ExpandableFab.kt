@@ -20,10 +20,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -37,10 +33,13 @@ data class FabAction(
 )
 
 /**
- * A FAB whose quick tap runs the default [onClick] (the best single action), and whose long-press
- * expands a small speed-dial of [actions] — each a labelled mini-FAB — above it. When expanded the
- * main button becomes a close (×) and the system back also collapses it. Generic so a future Texts FAB
- * can reuse it; built on [MultiActionFab].
+ * A FAB whose tap expands a small speed-dial of [actions] — each a labelled mini-FAB — above it, and
+ * whose long-press is a shortcut straight to the default [onClick] (the best single action). When
+ * expanded the main button becomes a close (×) and the system back also collapses it.
+ *
+ * [expanded] is hoisted so the host can draw a scrim over its content while the dial is open and
+ * collapse it on a tap anywhere else — a FAB in a Scaffold slot can't reach outside itself to do that.
+ * Generic so a future Texts FAB can reuse it; built on [MultiActionFab].
  */
 @Composable
 fun ExpandableFab(
@@ -48,10 +47,11 @@ fun ExpandableFab(
     contentDescription: String?,
     onClick: () -> Unit,
     actions: List<FabAction>,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    BackHandler(enabled = expanded) { expanded = false }
+    BackHandler(enabled = expanded) { onExpandedChange(false) }
 
     // No spacing on the outer column so the main FAB keeps its exact slot position when collapsed
     // (the AnimatedVisibility measures to zero); the gap above the FAB lives inside the menu instead.
@@ -68,8 +68,8 @@ fun ExpandableFab(
             ) {
                 actions.forEach { action ->
                     FabActionItem(action) {
+                        onExpandedChange(false)
                         action.onClick()
-                        expanded = false
                     }
                 }
             }
@@ -77,8 +77,8 @@ fun ExpandableFab(
         MultiActionFab(
             icon = if (expanded) Icons.Filled.Close else icon,
             contentDescription = contentDescription,
-            onClick = { if (expanded) expanded = false else onClick() },
-            onLongClick = { expanded = !expanded },
+            onClick = { onExpandedChange(!expanded) },
+            onLongClick = { if (expanded) onExpandedChange(false) else onClick() },
         )
     }
 }

@@ -34,41 +34,52 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.copiosa.R
 import com.copiosa.domain.conjugation.ConjugatedForm
-import com.copiosa.domain.conjugation.ConjugationReference
+import com.copiosa.domain.conjugation.ConjugationSpec
 import com.copiosa.domain.conjugation.IrregularityClass
 import com.copiosa.domain.conjugation.IrregularityFamily
 import com.copiosa.domain.conjugation.Person
 import com.copiosa.domain.conjugation.ReferenceSection
 import com.copiosa.domain.conjugation.ReferenceTable
 import com.copiosa.domain.conjugation.Tense
-import com.copiosa.domain.conjugation.VerbLexicon
 import com.copiosa.ui.components.ScreenHeader
 import com.copiosa.ui.components.SectionLabel
 import com.copiosa.ui.components.SegmentedToggle
+import com.copiosa.ui.reference.ReferenceViewModel
 
 /**
- * The reference tables behind the drill's top-right icon: the verb currently being drilled, the
- * regular paradigms, and one table per class of irregularity.
+ * The conjugation tables: the verb currently being drilled, the regular paradigms, and one table per
+ * class of irregularity.
  *
- * [currentVerb] is whatever the card on screen was asking about, so opening the reference mid-session
- * lands on that verb's full paradigm — the reason you reached for it. Searching widens the same tab
- * to the whole lexicon; with no session and no query there is simply nothing to show but the search.
+ * Reached two ways — as the `CONJUGATION` topic of the reference section, and from the drill's
+ * top-right icon mid-session. [currentVerb] is whatever the card on screen was asking about, so the
+ * second route lands on that verb's full paradigm, the reason you reached for it. Searching widens
+ * the same tab to the whole lexicon; with no session and no query there is nothing to show but the
+ * search.
  *
  * Every cell is produced by the same engine the drill grades with and highlighted in the same
  * colours, so the tables cannot drift from what a session just showed.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ConjugationReferenceScreen(onBack: () -> Unit, currentVerb: String? = null) {
+fun ConjugationReferenceScreen(
+    onBack: () -> Unit,
+    currentVerb: String? = null,
+    viewModel: ReferenceViewModel = hiltViewModel(),
+) {
     var tab by remember { mutableIntStateOf(0) }
     var query by remember { mutableStateOf("") }
-    // Vosotros is always shown here: a reference should be complete even when the drill skips it.
-    val persons = Person.entries
+    val spec = viewModel.ui.collectAsStateWithLifecycle().value.spec
+    val reference = spec?.reference
+    // The optional person is always shown here: a reference should be complete even when the drill
+    // skips it.
+    val persons = spec?.persons ?: emptyList()
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader(title = stringResource(R.string.conj_reference_title), onBack = onBack)
+        ScreenHeader(title = stringResource(R.string.ref_topic_conjugation), onBack = onBack)
 
         SegmentedToggle(
             selected = tab,
@@ -84,18 +95,19 @@ fun ConjugationReferenceScreen(onBack: () -> Unit, currentVerb: String? = null) 
 
         // The pattern tabs are small enough to build up front; a search across the lexicon is not
         // (200 verbs x 42 cells), so it stays a list of entries, each table built as its row scrolls in.
-        val sections = remember(tab) {
-            when (tab) {
-                1 -> ConjugationReference.paradigmSections(persons)
-                2 -> ConjugationReference.irregularSections(persons)
+        val sections = remember(tab, reference) {
+            when {
+                reference == null -> emptyList()
+                tab == 1 -> reference.paradigmSections(persons)
+                tab == 2 -> reference.irregularSections(persons)
                 else -> emptyList()
             }
         }
-        val verbs = remember(tab, query, currentVerb) {
+        val verbs = remember(tab, query, currentVerb, reference) {
             when {
-                tab != 0 -> emptyList()
-                query.isNotBlank() -> ConjugationReference.verbMatches(query)
-                else -> listOfNotNull(currentVerb?.let(VerbLexicon::byInfinitive))
+                reference == null || tab != 0 -> emptyList()
+                query.isNotBlank() -> reference.verbMatches(query)
+                else -> listOfNotNull(currentVerb?.let(reference::byInfinitive))
             }
         }
 
@@ -114,7 +126,10 @@ fun ConjugationReferenceScreen(onBack: () -> Unit, currentVerb: String? = null) 
                     }
                     else -> Column {
                         Blurb(
-                            stringResource(R.string.conj_reference_verbs_desc, VerbLexicon.verbs.size),
+                            stringResource(
+                                R.string.conj_reference_verbs_desc,
+                                spec?.lexicon?.verbs?.size ?: 0,
+                            ),
                         )
                         Spacer(Modifier.height(8.dp))
                         SearchBox(query) { query = it }
@@ -127,10 +142,10 @@ fun ConjugationReferenceScreen(onBack: () -> Unit, currentVerb: String? = null) 
                 item(key = "empty") { Blurb(stringResource(R.string.conj_reference_no_match)) }
             }
 
-            items(sections, key = { it.key }) { section -> SectionCard(section) }
+            items(sections, key = { it.key }) { section -> SectionCard(section, spec!!) }
 
             items(verbs, key = { it.infinitive }) { verb ->
-                SectionCard(remember(verb) { ConjugationReference.verbSection(verb, persons) })
+                SectionCard(remember(verb) { reference!!.verbSection(verb, persons) }, spec!!)
             }
 
             item(key = "tail") { Spacer(Modifier.height(24.dp)) }
@@ -185,7 +200,7 @@ private fun SearchBox(query: String, onQuery: (String) -> Unit) {
 }
 
 @Composable
-private fun SectionCard(section: ReferenceSection) {
+private fun SectionCard(section: ReferenceSection, spec: ConjugationSpec) {
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             section.subtitle?.let {
@@ -194,7 +209,7 @@ private fun SectionCard(section: ReferenceSection) {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            section.tables.forEach { ReferenceTableBlock(it) }
+            section.tables.forEach { ReferenceTableBlock(it, spec) }
         }
     }
 }
@@ -202,17 +217,22 @@ private fun SectionCard(section: ReferenceSection) {
 /**
  * One table. Wide content scrolls inside its own row rather than forcing the page sideways — six
  * persons of a long form (`estuviéramos`) will not fit a phone otherwise.
+ *
+ * [showTitle] is off where the surrounding card already names what the table is — the tense guide
+ * heads each entry with the tense, and would otherwise print it twice.
  */
 @Composable
-internal fun ReferenceTableBlock(table: ReferenceTable) {
+internal fun ReferenceTableBlock(table: ReferenceTable, spec: ConjugationSpec, showTitle: Boolean = true) {
     Column {
-        Text(
-            tableTitle(table),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Spacer(Modifier.height(6.dp))
+        if (showTitle) {
+            Text(
+                tableTitle(table),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(6.dp))
+        }
         Row(Modifier.horizontalScroll(rememberScrollState())) {
             Column {
                 // Header row: the persons, offset by the label column.
@@ -220,7 +240,7 @@ internal fun ReferenceTableBlock(table: ReferenceTable) {
                     Spacer(Modifier.width(LABEL_WIDTH))
                     table.persons.forEach {
                         Text(
-                            it.label(),
+                            it.label(spec),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.width(CELL_WIDTH),

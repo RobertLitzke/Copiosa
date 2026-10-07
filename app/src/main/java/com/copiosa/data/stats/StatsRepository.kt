@@ -2,6 +2,7 @@ package com.copiosa.data.stats
 
 import com.copiosa.data.local.ActivityTotal
 import com.copiosa.data.local.AudioItemDao
+import com.copiosa.data.local.ClozeDao
 import com.copiosa.data.local.ConjugationDrillDao
 import com.copiosa.data.local.ConversationDao
 import com.copiosa.data.local.DayTotal
@@ -11,18 +12,26 @@ import com.copiosa.data.local.MessageDao
 import com.copiosa.data.local.RatingCount
 import com.copiosa.data.local.ReviewLogDao
 import com.copiosa.data.local.StateCount
+import com.copiosa.domain.srs.ReviewWindows
 import com.copiosa.domain.model.FlashcardState
 import com.copiosa.domain.model.ReviewRating
 import com.copiosa.domain.model.Mode
 import com.copiosa.domain.stats.FocusActivityType
 import com.copiosa.domain.stats.Streak
+import com.copiosa.domain.vocab.freq.BucketCoverage
+import com.copiosa.domain.vocab.freq.FrequencyLists
+import com.copiosa.domain.vocab.freq.VocabCoverage
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 /** All-time study time for one activity type, in whole minutes. */
 data class ActivityMinutes(val type: FocusActivityType, val minutes: Int)
@@ -58,6 +67,12 @@ data class VocabStats(
     val reviewsPerDay: List<Int>,
     /** How many reviews were graded with each rating (Again/Hard/Good/Easy) — the answer distribution. */
     val ratingCounts: Map<ReviewRating, Int>,
+    /**
+     * How much of the bundled frequency list the learner holds, per band. Empty when the language
+     * ships no list, and in the all-languages scope — coverage is a per-language figure, and adding
+     * two languages' bands together would mean nothing.
+     */
+    val coverage: List<BucketCoverage> = emptyList(),
 )
 
 /** Reading & listening, from conversations, messages, texts, and the audio playlist. */
@@ -85,12 +100,26 @@ data class ConjugationStats(
     val byFamily: List<Triple<String, Int, Int>>,
 )
 
+/**
+ * Fill-the-blank practice. [bankSize] is how many sentences the learner has banked and [mature] how
+ * many have reached the deck's own maturity line — reported separately for the same reason vocab
+ * coverage is: banking a hundred sentences is not the same as knowing them.
+ */
+data class ClozeStats(
+    val answered: Int,
+    val accuracyPercent: Int?,
+    val avgLatencyMs: Long,
+    val bankSize: Int,
+    val mature: Int,
+)
+
 /** The full stats-screen payload for one scope (a profile, or all profiles combined). */
 data class LearnerStats(
     val time: TimeStats,
     val vocab: VocabStats,
     val reading: ReadingStats,
     val conjugation: ConjugationStats,
+    val cloze: ClozeStats,
 )
 
 /**
@@ -111,6 +140,8 @@ class StatsRepository @Inject constructor(
     private val messageDao: MessageDao,
     private val audioDao: AudioItemDao,
     private val drillDao: ConjugationDrillDao,
+    private val clozeDao: ClozeDao,
+    private val coverage: VocabCoverage,
 ) {
     // Seams for tests; production always uses the defaults.
     internal var now: () -> Long = System::currentTimeMillis
@@ -148,7 +179,19 @@ class StatsRepository @Inject constructor(
         ) { done, correct, timestamps, ratingRows ->
             Reviews(done, correct, reviewsPerDay(timestamps, today), ratingRows.associate { it.rating to it.count })
         }
-        val vocabFlow = combine(cardsFlow, reviewsFlow) { c, r ->
+        // Coverage needs the card rows themselves, not the counts the rest of this section runs on.
+        // Only in the single-language scope, and only for a language that ships a list.
+        val frequencyList = lang?.let { FrequencyLists.forTag(it) }
+        val coverageFlow = if (lang == null || frequencyList == null) {
+            flowOf(emptyList())
+        } else {
+            flashcardDao.observeAll(lang)
+                .map { cards -> coverage.coverage(cards, frequencyList) }
+                // Walks the whole deck; keep it off whichever thread collects the stats screen.
+                .flowOn(Dispatchers.Default)
+        }
+
+        val vocabFlow = combine(cardsFlow, reviewsFlow, coverageFlow) { c, r, cov ->
             val byState = c.states.associate { it.state to it.count }
             VocabStats(
                 totalCards = c.total,
@@ -162,6 +205,7 @@ class StatsRepository @Inject constructor(
                 reviewAccuracyPct = if (r.done == 0) null else (r.correct * 100) / r.done,
                 reviewsPerDay = r.perDay,
                 ratingCounts = r.ratings,
+                coverage = cov,
             )
         }
 
@@ -207,8 +251,30 @@ class StatsRepository @Inject constructor(
             )
         }
 
-        return combine(timeFlow, vocabFlow, readingFlow, conjugationFlow) { time, vocab, reading, conjugation ->
-            LearnerStats(time, vocab, reading, conjugation)
+        val clozeFlow = combine(
+            clozeDao.observeAnswered(lang),
+            clozeDao.observeCorrect(lang),
+            clozeDao.observeAvgLatencyMs(lang),
+            clozeDao.observeBankSize(lang),
+            clozeDao.observeMatureCount(lang, ReviewWindows.MATURE_THRESHOLD_DAYS),
+        ) { answered, correct, avgLatency, bank, mature ->
+            ClozeStats(
+                answered = answered,
+                accuracyPercent = if (answered == 0) null else (correct * 100) / answered,
+                avgLatencyMs = (avgLatency ?: 0.0).toLong(),
+                bankSize = bank,
+                mature = mature,
+            )
+        }
+
+        return combine(
+            timeFlow,
+            vocabFlow,
+            readingFlow,
+            conjugationFlow,
+            clozeFlow,
+        ) { time, vocab, reading, conjugation, cloze ->
+            LearnerStats(time, vocab, reading, conjugation, cloze)
         }
     }
 
@@ -216,16 +282,6 @@ class StatsRepository @Inject constructor(
     suspend fun clearFocusStats(lang: String?) {
         focusDao.clearSessions(lang)
         focusDao.clearDailyStats(lang)
-    }
-
-    /**
-     * Clears the conjugation drill's history for [lang] (or every profile when null): both the
-     * attempt log and the per-item mastery the selector reads, so the drill starts cold. The routine
-     * engine's `activity_proficiency` buckets are left alone — they are shared with other activities.
-     */
-    suspend fun clearConjugationStats(lang: String?) {
-        drillDao.clearAttempts(lang)
-        drillDao.clearItemStats(lang)
     }
 
     private fun timeStats(dayTotals: List<DayTotal>, activity: List<ActivityTotal>, today: Long): TimeStats {

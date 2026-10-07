@@ -135,12 +135,14 @@ internal fun PersonaChatHeader(
     title: String,
     showMenu: Boolean,
     starred: Boolean,
+    highlightWords: Boolean,
     onBack: () -> Unit,
     onLevel: (Cefr) -> Unit,
     onProvider: (ProviderId) -> Unit,
     onOpenModelSettings: () -> Unit,
     onToggleStar: () -> Unit,
     onMarkUnread: () -> Unit,
+    onToggleHighlightWords: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val persona = chatSkin.spec.persona
@@ -209,9 +211,11 @@ internal fun PersonaChatHeader(
                     ChatOverflowMenu(
                         expanded = overflowOpen,
                         starred = starred,
+                        highlightWords = highlightWords,
                         onDismiss = { overflowOpen = false },
                         onToggleStar = onToggleStar,
                         onMarkUnread = onMarkUnread,
+                        onToggleHighlightWords = onToggleHighlightWords,
                         onDelete = onDelete,
                     )
                 }

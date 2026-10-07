@@ -1,36 +1,26 @@
 package com.copiosa.data.generation
 
 import com.copiosa.data.remote.LlmError
-import com.copiosa.data.remote.LlmException
 import com.copiosa.data.repository.ConversationRepository
 import com.copiosa.data.settings.SettingsRepository
 import com.copiosa.di.AppScope
 import com.copiosa.domain.prompt.VocabHint
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Whether a conversation is waiting its turn in a batch, or actively calling the model. */
-enum class GenPhase { QUEUED, GENERATING }
-
 /**
  * Owns every LLM generation so a fetch survives the user leaving the screen. Work runs on an
- * app-lifetime [scope] (not a `viewModelScope`), and the in-flight phase is exposed as flows the UI
- * observes, so "Thinking…"/"Generating…" persists across navigation.
+ * app-lifetime scope (not a `viewModelScope`) through a [KeyedJobTracker], whose phase, error and
+ * progress flows the UI observes, so "Thinking…"/"Generating…" persists across navigation. A new
+ * request for a conversation replaces its in-flight one.
  *
  * Failure is deliberately *not* stored as a phase: a conversation whose last message is a USER turn
  * and that isn't in [active] is awaiting a reply / failed — derivable straight from Room, so the
@@ -43,17 +33,13 @@ class GenerationManager @Inject constructor(
     private val settingsRepo: SettingsRepository,
     @AppScope private val scope: CoroutineScope,
 ) {
-    private val jobs = ConcurrentHashMap<Long, Job>()
+    private val jobs = KeyedJobTracker(scope)
 
-    private val _active = MutableStateFlow<Map<Long, GenPhase>>(emptyMap())
-    val active: StateFlow<Map<Long, GenPhase>> = _active.asStateFlow()
-
-    private val _errors = MutableStateFlow<Map<Long, LlmError>>(emptyMap())
-    val errors: StateFlow<Map<Long, LlmError>> = _errors.asStateFlow()
+    val active: StateFlow<Map<Long, GenPhase>> = jobs.active
+    val errors: StateFlow<Map<Long, LlmError>> = jobs.errors
 
     /** Chunk progress for an in-flight text translation: id -> (sections done, total sections). */
-    private val _progress = MutableStateFlow<Map<Long, Pair<Int, Int>>>(emptyMap())
-    val progress: StateFlow<Map<Long, Pair<Int, Int>>> = _progress.asStateFlow()
+    val progress: StateFlow<Map<Long, Pair<Int, Int>>> = jobs.progress
 
     /** Fires when a chat batch is committed, so the Library list can jump to the new queued rows. */
     private val _batchStarted = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
@@ -105,7 +91,7 @@ class GenerationManager @Inject constructor(
                     // Unread until the user opens it, so the list highlights freshly-generated chats.
                     read = false,
                 )
-                _active.update { it + (id to GenPhase.QUEUED) }
+                jobs.markQueued(id)
                 id
             }
             ids.forEachIndexed { i, id -> generateReply(id, vocabBatches.getOrNull(i)).join() }
@@ -129,41 +115,17 @@ class GenerationManager @Inject constructor(
     /** Translates (or retries) an imported text [id], publishing per-section progress to [progress]. */
     fun translate(id: Long): Job = launchGeneration(id) {
         conversationRepo.runTextTranslation(id) { done, total ->
-            _progress.update { it + (id to (done to total)) }
+            jobs.setProgress(id, done, total)
         }
     }
 
     /** Aborts the in-flight call for [id]; any already-saved user turn stays in place (drives retry). */
-    fun cancel(id: Long) {
-        jobs.remove(id)?.cancel()
-        _active.update { it - id }
-    }
+    fun cancel(id: Long) = jobs.cancel(id)
 
     /** Clears a surfaced error after the open chat has shown it. */
-    fun consumeError(id: Long) { _errors.update { it - id } }
+    fun consumeError(id: Long) = jobs.consumeError(id)
 
-    private fun launchGeneration(id: Long, block: suspend () -> Unit): Job {
-        // Replace any prior in-flight call for this conversation and clear a stale error/progress.
-        jobs.remove(id)?.cancel()
-        _errors.update { it - id }
-        _progress.update { it - id }
-        _active.update { it + (id to GenPhase.GENERATING) }
-        val job = scope.launch {
-            try {
-                block()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                val error = (e as? LlmException)?.error ?: LlmError.Unknown(e.message ?: "error")
-                _errors.update { it + (id to error) }
-            }
-        }
-        jobs[id] = job
-        job.invokeOnCompletion {
-            jobs.remove(id, job)
-            _active.update { it - id }
-            _progress.update { it - id }
-        }
-        return job
-    }
+    /** Replaces any prior in-flight call for this conversation, clearing its stale error/progress. */
+    private fun launchGeneration(id: Long, block: suspend () -> Unit): Job =
+        jobs.launch(id, IfRunning.REPLACE, body = block)
 }

@@ -1,6 +1,7 @@
 package com.copiosa.domain.highlight
 
 import com.copiosa.data.local.FlashcardEntity
+import com.copiosa.data.local.noteKey
 import com.copiosa.data.translate.LocalDictionary
 import com.copiosa.domain.srs.ReviewWindows
 import javax.inject.Inject
@@ -22,7 +23,8 @@ import javax.inject.Singleton
  * Eligibility: a card highlights only while it is due for review soon — on or before
  * `now + `[ReviewWindows.HIGHLIGHT_DUE_MS] (which includes overdue cards) — so reading material across
  * every reader (Texts, chat, routines) spotlights the words worth restudying now rather than every
- * saved word.
+ * saved word. A deck with a large backlog would put most of a page inside that window, so the set is
+ * also capped at the [ReviewWindows.HIGHLIGHT_MAX_WORDS] words due soonest.
  */
 @Singleton
 class HighlightTargetProvider @Inject constructor(
@@ -34,11 +36,10 @@ class HighlightTargetProvider @Inject constructor(
      * bare headword for cards not yet backfilled.
      */
     fun build(cards: List<FlashcardEntity>, now: Long): List<HighlightTarget> =
-        cards.filter { it.dueAt <= now + ReviewWindows.HIGHLIGHT_DUE_MS }
-            .mapNotNull { card ->
-                storedForms(card).takeIf { it.isNotEmpty() }
-                    ?.let { HighlightTarget(it, card.gender, card.targetLanguage) }
-            }
+        eligible(cards, now).mapNotNull { card ->
+            storedForms(card).takeIf { it.isNotEmpty() }
+                ?.let { HighlightTarget(it, card.gender, card.targetLanguage) }
+        }
 
     /**
      * Each card's id mapped to all surface forms that count as a sighting of it — used by passive
@@ -131,6 +132,20 @@ class HighlightTargetProvider @Inject constructor(
     companion object {
         /** Separator for the ";"-joined [FlashcardEntity.inflectedForms] column. */
         const val FORM_SEPARATOR = ";"
+
+        /**
+         * The cards that highlight: due within the window, cut to the
+         * [ReviewWindows.HIGHLIGHT_MAX_WORDS] due soonest — whichever is the smaller set. Counted in
+         * words, so a note with a card each way takes one place (its sooner card speaks for it)
+         * rather than two.
+         */
+        fun eligible(cards: List<FlashcardEntity>, now: Long): List<FlashcardEntity> =
+            cards.asSequence()
+                .filter { it.dueAt <= now + ReviewWindows.HIGHLIGHT_DUE_MS }
+                .sortedBy { it.dueAt }
+                .distinctBy { it.noteKey }
+                .take(ReviewWindows.HIGHLIGHT_MAX_WORDS)
+                .toList()
 
         /** Joins computed forms for storage; empty string when there's nothing to store. */
         fun encode(forms: Set<String>): String =

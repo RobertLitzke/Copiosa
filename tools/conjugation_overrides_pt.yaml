@@ -1,0 +1,249 @@
+# Curated adjudication for `python tools/build_conjugations.py --lang pt`.
+#
+# Same contract as conjugation_overrides.yaml (see its header for the full field list): the generator
+# sources forms and classifies deviations mechanically, and everything needing a human lives here —
+# English glosses, deliberate frequency damping, defective-verb restrictions, and corrections for
+# deviations the cascade can't place.
+#
+# This is European Portuguese. Where a verb differs between pt-PT and pt-BR the pt-PT reading wins.
+
+# Surface forms that are not infinitives but end like one, so the ranking floats them in:
+#   for    — future subjunctive of ser/ir, spelled like an -or verb
+#   tiver  — future subjunctive of ter
+#   tar    — the colloquial clipping of estar ("tou", "tás"); a register the drill shouldn't teach
+#   parir  — real, but its count is almost entirely partir's forms misattributed
+#   desposar — the dump files casar's whole paradigm under it, so every cell would be wrong
+exclude:
+  - for
+  - tiver
+  - tar
+  - parir
+  - foder
+  - desposar
+
+# ser/estar/ter/ir tower over everything else and are met constantly in ordinary input; without
+# damping they would crowd the drill. ser/estar are also already drilled by ContrastCategory.SER_ESTAR.
+verbs:
+  ser:
+    weight: 0.35
+  estar:
+    weight: 0.35
+  ter:
+    weight: 0.4
+  ir:
+    weight: 0.5
+  ouvir:
+    # The dump writes the third-plural imperfect subjunctive as "ouvíssem". Portuguese accents that
+    # paradigm only in the two plural persons that shift stress (ouvíssemos, ouvísseis); the
+    # third plural is ouvissem. Left uncorrected it would be stored as a deviation and drilled.
+    forms:
+      sub_imp.3p: ouvissem
+  haver:
+    weight: 0.3
+    # Compound tenses are out of scope, so producing "hei" in isolation drills a form nobody emits
+    # alone — but recognising "houvesse" genuinely matters. Mirrors Spanish's haber.
+    restriction:
+      directions: [DECODE]
+
+glosses:
+  ter: to have
+  ir: to go
+  estar: to be (state)
+  ser: to be (essence)
+  fazer: to do, to make
+  poder: to be able to
+  querer: to want
+  dizer: to say
+  saber: to know (a fact)
+  ficar: to stay, to become
+  achar: to think, to find
+  falar: to speak
+  vir: to come
+  dever: to owe, ought to
+  ver: to see
+  pensar: to think
+  dar: to give
+  conseguir: to manage to
+  parecer: to seem
+  ouvir: to hear
+  acontecer: to happen
+  gostar: to like
+  deixar: to leave, to let
+  voltar: to return
+  encontrar: to find, to meet
+  esperar: to wait, to hope
+  precisar: to need
+  tentar: to try
+  sair: to leave, to go out
+  acabar: to finish
+  sentir: to feel
+  passar: to pass, to spend (time)
+  chegar: to arrive
+  conhecer: to know (a person)
+  morrer: to die
+  começar: to begin
+  acreditar: to believe
+  entrar: to enter
+  matar: to kill
+  haver: there to be
+  trabalhar: to work
+  levar: to take, to carry
+  pedir: to ask for
+  usar: to use
+  ajudar: to help
+  parar: to stop
+  perceber: to understand, to realise
+  perder: to lose
+  desculpar: to forgive
+  descobrir: to discover
+  trazer: to bring
+  perguntar: to ask (a question)
+  contar: to count, to tell
+  dormir: to sleep
+  chamar: to call
+  tirar: to take out, to remove
+  continuar: to continue
+  esquecer: to forget
+  mudar: to change, to move house
+  entender: to understand
+  olhar: to look
+  preocupar: to worry
+  importar: to matter, to import
+  adorar: to love, to adore
+  tratar: to treat, to deal with
+  correr: to run
+  ganhar: to win, to earn
+  seguir: to follow
+  apanhar: to catch, to pick up
+  arranjar: to arrange, to get hold of
+  receber: to receive
+  pagar: to pay
+  abrir: to open
+  beber: to drink
+  lembrar: to remember, to remind
+  procurar: to look for
+  andar: to walk
+  existir: to exist
+  manter: to keep, to maintain
+  fugir: to flee
+  comprar: to buy
+  aparecer: to appear
+  pôr: to put
+  viver: to live
+  partir: to leave, to break
+  mandar: to send, to order
+  desaparecer: to disappear
+  funcionar: to work (function)
+  confiar: to trust
+  ligar: to connect, to phone
+  escrever: to write
+  cair: to fall
+  brincar: to play (around)
+  sentar: to sit
+  decidir: to decide
+  tocar: to touch, to play (music)
+  aprender: to learn
+  jogar: to play (a game)
+  imaginar: to imagine
+  lutar: to fight, to struggle
+  salvar: to save (rescue)
+  compreender: to understand
+  roubar: to steal
+  aceitar: to accept
+  escolher: to choose
+  colocar: to place
+  mostrar: to show
+  virar: to turn
+  vender: to sell
+  terminar: to finish
+  responder: to answer
+  tomar: to take (drink, decision)
+  mentir: to lie (tell untruths)
+  desposar: to wed
+  casar: to marry
+  prometer: to promise
+  comer: to eat
+  servir: to serve
+  amar: to love
+  enviar: to send
+  bater: to hit, to knock
+  pegar: to grab, to catch
+  tornar: to become, to make
+  explicar: to explain
+  acordar: to wake up
+  resolver: to solve, to decide
+  crer: to believe
+  odiar: to hate
+  interessar: to interest
+  disparar: to shoot, to fire
+  criar: to create, to raise
+  subir: to go up
+  atirar: to throw, to shoot
+  preferir: to prefer
+  proteger: to protect
+  mexer: to move, to stir
+  aguentar: to put up with
+  esconder: to hide
+  concordar: to agree
+  merecer: to deserve
+  conversar: to talk
+  crescer: to grow
+  guardar: to keep, to put away
+  destruir: to destroy
+  agradecer: to thank
+  meter: to put in
+  chorar: to cry
+  lidar: to deal with
+  ler: to read
+  cuidar: to look after
+  preparar: to prepare
+  magoar: to hurt
+  provar: to prove, to taste
+  sobreviver: to survive
+  fechar: to close
+  atacar: to attack
+  discutir: to argue, to discuss
+  sofrer: to suffer
+  desligar: to switch off, to hang up
+  demorar: to take (time), to delay
+  entregar: to hand over, to deliver
+  descer: to go down
+  cortar: to cut
+  limpar: to clean
+  desejar: to wish
+  dançar: to dance
+  permitir: to allow
+  levantar: to lift, to get up
+  respirar: to breathe
+  reparar: to notice, to repair
+  julgar: to judge
+  lixar: to sand; (colloq.) to not care
+  construir: to build
+  recuperar: to recover
+  cometer: to commit
+  apresentar: to introduce, to present
+  atender: to answer, to attend to
+  escapar: to escape
+  saltar: to jump
+  gritar: to shout
+  controlar: to control
+  supor: to suppose
+  fingir: to pretend
+  admitir: to admit
+  assinar: to sign
+  ensinar: to teach
+  nascer: to be born
+  evitar: to avoid
+  descansar: to rest
+  sugerir: to suggest
+  oferecer: to offer
+  impedir: to prevent
+  avançar: to advance
+  telefonar: to phone
+  calhar: to happen to, to turn out
+  estudar: to study
+  escutar: to listen
+  significar: to mean
+  verificar: to check
+  regressar: to return
+  voar: to fly

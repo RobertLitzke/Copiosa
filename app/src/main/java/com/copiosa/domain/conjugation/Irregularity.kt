@@ -9,7 +9,13 @@ package com.copiosa.domain.conjugation
 enum class IrregularityFamily(val slug: String, val label: String) {
     REGULAR("cj_regular", "regular"),
     STEM_CHANGE("cj_stem_change", "stem changes"),
-    YO_FORM("cj_yo", "irregular yo"),
+
+    /**
+     * The first-person singular and the subjunctive built off it. Shared across languages — proficiency
+     * rows are unique on (bucketKey, targetLanguage), so a Portuguese learner's "-nh- eu" mastery is a
+     * separate row from a Spanish learner's "-go yo" under this same family.
+     */
+    YO_FORM("cj_yo", "irregular first person"),
     STRONG_PRETERITE("cj_strong_pret", "strong preterites"),
     FUTURE_STEM("cj_fut_stem", "irregular future stems"),
     ORTHOGRAPHIC("cj_orth", "spelling changes"),
@@ -44,7 +50,12 @@ enum class SpanPolicy {
  * reference table is built around, and what a `generalize` card is keyed on — "u-stem preterite" is
  * a teachable pattern in a way that [IrregularityFamily.STRONG_PRETERITE] is not.
  *
- * Slugs are persisted (generalize item keys, the golden dataset) — frozen.
+ * Unlike [IrregularityFamily], these are language-specific: a class describes a concrete shape a
+ * concrete language's verbs take, so Portuguese carries its own set under a `pt_` prefix rather than
+ * stretching Spanish's labels over forms they don't fit. Both sets hang off the shared families, and
+ * [ConjugationSpec.irregularityClasses] narrows to the ones a language's lexicon actually exhibits.
+ *
+ * Slugs are persisted (generalize item keys, the golden dataset) — frozen; append only.
  */
 enum class IrregularityClass(
     val slug: String,
@@ -99,12 +110,47 @@ enum class IrregularityClass(
      * build warning, not a silent success — the long tail stays visible instead of being mislabelled.
      */
     OTHER("other_irregular", IrregularityFamily.SUPPLETIVE, "irregular", SpanPolicy.WHOLE_FORM),
+
+    // ---- Portuguese ----
+
+    /** The -ir raising that surfaces in the eu form and spreads to the subjunctive: durmo, sirvo. */
+    PT_STEM_E_I("pt_stem_e_i", IrregularityFamily.STEM_CHANGE, "e -> i"),
+    PT_STEM_O_U("pt_stem_o_u", IrregularityFamily.STEM_CHANGE, "o -> u"),
+
+    /** The diphthongising -ear/-iar verbs and the e -> ei alternation. */
+    PT_STEM_E_EI("pt_stem_e_ei", IrregularityFamily.STEM_CHANGE, "e -> ei"),
+
+    PT_EU_NH("pt_eu_nh", IrregularityFamily.YO_FORM, "-nh- eu"),
+    PT_EU_C_CEDILLA("pt_eu_c", IrregularityFamily.YO_FORM, "-ç- eu"),
+    PT_EU_OU("pt_eu_ou", IrregularityFamily.YO_FORM, "-ou eu"),
+    PT_EU_OTHER("pt_eu_other", IrregularityFamily.YO_FORM, "other irregular eu"),
+    PT_SUBJ_EU_STEM("pt_subj_eu_stem", IrregularityFamily.YO_FORM, "subjunctive off the eu stem"),
+
+    /**
+     * The strong preterites: fiz, disse, trouxe, pude, quis, soube, tive, vim. They also carry the
+     * future subjunctive and the imperfect subjunctive with them, which is the whole point of the
+     * [TransformRules.PT_PRETERITE_TO_FUTURE_SUBJUNCTIVE] card.
+     */
+    PT_STRONG_PRET("pt_strong_pret", IrregularityFamily.STRONG_PRETERITE, "strong preterite", SpanPolicy.SPLIT_STEM_ENDING),
+    PT_STRONG_PRET_ENDING("pt_strong_pret_ending", IrregularityFamily.STRONG_PRETERITE, "unstressed preterite ending"),
+
+    /** fazer -> far-, dizer -> dir-, trazer -> trar-: one stem serving future and conditional both. */
+    PT_FUT_STEM("pt_fut_stem", IrregularityFamily.FUTURE_STEM, "contracted future stem"),
+
+    /** Spelling kept level with the sound: -car/-gar/-çar before e, -cer/-ger/-guir before a/o. */
+    PT_ORTH_CAR_GAR_CAR("pt_orth_car_gar_car", IrregularityFamily.ORTHOGRAPHIC, "-car/-gar/-çar spelling"),
+    PT_ORTH_CER_GER_GUIR("pt_orth_cer_ger_guir", IrregularityFamily.ORTHOGRAPHIC, "-cer/-ger/-guir spelling"),
+    PT_ACCENT_SHIFT("pt_accent_shift", IrregularityFamily.ORTHOGRAPHIC, "written accent"),
+
+    PT_SUPPLETIVE("pt_suppletive", IrregularityFamily.SUPPLETIVE, "suppletive", SpanPolicy.WHOLE_FORM),
+    PT_IMPERFECT_IRREGULAR("pt_imperfect_irregular", IrregularityFamily.SUPPLETIVE, "irregular imperfect", SpanPolicy.WHOLE_FORM),
+    PT_SUBJ_IRREGULAR("pt_subj_irregular", IrregularityFamily.SUPPLETIVE, "irregular subjunctive", SpanPolicy.WHOLE_FORM),
+
+    /** The Portuguese generator's escape hatch, mirroring [OTHER]. Emitting one is a build warning. */
+    PT_OTHER("pt_other_irregular", IrregularityFamily.SUPPLETIVE, "irregular", SpanPolicy.WHOLE_FORM),
     ;
 
     companion object {
         fun fromSlug(slug: String?): IrregularityClass? = entries.firstOrNull { it.slug == slug }
-
-        /** The unstressed endings a strong preterite takes, indexed by [Person.ordinal]. */
-        val STRONG_PRETERITE_ENDINGS = arrayOf("e", "iste", "o", "imos", "isteis", "ieron")
     }
 }

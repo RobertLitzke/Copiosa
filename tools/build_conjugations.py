@@ -6,7 +6,7 @@ where errors would creep in, and a wrong drilled form actively teaches the wrong
 classification and the naive-form suppression are authored here, because no source carries them.
 
 Only deviations are emitted. Regular cells are reproduced at runtime by
-`domain/conjugation/RegularConjugator.kt`, which this script mirrors exactly -- and
+`domain/conjugation/Conjugator.kt`, which this script mirrors exactly -- and
 `ConjugationGoldenTest` replays the emitted golden CSV through the Kotlin engine to prove the two
 implementations agree on all 8,400 cells.
 
@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib
 import gzip
 import json
 import re
@@ -42,318 +43,36 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-WIKT = ROOT / "data" / "eswiktionary-raw.jsonl.gz"
-FREQ_RAW = ROOT / "data" / "es_frequency_50k.txt"
-FREQ_SLICE = ROOT / "tools" / "es_top2000.tsv"
-OVERRIDES = ROOT / "tools" / "conjugation_overrides.yaml"
-KOTLIN_OUT = ROOT / "app/src/main/java/com/copiosa/domain/conjugation/data/VerbLexiconData.kt"
-GOLDEN_OUT = ROOT / "app/src/test/resources/conjugation_golden.csv"
-VERIFY_OUT = ROOT / "tools" / "_verify" / "conjugations.json"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 TOP_WORDS = 2000
 DEFAULT_VERBS = 200
 MIN_IRREGULAR = 40
 VERBS_PER_BLOCK = 40
 
-# --------------------------------------------------------------------------------------------------
-# Paradigm model -- mirrors domain/conjugation/Paradigm.kt
-# --------------------------------------------------------------------------------------------------
-
-TENSES = ["PRESENT", "PRETERITE", "IMPERFECT", "FUTURE", "CONDITIONAL",
-          "PRESENT_SUBJUNCTIVE", "IMPERFECT_SUBJUNCTIVE"]
-TENSE_SLUG = {"PRESENT": "pres", "PRETERITE": "pret", "IMPERFECT": "imp", "FUTURE": "fut",
-              "CONDITIONAL": "cond", "PRESENT_SUBJUNCTIVE": "sub_pres",
-              "IMPERFECT_SUBJUNCTIVE": "sub_imp"}
-PERSONS = ["YO", "TU", "EL", "NOSOTROS", "VOSOTROS", "ELLOS"]
-PERSON_SLUG = {"YO": "1s", "TU": "2s", "EL": "3s", "NOSOTROS": "1p", "VOSOTROS": "2p", "ELLOS": "3p"}
-
-# Wiktextract tag signatures. Spanish Wiktionary calls the simple preterite
-# "pretérito perfecto simple", which surfaces as indicative+present+perfect -- not a compound tense.
-TENSE_TAGS = {
-    "PRESENT": ({"indicative", "present"}, {"perfect", "compound", "progressive"}),
-    "PRETERITE": ({"indicative", "present", "perfect"}, {"compound", "progressive"}),
-    "IMPERFECT": ({"indicative", "past", "imperfect"}, {"compound", "progressive"}),
-    "FUTURE": ({"indicative", "future"}, {"perfect", "compound", "progressive"}),
-    "CONDITIONAL": ({"conditional"}, {"perfect", "compound", "progressive"}),
-    "PRESENT_SUBJUNCTIVE": ({"subjunctive", "present"}, {"perfect", "compound", "progressive"}),
-    "IMPERFECT_SUBJUNCTIVE": ({"subjunctive", "past", "imperfect"},
-                              {"perfect", "compound", "progressive", "pluperfect"}),
-}
-PERSON_TAGS = {
-    "YO": {"first-person", "singular"}, "TU": {"second-person", "singular"},
-    "EL": {"third-person", "singular"}, "NOSOTROS": {"first-person", "plural"},
-    "VOSOTROS": {"second-person", "plural"}, "ELLOS": {"third-person", "plural"},
-}
-# "vos-form" is a distinct pronoun we don't drill; the rest are tenses/registers out of scope.
-FORM_EXCLUDE = {"vos-form", "archaic", "obsolete", "dated", "impersonal", "imperative",
-                "anterior", "pluperfect", "participle", "gerund", "infinitive"}
-ENTRY_EXCLUDE = {"archaic", "obsolete", "dated", "rare", "misspelling"}
-
-VOWELS = "aeiouáéíóúü"
-PLAIN = {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ü": "u"}
-ACCENT = {"a": "á", "e": "é", "i": "í", "o": "ó", "u": "ú"}
-
-PRESENT_AR = ["o", "as", "a", "amos", "áis", "an"]
-PRESENT_ER = ["o", "es", "e", "emos", "éis", "en"]
-PRESENT_IR = ["o", "es", "e", "imos", "ís", "en"]
-PRETERITE_AR = ["é", "aste", "ó", "amos", "asteis", "aron"]
-PRETERITE_ER_IR = ["í", "iste", "ió", "imos", "isteis", "ieron"]
-IMPERFECT_AR = ["aba", "abas", "aba", "ábamos", "abais", "aban"]
-IMPERFECT_ER_IR = ["ía", "ías", "ía", "íamos", "íais", "ían"]
-FUTURE = ["é", "ás", "á", "emos", "éis", "án"]
-CONDITIONAL = ["ía", "ías", "ía", "íamos", "íais", "ían"]
-SUBJ_AR = ["e", "es", "e", "emos", "éis", "en"]
-SUBJ_ER_IR = ["a", "as", "a", "amos", "áis", "an"]
-IMPERFECT_SUBJ = ["ra", "ras", "ra", "ramos", "rais", "ran"]
-STRONG_PRET_ENDINGS = ["e", "iste", "o", "imos", "isteis", "ieron"]
+LANGUAGES = {"es": "conj.es", "pt": "conj.pt"}
 
 
-def verb_class(infinitive: str) -> str | None:
-    if len(infinitive) < 2:
-        return None
-    tail = infinitive[-2:]
-    return {"ar": "AR", "ár": "AR", "er": "ER", "ér": "ER", "ir": "IR", "ír": "IR"}.get(tail)
+def install_language(tag: str) -> None:
+    """Adopt one language's morphology as this module's own globals.
 
-
-def stem_of(infinitive: str) -> str:
-    return infinitive[:-2]
-
-
-def ending(cls: str, tense: str, person: str) -> str:
-    i = PERSONS.index(person)
-    if tense == "PRESENT":
-        return {"AR": PRESENT_AR, "ER": PRESENT_ER, "IR": PRESENT_IR}[cls][i]
-    if tense == "PRETERITE":
-        return (PRETERITE_AR if cls == "AR" else PRETERITE_ER_IR)[i]
-    if tense == "IMPERFECT":
-        return (IMPERFECT_AR if cls == "AR" else IMPERFECT_ER_IR)[i]
-    if tense == "FUTURE":
-        return FUTURE[i]
-    if tense == "CONDITIONAL":
-        return CONDITIONAL[i]
-    if tense == "PRESENT_SUBJUNCTIVE":
-        return (SUBJ_AR if cls == "AR" else SUBJ_ER_IR)[i]
-    return IMPERFECT_SUBJ[i]
-
-
-def accent_final_vowel(text: str) -> str:
-    for i in range(len(text) - 1, -1, -1):
-        if text[i] in "aeiou":
-            return text[:i] + ACCENT[text[i]] + text[i + 1:]
-    return text
-
-
-def imperfect_subjunctive(preterite_3p: str, person: str) -> str | None:
-    if not preterite_3p.endswith("ron"):
-        return None
-    base = preterite_3p[:-3]
-    if not base:
-        return None
-    if person == "NOSOTROS":
-        base = accent_final_vowel(base)
-    return base + IMPERFECT_SUBJ[PERSONS.index(person)]
-
-
-def regular(infinitive: str, tense: str, person: str) -> str | None:
-    cls = verb_class(infinitive)
-    if cls is None:
-        return None
-    if tense == "IMPERFECT_SUBJUNCTIVE":
-        p3 = regular(infinitive, "PRETERITE", "ELLOS")
-        return imperfect_subjunctive(p3, person) if p3 else None
-    base = infinitive if tense in ("FUTURE", "CONDITIONAL") else stem_of(infinitive)
-    return base + ending(cls, tense, person)
-
-
-# --------------------------------------------------------------------------------------------------
-# Classification
-# --------------------------------------------------------------------------------------------------
-
-STEM_VOWEL_CHANGES = {
-    ("e", "ie"): "stem_e_ie", ("o", "ue"): "stem_o_ue", ("e", "i"): "stem_e_i",
-    ("u", "ue"): "stem_u_ue", ("i", "ie"): "stem_i_ie",
-}
-PRETERITE_RAISES = {("e", "i"): "stem_raise_pret", ("o", "u"): "stem_raise_pret"}
-
-
-def strip_accents(text: str) -> str:
-    return "".join(PLAIN.get(c, c) for c in text)
-
-
-def is_nucleus(text: str, i: int) -> bool:
-    """Whether text[i] is a vowel of the syllable nucleus.
-
-    The u of "qu" and "gu" before e/i is orthography, not a sound -- treating it as a vowel makes
-    querer's stem nucleus read "ue" instead of "e", which hides a plain e->ie stem change.
+    The pipeline below -- reading the dump, ranking by frequency, classifying deviations, emitting
+    Kotlin -- is genuinely language-agnostic; only the paradigm tables, the Wiktextract tag
+    signatures and the irregularity cascade differ. Rather than thread a spec object through fifteen
+    functions, the chosen language module's public names are installed here, so the pipeline reads
+    exactly as it did when there was only Spanish.
     """
-    c = text[i]
-    if c not in VOWELS:
-        return False
-    if c == "u" and i > 0:
-        prev = text[i - 1]
-        nxt = text[i + 1] if i + 1 < len(text) else ""
-        if prev == "q":
-            return False
-        if prev == "g" and nxt in ("e", "i", "é", "í"):
-            return False
-    return True
+    module = importlib.import_module(LANGUAGES[tag])
+    globals().update({k: v for k, v in vars(module).items() if not k.startswith("_")})
 
 
-def last_vowel_run(text: str) -> tuple[int, int, str]:
-    """Index range and text of the final maximal nucleus run -- the stressed nucleus of a stem."""
-    end = len(text)
-    while end > 0 and not is_nucleus(text, end - 1):
-        end -= 1
-    start = end
-    while start > 0 and is_nucleus(text, start - 1):
-        start -= 1
-    return start, end, text[start:end]
-
-
-def consonant_skeleton(text: str) -> str:
-    plain = strip_accents(text)
-    return "".join(c for i, c in enumerate(plain) if not is_nucleus(plain, i))
-
-
-def stem_change_class(reg_stem: str, act_stem: str, tense: str, person: str) -> str | None:
-    """A stem change keeps the consonant skeleton and rewrites the stressed vowel nucleus."""
-    if consonant_skeleton(reg_stem) != consonant_skeleton(act_stem):
-        return None
-    old = strip_accents(last_vowel_run(reg_stem)[2])
-    new = strip_accents(last_vowel_run(act_stem)[2])
-    if not old or old == new:
-        return None
-    if tense == "PRETERITE" and person in ("EL", "ELLOS"):
-        raised = PRETERITE_RAISES.get((old, new))
-        if raised:
-            return raised
-    return STEM_VOWEL_CHANGES.get((old, new))
-
-
-def split_regular(form: str, cls: str, tense: str, person: str) -> tuple[str, str] | None:
-    """Split a form into (stem, ending) when it carries the ending the rules predict."""
-    end = ending(cls, tense, person)
-    if form.endswith(end) and len(form) > len(end):
-        return form[: -len(end)], end
-    return None
-
-
-def classify(infinitive: str, cls: str, tense: str, person: str,
-             actual: str, reg: str, forms: dict) -> list[str]:
-    """The class(es) of a single deviating cell. Returns ["other_irregular"] when nothing fits."""
-    idx = PERSONS.index(person)
-    reg_split = split_regular(reg, cls, tense, person)
-    reg_stem = reg_split[0] if reg_split else stem_of(infinitive)
-    act_split = split_regular(actual, cls, tense, person)
-
-    # Written accent only: vi/ví, creíste/creiste, estás/estas. Checked before anything
-    # tense-specific, because it can happen in any paradigm.
-    if strip_accents(actual) == strip_accents(reg):
-        return ["accent_shift"]
-
-    # -uir verbs wedge a y between stem and ending (construyes, huye, destruyen) instead of
-    # touching the stem vowel, so no stem-change rule will ever see it.
-    if act_split and reg_split and act_split[0] == reg_split[0] + "y":
-        return ["orth_y_hiatus"]
-
-    if tense in ("FUTURE", "CONDITIONAL"):
-        end = ending(cls, tense, person)
-        if not actual.endswith(end):
-            return ["other_irregular"]
-        base = actual[: -len(end)]
-        if base.endswith("dr"):
-            return ["fut_dr"]
-        if base == stem_of(infinitive) + "r":
-            return ["fut_drop"]
-        return ["fut_irregular"]
-
-    if tense == "IMPERFECT":
-        return ["imperfect_irregular"]
-
-    if tense == "PRETERITE":
-        reg_end = ending(cls, tense, person)
-        # A strong preterite pulls the stress onto the stem and takes unstressed endings. The j-stems
-        # additionally swallow the i of -ieron (dijeron, trajeron -- never "dijieron").
-        #
-        # Gate the whole branch on the verb *having* a strong preterite, which only its first-person
-        # singular reveals: unstressed -e (tuve, puse, supe) rather than -é / -í. Without this, any
-        # third-person stem raise carrying a regular ending -- durmieron, siguieron, destruyeron --
-        # gets read as a strong stem, which files it under the wrong pattern entirely.
-        candidates = [STRONG_PRET_ENDINGS[idx]] + (["eron"] if person == "ELLOS" else [])
-        yo = forms.get(("PRETERITE", "YO"), "")
-        if not (yo.endswith("e") and not yo.endswith("é")):
-            candidates = []
-        for strong_end in candidates:
-            if not actual.endswith(strong_end):
-                continue
-            strong_stem = actual[: -len(strong_end)]
-            if strong_stem == reg_stem:
-                continue  # the regular ending happens to match; nothing strong about it
-            shape = strong_stem_class(strong_stem)
-            if shape == "other_irregular":
-                continue
-            classes = [shape]
-            if person in ("YO", "EL") and not actual.endswith(reg_end):
-                classes.append("strong_pret_ending")
-            return classes
-        if act_split:
-            changed = stem_change_class(reg_stem, act_split[0], tense, person)
-            if changed:
-                return [changed]
-        if person == "YO" and re.search(r"(qué|gué|cé)$", actual):
-            return ["orth_car_gar_zar"]
-        if person in ("EL", "ELLOS") and "y" in actual and "y" not in reg:
-            return ["orth_y_hiatus"]
-        # A dropped unstressed i, and nothing else: bullir's "bulleron" for "bullieron". Matching the
-        # exact string keeps this off the j-stems, which are shorter than the regular form too.
-        if reg_end.startswith("i") and actual == reg_stem + reg_end[1:]:
-            return ["orth_i_loss"]
-        return ["other_irregular"]
-
-    if tense == "PRESENT_SUBJUNCTIVE":
-        # The present subjunctive is built off the yo form; when that is irregular, so is this.
-        yo_present = forms.get(("PRESENT", "YO"))
-        if yo_present and yo_present.endswith("o") and len(yo_present) > 1:
-            yo_stem = yo_present[:-1]
-            if act_split and act_split[0] == yo_stem and yo_stem != reg_stem:
-                return ["subj_yo_stem"]
-        if act_split:
-            changed = stem_change_class(reg_stem, act_split[0], tense, person)
-            if changed:
-                return [changed]
-        return ["subj_irregular"]
-
-    # PRESENT
-    if person == "YO":
-        if actual.endswith("zco"):
-            return ["yo_zco"]
-        if actual.endswith("oy"):
-            return ["yo_oy"]
-        if actual.endswith("go"):
-            return ["yo_go"]
-        if actual.endswith("jo") and reg.endswith(("go", "guo")):
-            return ["orth_ger_gir_guir"]
-    if act_split:
-        changed = stem_change_class(reg_stem, act_split[0], tense, person)
-        if changed:
-            return [changed]
-    if person == "YO":
-        return ["yo_other"]
-    return ["other_irregular"]
-
-
-def strong_stem_class(strong_stem: str) -> str:
-    """Which shape of strong preterite stem this is. The j-stems are checked first: "dij" and "traj"
-    both contain an i, so a vowel test alone would misfile them."""
-    if strong_stem.endswith("j"):
-        return "strong_pret_j"
-    _, _, nucleus = last_vowel_run(strong_stem)
-    nucleus = strip_accents(nucleus)
-    if "u" in nucleus:
-        return "strong_pret_u"
-    if "i" in nucleus:
-        return "strong_pret_i"
-    return "other_irregular"
+def derived_value(verb, tense: str, person: str) -> str | None:
+    """What the rules alone make of a derived cell, reading the dump's own source form."""
+    src_cell, build = DERIVED[tense]
+    if src_cell is None:
+        return build(verb.infinitive, person)
+    source = verb.forms.get(src_cell) or regular(verb.infinitive, *src_cell)
+    return build(source, person) if source else None
 
 
 # --------------------------------------------------------------------------------------------------
@@ -390,7 +109,7 @@ def read_verbs(path: Path) -> tuple[dict[str, Verb], set[str]]:
                 entry = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if entry.get("lang_code") != "es":
+            if entry.get("lang_code") != LANG:
                 continue
             if entry.get("pos") != "verb":
                 word = (entry.get("word") or "").strip().lower()
@@ -412,27 +131,45 @@ def read_verbs(path: Path) -> tuple[dict[str, Verb], set[str]]:
                 continue
             verb = Verb(infinitive=infinitive, cls=cls)
             for item in entry.get("forms", []):
-                form = (item.get("form") or "").strip()
+                raw = (item.get("form") or "").strip()
                 tags = set(item.get("tags") or [])
-                if not form or " " in form or not tags or tags & FORM_EXCLUDE:
+                if not raw or not tags or tags & FORM_EXCLUDE:
                     continue
-                verb.extra_forms.add(form.lower())
                 person = next((p for p, t in PERSON_TAGS.items() if t <= tags), None)
                 if person is None:
+                    if " " not in raw:
+                        verb.extra_forms.add(raw.lower())
                     continue
                 for tense, (need, forbid) in TENSE_TAGS.items():
                     if need <= tags and not (forbid & tags):
+                        # A cell may hold more than one spelling; the language decides which is its.
+                        form = clean_form(raw, tense, person)
+                        if not form or " " in form:
+                            break
+                        verb.extra_forms.add(form.lower())
                         key = (tense, person)
                         if key in verb.forms:
                             # The dump sometimes lists a regularised rival ("sabo" beside "sé").
                             # The standard form is listed first, so keep it and record the clash.
                             # The imperfect subjunctive always has a -ra/-se pair; that is expected,
                             # not a clash, and the tense is derived at runtime anyway.
-                            if verb.forms[key] != form and tense != "IMPERFECT_SUBJUNCTIVE":
-                                verb.ambiguous.append((tense, person, verb.forms[key], form))
+                            if verb.forms[key] != form and tense not in DERIVED:
+                                chosen = prefer_rival(tense, person, verb.forms[key], form)
+                                if chosen != verb.forms[key]:
+                                    verb.forms[key] = chosen
+                                else:
+                                    verb.ambiguous.append((tense, person, verb.forms[key], form))
                         else:
                             verb.forms[key] = form
                         break
+            for cell in BACKFILL_FROM_RULE:
+                # Cells the dump omits because the rule already gives them — see the language
+                # module. Filled from the rule, so "complete" means complete.
+                if cell not in verb.forms:
+                    filled = (derived_value(verb, *cell) if cell[0] in DERIVED
+                              else regular(infinitive, *cell))
+                    if filled:
+                        verb.forms[cell] = filled
             if verb.forms:
                 verbs[infinitive] = verb
     return verbs, non_verb
@@ -514,7 +251,7 @@ def select(verbs: dict[str, Verb], scored: dict[str, int], counts: dict[str, int
         if counts.get(infinitive, 0) < MIN_INFINITIVE_COUNT:
             continue
         missing = [(t, p) for t in TENSES for p in PERSONS
-                   if t != "IMPERFECT_SUBJUNCTIVE" and (t, p) not in verb.forms]
+                   if t not in DERIVED and (t, p) not in verb.forms]
         if missing:
             # Reported by the caller: a frequent verb with no table in the dump is a data gap to
             # patch in conjugation_overrides.yaml, not something to drop on the floor.
@@ -550,11 +287,19 @@ def build_verb(verb: Verb, rank: int, frequency: int, cfg: dict, warnings: list)
     suppress = {tuple(k.split(".")) for k in (cfg.get("suppress_naive") or [])}
 
     for tense in TENSES:
-        if tense == "IMPERFECT_SUBJUNCTIVE":
-            continue  # derived at runtime from the third-plural preterite
         for person in PERSONS:
             actual = verb.forms.get((tense, person))
             reg = regular(verb.infinitive, tense, person)
+            if tense in DERIVED:
+                # A derived tense normally costs nothing to store: it is built from its source cell
+                # and inherits that cell's irregularity for free. It is written out only where the
+                # dump disagrees with the derivation -- Portuguese's tivéssemos takes an acute where
+                # the regular comêssemos takes a circumflex, and no rule predicts which.
+                if actual is None:
+                    continue
+                derived_form = derived_value(verb, tense, person)
+                if derived_form is None or actual == derived_form:
+                    continue
             if actual is None or reg is None:
                 raise SystemExit(f"missing cell {verb.infinitive} {tense}.{person}")
             if actual == reg:
@@ -573,9 +318,6 @@ def build_verb(verb: Verb, rank: int, frequency: int, cfg: dict, warnings: list)
                                     f"{reg} -> {actual} unclassified")
             overrides[(tense, person)] = (actual, classes, key in suppress)
 
-    # The imperfect subjunctive must never be stored: it is a rule applied to the preterite.
-    if any(k.startswith("sub_imp") for k in (cfg.get("classes") or {})):
-        raise SystemExit(f"{verb.infinitive}: sub_imp is derived and cannot be overridden")
 
     return Built(
         infinitive=verb.infinitive, rank=rank, frequency=frequency,
@@ -591,17 +333,22 @@ def build_verb(verb: Verb, rank: int, frequency: int, cfg: dict, warnings: list)
 def golden_rows(built: list[Built]) -> list[list[str]]:
     rows = []
     for verb in built:
-        pret3p = verb.overrides.get(("PRETERITE", "ELLOS"))
         for tense in TENSES:
             for person in PERSONS:
                 reg = regular(verb.infinitive, tense, person)
-                if tense == "IMPERFECT_SUBJUNCTIVE":
-                    source = pret3p[0] if pret3p else regular(verb.infinitive, "PRETERITE", "ELLOS")
-                    form = imperfect_subjunctive(source, person)
-                    classes = list(pret3p[1]) if pret3p else []
-                    suppressed = bool(pret3p and pret3p[2])
+                override = verb.overrides.get((tense, person))
+                if tense in DERIVED and override is None:
+                    # Mirrors ConjugationEngine: an unstored derived cell reads its source cell,
+                    # taking that cell's irregularity and its naive-suppression with it.
+                    src_cell, build = DERIVED[tense]
+                    src_override = verb.overrides.get(src_cell) if src_cell else None
+                    source = (src_override[0] if src_override
+                              else (regular(verb.infinitive, *src_cell) if src_cell
+                                    else verb.infinitive))
+                    form = build(source, person) if source else None
+                    classes = list(src_override[1]) if src_override else []
+                    suppressed = bool(src_override and src_override[2])
                 else:
-                    override = verb.overrides.get((tense, person))
                     form = override[0] if override else reg
                     classes = list(override[1]) if override else []
                     suppressed = bool(override and override[2])
@@ -612,8 +359,6 @@ def golden_rows(built: list[Built]) -> list[list[str]]:
                              form, reg, "1" if shows else "0", " ".join(classes)])
     return rows
 
-
-SUPPLETIVE_CLASSES = {"suppletive", "imperfect_irregular", "subj_irregular", "other_irregular"}
 
 KOTLIN_HEADER = '''package com.copiosa.domain.conjugation.data
 
@@ -628,40 +373,41 @@ import com.copiosa.domain.conjugation.VerbClass
 import com.copiosa.domain.conjugation.VerbEntry
 
 /**
- * GENERATED by tools/build_conjugations.py -- do not edit by hand.
+ * GENERATED by `python tools/build_conjugations.py --lang {lang}` -- do not edit by hand.
  *
- * The {n} most frequent Spanish verbs. Only cells that deviate from RegularConjugator are stored;
- * everything else is produced by rule at runtime, and the imperfect subjunctive is derived from the
- * third-person plural preterite rather than stored at all.
+ * The {n} most frequent {title} verbs. Only cells that deviate from the rules are stored;
+ * everything else is produced at runtime by Conjugator, and a derived paradigm is built from its
+ * source cell rather than stored -- except where the source can't predict it.
  *
- * Verified against tools/_verify/conjugations.json by ConjugationGoldenTest.
+ * Verified against {verify} by the golden replay test.
  */
-internal object VerbLexiconData {{
+internal object {obj} {{
 
     val entries: List<VerbEntry> by lazy {{ {blocks} }}
 '''
 
 
+# Slugs whose Kotlin constant isn't just the slug uppercased.
+KOTLIN_ENUM_ALIASES = {
+    "other_irregular": "OTHER",
+    "pt_eu_c": "PT_EU_C_CEDILLA",
+    "pt_other_irregular": "PT_OTHER",
+}
+
+
 def kotlin_enum(class_slug: str) -> str:
-    return {
-        "stem_e_ie": "STEM_E_IE", "stem_o_ue": "STEM_O_UE", "stem_e_i": "STEM_E_I",
-        "stem_u_ue": "STEM_U_UE", "stem_i_ie": "STEM_I_IE", "stem_raise_pret": "STEM_RAISE_PRET",
-        "yo_go": "YO_GO", "yo_zco": "YO_ZCO", "yo_oy": "YO_OY", "yo_other": "YO_OTHER",
-        "subj_yo_stem": "SUBJ_YO_STEM", "strong_pret_u": "STRONG_PRET_U",
-        "strong_pret_i": "STRONG_PRET_I", "strong_pret_j": "STRONG_PRET_J",
-        "strong_pret_ending": "STRONG_PRET_ENDING", "fut_dr": "FUT_DR", "fut_drop": "FUT_DROP",
-        "fut_irregular": "FUT_IRREGULAR", "orth_car_gar_zar": "ORTH_CAR_GAR_ZAR",
-        "orth_ger_gir_guir": "ORTH_GER_GIR_GUIR", "orth_y_hiatus": "ORTH_Y_HIATUS",
-        "orth_i_loss": "ORTH_I_LOSS", "accent_shift": "ACCENT_SHIFT", "suppletive": "SUPPLETIVE",
-        "imperfect_irregular": "IMPERFECT_IRREGULAR", "subj_irregular": "SUBJ_IRREGULAR",
-        "other_irregular": "OTHER",
-    }[class_slug]
+    """The IrregularityClass constant for a slug. Names mirror slugs, so this is mechanical; the
+    aliases above are the handful that were named before the convention settled."""
+    return KOTLIN_ENUM_ALIASES.get(class_slug, class_slug.upper())
 
 
 def emit_kotlin(built: list[Built]) -> str:
     blocks = [built[i:i + VERBS_PER_BLOCK] for i in range(0, len(built), VERBS_PER_BLOCK)]
     names = " + ".join(f"block{i}()" for i in range(len(blocks)))
-    out = [KOTLIN_HEADER.format(n=len(built), blocks=names)]
+    out = [KOTLIN_HEADER.format(
+        n=len(built), blocks=names, lang=LANG, title=KOTLIN_TITLE, obj=KOTLIN_OBJECT,
+        verify=VERIFY_OUT.relative_to(ROOT).as_posix(),
+    )]
     for i, block in enumerate(blocks):
         out.append(f"\n    private fun block{i}(): List<VerbEntry> = listOf(")
         for verb in block:
@@ -721,11 +467,14 @@ def emit_verb(verb: Built) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--lang", default="es", choices=sorted(LANGUAGES),
+                    help="Which language's morphology to build (default: es).")
     ap.add_argument("--verbs", type=int, default=DEFAULT_VERBS)
     ap.add_argument("--frequency", type=Path, default=None,
                     help="Frequency list; defaults to the raw download, else the committed slice.")
     ap.add_argument("--check-only", action="store_true", help="Report only; write nothing.")
     args = ap.parse_args()
+    install_language(args.lang)
 
     freq_path = args.frequency or (FREQ_RAW if FREQ_RAW.exists() else FREQ_SLICE)
     if not freq_path.exists():
@@ -739,7 +488,7 @@ def main() -> int:
 
     print("wiktionary: scanning...")
     verbs, non_verb = read_verbs(WIKT)
-    print(f"            {len(verbs)} Spanish verbs with forms, "
+    print(f"            {len(verbs)} {LANG} verbs with forms, "
           f"{len(non_verb)} word forms also spelled by a non-verb")
 
     cfg = load_overrides(OVERRIDES)
@@ -809,7 +558,7 @@ def main() -> int:
         writer = csv.writer(fh)
         writer.writerow(["infinitive", "tense", "person", "form", "naive", "showsNaive", "classes"])
         writer.writerows(golden_rows(built))
-    print(f"wrote {GOLDEN_OUT.relative_to(ROOT)} ({len(built) * 42} cells)")
+    print(f"wrote {GOLDEN_OUT.relative_to(ROOT)} ({len(built) * len(TENSES) * len(PERSONS)} cells)")
 
     top = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:TOP_WORDS]
     FREQ_SLICE.write_text(

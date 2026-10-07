@@ -4,12 +4,17 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
-/** One vocabulary item sent to the model for enrichment. */
+/**
+ * One vocabulary item sent to the model for enrichment. [pos] is the part of speech already recorded
+ * on the card, when there is one: it is the difference between asking about *haber* in the abstract
+ * and asking about the auxiliary verb, and near-synonyms are exactly where the bare word is ambiguous.
+ */
 @Serializable
 data class VocabRequestItem(
     val id: Long,
     val term: String,
     val context: String? = null,
+    val pos: String? = null,
 )
 
 /** One enrichment result parsed back from the model. [id] echoes the request item. */
@@ -18,6 +23,11 @@ data class VocabExplanationDto(
     val id: Long? = null,
     val pos: String? = null,
     val cefr: String? = null,
+    /**
+     * A short card-back gloss that distinguishes the term from its near-synonyms. Only ever applied
+     * to a machine-generated card back — see `FlashcardRepository.update`.
+     */
+    val translation: String? = null,
     val explanation: String = "",
     val example: String? = null,
     /** Noun gender: one of M/F/MF/MPL/FPL, or null when not a gendered noun. */

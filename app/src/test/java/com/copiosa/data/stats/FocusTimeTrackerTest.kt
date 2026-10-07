@@ -25,10 +25,9 @@ class FocusTimeTrackerTest {
     private class Harness(scope: TestScope, startAt: Long) {
         val dao = FakeFocusStatsDao()
         var nowMs = startAt
-        val tracker = FocusTimeTracker(dao).apply {
+        val tracker = FocusTimeTracker(dao, scope).apply {
             now = { nowMs }
             zone = { ZoneId.of("UTC") }
-            this.scope = scope
         }
 
         /** Moves the wall clock and the virtual dispatcher forward together. */

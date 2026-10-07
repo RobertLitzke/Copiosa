@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +24,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.DragHandle
@@ -47,7 +50,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.copiosa.R
 import com.copiosa.data.local.AudioItemEntity
 import com.copiosa.data.tts.TtsModelState
@@ -77,10 +80,15 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
  * caller supplies the height constraint and the persona texture.
  */
 @Composable
-fun AudioPane(modifier: Modifier = Modifier, viewModel: AudioViewModel = hiltViewModel()) {
-    val items by viewModel.items.collectAsState()
-    val modelState by viewModel.modelState.collectAsState()
-    val playback by viewModel.playbackState.collectAsState()
+fun AudioPane(
+    modifier: Modifier = Modifier,
+    onOpenTag: (String) -> Unit = {},
+    viewModel: AudioViewModel = hiltViewModel(),
+) {
+    val items by viewModel.items.collectAsStateWithLifecycle()
+    val entries by viewModel.entries.collectAsStateWithLifecycle()
+    val modelState by viewModel.modelState.collectAsStateWithLifecycle()
+    val playback by viewModel.playbackState.collectAsStateWithLifecycle()
 
     // The Media3 notification / lock-screen controls need POST_NOTIFICATIONS on API 33+. Ask once,
     // when the user first starts playback; playback still works (just without the notification) if denied.
@@ -94,7 +102,9 @@ fun AudioPane(modifier: Modifier = Modifier, viewModel: AudioViewModel = hiltVie
         }
     }
 
-    val hasPlayed = items.any { it.played }
+    // Folders are exempt from the sweep (see AudioItemDao.playedItems), so the button only appears
+    // when it would actually delete something.
+    val hasPlayed = items.any { it.played && it.tag == null }
     var confirmDeletePlayed by remember { mutableStateOf(false) }
 
     Column(modifier) {
@@ -114,21 +124,23 @@ fun AudioPane(modifier: Modifier = Modifier, viewModel: AudioViewModel = hiltVie
 
         ModelBanner(modelState = modelState, onDownload = viewModel::downloadModel)
 
-        if (items.isEmpty()) {
+        if (entries.isEmpty()) {
             EmptyState(stringResource(R.string.audio_empty))
         } else {
             AudioList(
-                items = items,
+                entries = entries,
                 modelReady = modelState is TtsModelState.Ready,
                 playingId = playback.currentId,
                 onPlay = { id -> startPlayback { viewModel.play(id) } },
+                onOpenTag = onOpenTag,
                 onRetry = viewModel::retry,
                 onMarkUnlistened = viewModel::markUnplayed,
                 onDelete = viewModel::delete,
                 onPersistOrder = viewModel::persistOrder,
                 modifier = Modifier.weight(1f),
             )
-            if (items.any { it.status == AudioStatus.READY }) {
+            // The transport drives the loose queue; a folder plays from its own screen.
+            if (items.any { it.status == AudioStatus.READY && it.tag == null }) {
                 TransportBar(
                     title = items.firstOrNull { it.id == playback.currentId }?.title,
                     isPlaying = playback.isPlaying,
@@ -159,7 +171,7 @@ fun AudioPane(modifier: Modifier = Modifier, viewModel: AudioViewModel = hiltVie
 }
 
 @Composable
-private fun ModelBanner(modelState: TtsModelState, onDownload: () -> Unit) {
+internal fun ModelBanner(modelState: TtsModelState, onDownload: () -> Unit) {
     when (modelState) {
         is TtsModelState.Ready -> Unit
         is TtsModelState.Downloading -> Surface(
@@ -204,10 +216,11 @@ private fun ModelBanner(modelState: TtsModelState, onDownload: () -> Unit) {
 
 @Composable
 private fun AudioList(
-    items: List<AudioItemEntity>,
+    entries: List<AudioListEntry>,
     modelReady: Boolean,
     playingId: Long?,
     onPlay: (Long) -> Unit,
+    onOpenTag: (String) -> Unit,
     onRetry: (Long) -> Unit,
     onMarkUnlistened: (Long) -> Unit,
     onDelete: (Long) -> Unit,
@@ -216,14 +229,15 @@ private fun AudioList(
 ) {
     val lazyListState = rememberLazyListState()
     // Local working order so a drag can rearrange rows smoothly; re-synced from the DB when idle.
-    var working by remember { mutableStateOf(items) }
+    var working by remember { mutableStateOf(entries) }
     var dragging by remember { mutableStateOf(false) }
-    LaunchedEffect(items, dragging) { if (!dragging) working = items }
+    LaunchedEffect(entries, dragging) { if (!dragging) working = entries }
 
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        val fromItem = working.getOrNull(from.index)
-        val toItem = working.getOrNull(to.index)
-        // Only the unplayed group is rearrangeable; played items stay pinned at the bottom.
+        val fromItem = (working.getOrNull(from.index) as? AudioListEntry.Loose)?.item
+        val toItem = (working.getOrNull(to.index) as? AudioListEntry.Loose)?.item
+        // Only the unplayed loose items are rearrangeable: played ones stay pinned at the bottom,
+        // and a folder's place is decided by its tracks' own order, not by dragging.
         if (fromItem != null && toItem != null && !fromItem.played && !toItem.played) {
             working = working.toMutableList().apply { add(to.index, removeAt(from.index)) }
         }
@@ -236,47 +250,138 @@ private fun AudioList(
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(working, key = { it.id }) { item ->
-            ReorderableItem(reorderState, key = item.id) { _ ->
-                AudioRow(
-                    item = item,
-                    modelReady = modelReady,
-                    isPlaying = item.id == playingId,
-                    dragHandle = if (!item.played) {
-                        {
-                            IconButton(
-                                modifier = Modifier.longPressDraggableHandle(
-                                    onDragStarted = { dragging = true },
-                                    onDragStopped = {
-                                        onPersistOrder(working.filter { !it.played }.map { it.id })
-                                        dragging = false
-                                    },
-                                ),
-                                onClick = {},
-                            ) {
-                                Icon(
-                                    Icons.Filled.DragHandle,
-                                    contentDescription = stringResource(R.string.audio_reorder),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    } else {
-                        null
-                    },
-                    onPlay = { onPlay(item.id) },
-                    onRetry = { onRetry(item.id) },
-                    onMarkUnlistened = { onMarkUnlistened(item.id) },
-                    onDelete = { onDelete(item.id) },
-                )
+        items(working, key = { it.listKey }) { entry ->
+            ReorderableItem(reorderState, key = entry.listKey) { _ ->
+                when (entry) {
+                    is AudioListEntry.Group -> FolderRow(
+                        group = entry,
+                        modelReady = modelReady,
+                        onClick = { onOpenTag(entry.tag) },
+                    )
+                    is AudioListEntry.Loose -> {
+                        val item = entry.item
+                        AudioRow(
+                            item = item,
+                            modelReady = modelReady,
+                            isPlaying = item.id == playingId,
+                            dragHandle = if (!item.played) {
+                                {
+                                    IconButton(
+                                        modifier = Modifier.longPressDraggableHandle(
+                                            onDragStarted = { dragging = true },
+                                            onDragStopped = {
+                                                onPersistOrder(
+                                                    working
+                                                        .filterIsInstance<AudioListEntry.Loose>()
+                                                        .map { it.item }
+                                                        .filter { !it.played }
+                                                        .map { it.id },
+                                                )
+                                                dragging = false
+                                            },
+                                        ),
+                                        onClick = {},
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.DragHandle,
+                                            contentDescription = stringResource(R.string.audio_reorder),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            } else {
+                                null
+                            },
+                            onPlay = { onPlay(item.id) },
+                            onRetry = { onRetry(item.id) },
+                            onMarkUnlistened = { onMarkUnlistened(item.id) },
+                            onDelete = { onDelete(item.id) },
+                        )
+                    }
+                }
             }
         }
     }
 }
 
+/** Stable key: tags and row ids share a list, so each is namespaced. */
+private val AudioListEntry.listKey: String
+    get() = when (this) {
+        is AudioListEntry.Group -> "tag:$tag"
+        is AudioListEntry.Loose -> "item:${item.id}"
+    }
+
+/**
+ * A folder standing in for all of one tag's tracks. Tapping it opens the folder rather than playing:
+ * a book is hours of audio, and which chapter to start on is the whole question.
+ */
+@Composable
+private fun FolderRow(group: AudioListEntry.Group, modelReady: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable(onClick = onClick)
+            .padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.LibraryBooks,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(24.dp),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                group.tag,
+                style = MaterialTheme.typography.titleMedium.copy(fontFamily = SourceSerif),
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                folderSubtitle(group, modelReady),
+                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = SourceSerif, fontSize = 14.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** "31 tracks · 4h 12m · 12 unheard", with whatever is still rendering said first. */
+@Composable
+private fun folderSubtitle(group: AudioListEntry.Group, modelReady: Boolean): String {
+    val parts = buildList {
+        add(stringResource(R.string.audio_tag_tracks, group.tracks.size))
+        if (group.pending > 0) {
+            add(
+                if (!modelReady) stringResource(R.string.audio_status_waiting)
+                else stringResource(R.string.book_audio_progress, group.ready + 1, group.tracks.size),
+            )
+        }
+        if (group.ready > 0) add(listeningTime(group.totalMs))
+        if (group.failed > 0) add(stringResource(R.string.audio_status_failed))
+        add(
+            if (group.unheard > 0) stringResource(R.string.audio_tag_unheard, group.unheard)
+            else stringResource(R.string.audio_tag_all_heard),
+        )
+    }
+    return parts.joinToString(" · ")
+}
+
+/** One track. Shared with the folder screen, which lays its tracks out the same way. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AudioRow(
+internal fun AudioRow(
     item: AudioItemEntity,
     modelReady: Boolean,
     isPlaying: Boolean,
@@ -394,7 +499,7 @@ private fun AudioRowMenu(
 }
 
 @Composable
-private fun TransportBar(
+internal fun TransportBar(
     title: String?,
     isPlaying: Boolean,
     onPlayPause: () -> Unit,
@@ -430,18 +535,10 @@ private fun TransportBar(
 }
 
 @Composable
-private fun statusLabel(item: AudioItemEntity, modelReady: Boolean): String = when (item.status) {
+internal fun statusLabel(item: AudioItemEntity, modelReady: Boolean): String = when (item.status) {
     AudioStatus.PENDING ->
         if (!modelReady) stringResource(R.string.audio_status_waiting) else stringResource(R.string.audio_status_queued)
     AudioStatus.GENERATING -> stringResource(R.string.audio_status_generating)
     AudioStatus.FAILED -> stringResource(R.string.audio_status_failed)
-    AudioStatus.READY -> formatDuration(item.durationMs)
-}
-
-private fun formatDuration(ms: Long?): String {
-    if (ms == null || ms <= 0) return ""
-    val totalSeconds = ms / 1000
-    val minutes = totalSeconds / 60
-    val seconds = totalSeconds % 60
-    return "%d:%02d".format(minutes, seconds)
+    AudioStatus.READY -> trackDuration(item.durationMs)
 }

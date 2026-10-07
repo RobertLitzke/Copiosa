@@ -7,6 +7,9 @@ package com.copiosa.domain.conjugation
  */
 internal object ConjugationFixtures {
 
+    /** The Spanish paradigm, which every fixture in this file belongs to. */
+    val SPANISH: ConjugationSpec = ConjugationSpecs.SPANISH
+
     fun verb(
         infinitive: String,
         gloss: String = "",
@@ -20,7 +23,7 @@ internal object ConjugationFixtures {
         rank = rank,
         frequency = frequency,
         gloss = gloss,
-        verbClass = RegularConjugator.classOf(infinitive)!!,
+        verbClass = SPANISH.conjugator.classOf(infinitive)!!,
         weightMultiplier = weightMultiplier,
         restriction = restriction,
         overrides = overrides

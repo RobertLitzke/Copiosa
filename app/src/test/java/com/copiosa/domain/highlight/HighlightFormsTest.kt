@@ -1,6 +1,7 @@
 package com.copiosa.domain.highlight
 
 import com.copiosa.data.local.FlashcardEntity
+import com.copiosa.domain.srs.ReviewWindows
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -37,6 +38,38 @@ class HighlightFormsTest {
         assertEquals("gato", card(front = "cat", back = "gato", frontIsTarget = false).targetTerm)
     }
 
+    @Test fun `a small deck highlights everything due within the window and nothing past it`() {
+        val now = 100 * ReviewWindows.DAY_MS
+        val cards = listOf(
+            card("vencido", dueAt = now - ReviewWindows.DAY_MS, id = 1),
+            card("pronto", dueAt = now + ReviewWindows.HIGHLIGHT_DUE_MS, id = 2),
+            card("lejano", dueAt = now + ReviewWindows.HIGHLIGHT_DUE_MS + 1, id = 3),
+        )
+        assertEquals(listOf("vencido", "pronto"), HighlightTargetProvider.eligible(cards, now).map { it.front })
+    }
+
+    @Test fun `a backlog larger than the cap keeps only the words due soonest`() {
+        val now = 100 * ReviewWindows.DAY_MS
+        val extra = 50
+        // Handed over latest-first, so the cut has to come from the due date and not from list order.
+        val cards = (0 until ReviewWindows.HIGHLIGHT_MAX_WORDS + extra)
+            .map { card("w$it", dueAt = now - it, id = it + 1L) }
+        val kept = HighlightTargetProvider.eligible(cards, now)
+        assertEquals(ReviewWindows.HIGHLIGHT_MAX_WORDS, kept.size)
+        assertEquals("w${cards.size - 1}", kept.first().front)
+        assertTrue(kept.none { it.front == "w0" })
+    }
+
+    @Test fun `both directions of one word take a single place under the cap`() {
+        val now = 100 * ReviewWindows.DAY_MS
+        val cards = listOf(
+            card("gato", dueAt = now + 2, id = 1, noteId = 7),
+            card("gato", dueAt = now + 1, id = 2, noteId = 7),
+            card("perro", dueAt = now + 3, id = 3, noteId = 8),
+        )
+        assertEquals(listOf(2L, 3L), HighlightTargetProvider.eligible(cards, now).map { it.id })
+    }
+
     private fun card(front: String, back: String, frontIsTarget: Boolean) = FlashcardEntity(
         front = front,
         back = back,
@@ -45,5 +78,16 @@ class HighlightFormsTest {
         nativeLanguage = "en",
         createdAt = 0L,
         dueAt = 0L,
+    )
+
+    private fun card(front: String, dueAt: Long, id: Long, noteId: Long = id) = FlashcardEntity(
+        id = id,
+        front = front,
+        back = "",
+        targetLanguage = "es",
+        nativeLanguage = "en",
+        createdAt = 0L,
+        dueAt = dueAt,
+        noteId = noteId,
     )
 }

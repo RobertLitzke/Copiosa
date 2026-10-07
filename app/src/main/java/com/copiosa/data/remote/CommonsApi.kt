@@ -1,5 +1,6 @@
 package com.copiosa.data.remote
 
+import com.copiosa.BuildConfig
 import kotlinx.serialization.Serializable
 import retrofit2.http.GET
 import retrofit2.http.Headers
@@ -10,14 +11,16 @@ import retrofit2.http.Query
  * (https://commons.wikimedia.org). Used to find a few candidate photos for a flashcard so the user
  * can pick one; we never generate images. Chosen over a generic CC aggregator because its full-text
  * search ranks concept photos far better for single-word glosses (e.g. "gill" → fish gills, not a
- * surname). Anonymous use is fine, but MediaWiki requires a descriptive User-Agent.
+ * surname). Anonymous use is fine, but MediaWiki requires a descriptive User-Agent; its contact is
+ * `BuildConfig.CONTACT`, which the build takes from local.properties so that no address lives in
+ * the source.
  *
  * A single MediaWiki query drives the whole search: [generator=search] finds matching File: pages
  * and [prop=imageinfo] returns, per result, a scaled [iiurlwidth] thumbnail plus the full-size URL —
  * so one round-trip yields everything the picker needs.
  */
 interface CommonsApi {
-    @Headers("User-Agent: Copiosa/1.0 (language-learning app; contact robert.litzke@gmail.com)")
+    @Headers("User-Agent: Copiosa/1.0 (language-learning app; contact ${BuildConfig.CONTACT})")
     @GET("w/api.php")
     suspend fun search(
         @Query("gsrsearch") query: String,

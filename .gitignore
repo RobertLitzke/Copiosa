@@ -21,7 +21,8 @@ local.properties
 # Dictionary packs — built by tools/build_dictionary.py; the .gz ships via GitHub Releases, not git.
 /dist/
 
-# Raw Wiktextract source dumps and other bulk inputs for the dictionary build.
+# Raw Wiktextract source dumps, corpus frequency lists, and other bulk build inputs. The trimmed
+# derivatives the builds actually depend on (tools/es_top2000.tsv) are committed instead.
 /data/
 
 # Local device-database pulls and scratch output.
@@ -30,3 +31,20 @@ local.properties
 # Python tooling caches.
 __pycache__/
 *.pyc
+
+# Human-readable verification dumps from build_conjugations.py — regenerable, not a build input.
+/tools/_verify/
+
+# JVM crash dumps from the Gradle/Kotlin daemons.
+hs_err_pid*.log
+replay_pid*.log
+
+# Working logo art. The committed copies are the app drawables (res/drawable-*/ic_logo*.png).
+/copiosa2.*
+
+# Authored-text dumps written by CourseTextDumpTest for editing course prose outside the IDE. The
+# Kotlin course catalog is the source of truth; these are regenerable.
+/*-lessons.json
+
+# Third-party writing-style reference kept beside the dumps while editing. Not ours to redistribute.
+/tropes.txt

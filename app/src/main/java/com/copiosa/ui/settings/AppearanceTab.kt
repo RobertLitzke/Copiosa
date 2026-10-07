@@ -68,6 +68,14 @@ internal fun AppearanceTab(settings: AppSettings, viewModel: SettingsViewModel) 
         selected = settings.readingTextSize,
         onSelect = { size -> viewModel.update { it.copy(readingTextSize = size) } },
     )
+
+    SectionLabel(stringResource(R.string.settings_reading), modifier = Modifier.padding(top = 8.dp))
+    SwitchRow(
+        title = stringResource(R.string.settings_highlight_words),
+        subtitle = stringResource(R.string.settings_highlight_words_explainer),
+        checked = settings.highlightSavedWords,
+        onCheckedChange = { on -> viewModel.update { it.copy(highlightSavedWords = on) } },
+    )
 }
 
 private val READING_FONTS = listOf(

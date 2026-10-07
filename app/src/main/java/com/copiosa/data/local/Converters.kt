@@ -3,6 +3,7 @@ package com.copiosa.data.local
 import androidx.room.TypeConverter
 import com.copiosa.domain.model.AudioStatus
 import com.copiosa.domain.model.BookDirection
+import com.copiosa.domain.model.BookDownloadMode
 import com.copiosa.domain.model.CardKind
 import com.copiosa.domain.model.Cefr
 import com.copiosa.domain.model.FlashcardState
@@ -12,6 +13,7 @@ import com.copiosa.domain.model.ReviewDirection
 import com.copiosa.domain.model.ReviewRating
 import com.copiosa.domain.model.Role
 import com.copiosa.domain.quiz.CueType
+import com.copiosa.domain.reading.ReadMode
 import com.copiosa.domain.stats.FocusActivityType
 import com.copiosa.domain.routine.ActivityType
 import com.copiosa.domain.routine.RoutineRunStatus
@@ -27,6 +29,12 @@ class Converters {
     // Falls back to FORWARD (the only direction books had before the column existed).
     @TypeConverter fun stringToBookDirection(v: String): BookDirection =
         runCatching { BookDirection.valueOf(v) }.getOrDefault(BookDirection.FORWARD)
+
+    @TypeConverter fun bookDownloadModeToString(v: BookDownloadMode): String = v.name
+    // Falls back to WHILE_READING, which is what the column's backfill gave every book that had no
+    // explicit choice — an unknown value must never make a book stop translating silently.
+    @TypeConverter fun stringToBookDownloadMode(v: String): BookDownloadMode =
+        runCatching { BookDownloadMode.valueOf(v) }.getOrDefault(BookDownloadMode.WHILE_READING)
 
     @TypeConverter fun modeToString(v: Mode): String = v.name
     @TypeConverter fun stringToMode(v: String): Mode = Mode.valueOf(v)
@@ -64,7 +72,16 @@ class Converters {
     @TypeConverter fun stringToRoutineStatus(v: String): RoutineRunStatus = RoutineRunStatus.valueOf(v)
 
     @TypeConverter fun activityTypeToString(v: ActivityType): String = v.name
-    @TypeConverter fun stringToActivityType(v: String): ActivityType = ActivityType.valueOf(v)
+
+    // Resolves names retired by an activity merge, so an old attempt row can't crash a read.
+    @TypeConverter fun stringToActivityType(v: String): ActivityType =
+        ActivityType.fromNameOrNull(v) ?: ActivityType.NARROW_READING
+
+    @TypeConverter fun readModeToString(v: ReadMode): String = v.name
+    // Falls back to TARGET, which is where every reader started before the column existed — a value
+    // this can't parse must never stop a book opening.
+    @TypeConverter fun stringToReadMode(v: String): ReadMode =
+        runCatching { ReadMode.valueOf(v) }.getOrDefault(ReadMode.TARGET)
 
     @TypeConverter fun topicSourceToString(v: TopicSource): String = v.name
     @TypeConverter fun stringToTopicSource(v: String): TopicSource = TopicSource.valueOf(v)

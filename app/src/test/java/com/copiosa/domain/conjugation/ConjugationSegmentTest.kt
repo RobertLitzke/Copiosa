@@ -24,12 +24,14 @@ import org.junit.Test
 
 class ConjugationSegmentTest {
 
+    private val SPANISH = ConjugationSpecs.SPANISH
+
     /** The highlighted slice(s), pipe-joined: "ten|g|o" reads as stem / irregular / ending. */
     private fun layout(verb: VerbEntry, tense: Tense, person: Person): String =
-        ConjugationEngine.conjugate(verb, tense, person)!!.segments.joinToString("|") { it.text }
+        SPANISH.engine.conjugate(verb, tense, person)!!.segments.joinToString("|") { it.text }
 
     private fun irregularText(verb: VerbEntry, tense: Tense, person: Person): String =
-        ConjugationEngine.conjugate(verb, tense, person)!!
+        SPANISH.engine.conjugate(verb, tense, person)!!
             .segments.filter { it.role == SegmentRole.IRREGULAR }.joinToString("") { it.text }
 
     @Test
@@ -76,7 +78,7 @@ class ConjugationSegmentTest {
         assertEquals("d|ij|e", layout(DECIR, Tense.PRETERITE, Person.YO))
         assertEquals("h|ic|e", layout(HACER, Tense.PRETERITE, Person.YO))
 
-        val tuve = ConjugationEngine.conjugate(TENER, Tense.PRETERITE, Person.YO)!!
+        val tuve = SPANISH.engine.conjugate(TENER, Tense.PRETERITE, Person.YO)!!
         val irregulars = tuve.segments.filter { it.role == SegmentRole.IRREGULAR }
         assertEquals(2, irregulars.size)
         assertEquals(IrregularityClass.STRONG_PRET_U, irregulars[0].irregularity)
@@ -89,7 +91,7 @@ class ConjugationSegmentTest {
         assertEquals("t|uv|iste", layout(TENER, Tense.PRETERITE, Person.TU))
         assertEquals(
             1,
-            ConjugationEngine.conjugate(TENER, Tense.PRETERITE, Person.TU)!!
+            SPANISH.engine.conjugate(TENER, Tense.PRETERITE, Person.TU)!!
                 .segments.count { it.role == SegmentRole.IRREGULAR },
         )
     }
@@ -103,7 +105,7 @@ class ConjugationSegmentTest {
 
     @Test
     fun suppletiveForms_takeTheWholeWord() {
-        val voy = ConjugationEngine.conjugate(IR, Tense.PRESENT, Person.YO)!!
+        val voy = SPANISH.engine.conjugate(IR, Tense.PRESENT, Person.YO)!!
         assertEquals(listOf("voy"), voy.segments.map { it.text })
         assertEquals(SegmentRole.IRREGULAR, voy.segments.single().role)
     }
@@ -126,24 +128,24 @@ class ConjugationSegmentTest {
         assertEquals("hablá|ramos", layout(HABLAR, Tense.IMPERFECT_SUBJUNCTIVE, Person.NOSOTROS))
         // A regular cell has nothing highlighted at all.
         assertTrue(
-            ConjugationEngine.conjugate(HABLAR, Tense.PRESENT, Person.YO)!!
+            SPANISH.engine.conjugate(HABLAR, Tense.PRESENT, Person.YO)!!
                 .segments.none { it.role == SegmentRole.IRREGULAR },
         )
     }
 
     @Test
     fun imperfectSubjunctive_inheritsPreteriteIrregularityForFree() {
-        val supiera = ConjugationEngine.conjugate(SABER, Tense.IMPERFECT_SUBJUNCTIVE, Person.YO)!!
+        val supiera = SPANISH.engine.conjugate(SABER, Tense.IMPERFECT_SUBJUNCTIVE, Person.YO)!!
         assertEquals("supiera", supiera.form)
         assertEquals("sabiera", supiera.naiveForm)
         assertEquals(listOf(IrregularityClass.STRONG_PRET_U), supiera.classes)
         assertTrue("sabiera is exactly the mistake a learner makes", supiera.showsNaive)
 
-        val supieramos = ConjugationEngine.conjugate(SABER, Tense.IMPERFECT_SUBJUNCTIVE, Person.NOSOTROS)!!
+        val supieramos = SPANISH.engine.conjugate(SABER, Tense.IMPERFECT_SUBJUNCTIVE, Person.NOSOTROS)!!
         assertEquals("supiéramos", supieramos.form)
 
         // A verb with a regular third-plural preterite has a regular imperfect subjunctive.
-        val hablara = ConjugationEngine.conjugate(HABLAR, Tense.IMPERFECT_SUBJUNCTIVE, Person.YO)!!
+        val hablara = SPANISH.engine.conjugate(HABLAR, Tense.IMPERFECT_SUBJUNCTIVE, Person.YO)!!
         assertEquals("hablara", hablara.form)
         assertFalse(hablara.isIrregular)
         assertFalse(hablara.showsNaive)
@@ -152,9 +154,9 @@ class ConjugationSegmentTest {
     @Test
     fun segmentsAlwaysReconstructTheForm_andNeverHighlightNothing() {
         ConjugationFixtures.ALL.forEach { verb ->
-            Tense.entries.forEach { tense ->
-                Person.entries.forEach { person ->
-                    val conjugated = ConjugationEngine.conjugate(verb, tense, person)
+            SPANISH.tenses.forEach { tense ->
+                SPANISH.persons.forEach { person ->
+                    val conjugated = SPANISH.engine.conjugate(verb, tense, person)
                     assertNotNull("${verb.infinitive} $tense $person", conjugated)
                     val form = conjugated!!
                     assertEquals(
@@ -182,9 +184,9 @@ class ConjugationSegmentTest {
     @Test
     fun theFamilyOfACellIsItsMostStructuralDeviation() {
         // tener's yo is a -go form; its preterite is a strong preterite; its future is a stem.
-        assertEquals(IrregularityFamily.YO_FORM, ConjugationEngine.conjugate(TENER, Tense.PRESENT, Person.YO)!!.family)
-        assertEquals(IrregularityFamily.STRONG_PRETERITE, ConjugationEngine.conjugate(TENER, Tense.PRETERITE, Person.YO)!!.family)
-        assertEquals(IrregularityFamily.FUTURE_STEM, ConjugationEngine.conjugate(TENER, Tense.FUTURE, Person.YO)!!.family)
-        assertEquals(IrregularityFamily.REGULAR, ConjugationEngine.conjugate(HABLAR, Tense.PRESENT, Person.YO)!!.family)
+        assertEquals(IrregularityFamily.YO_FORM, SPANISH.engine.conjugate(TENER, Tense.PRESENT, Person.YO)!!.family)
+        assertEquals(IrregularityFamily.STRONG_PRETERITE, SPANISH.engine.conjugate(TENER, Tense.PRETERITE, Person.YO)!!.family)
+        assertEquals(IrregularityFamily.FUTURE_STEM, SPANISH.engine.conjugate(TENER, Tense.FUTURE, Person.YO)!!.family)
+        assertEquals(IrregularityFamily.REGULAR, SPANISH.engine.conjugate(HABLAR, Tense.PRESENT, Person.YO)!!.family)
     }
 }

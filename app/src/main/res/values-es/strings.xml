@@ -4,8 +4,7 @@
 
     <string name="nav_home">Inicio</string>
     <string name="nav_library">Biblioteca</string>
-    <string name="nav_lexicon">Léxico</string>
-    <string name="nav_audio">Audio</string>
+    <string name="nav_vocab">Léxico</string>
     <string name="nav_routines">Rutinas</string>
     <string name="nav_settings">Ajustes</string>
 
@@ -16,11 +15,15 @@
         <item quantity="other">racha de %1$d días</item>
     </plurals>
     <string name="home_continue_reading">Seguir leyendo</string>
+    <string name="home_book_progress">%1$d %% leído</string>
     <string name="home_keep_going">Continúa</string>
     <string name="home_card_review_label">Repaso</string>
+    <string name="home_card_review_label_more">Repaso · %1$,d en espera</string>
     <string name="home_card_review">Palabras por repasar</string>
-    <string name="home_card_listening_label">Escucha</string>
-    <string name="home_card_listening">Práctica rápida de escucha</string>
+    <string name="home_format_cards">%1$d tarjetas</string>
+    <string name="home_format_rapid">Ráfaga</string>
+    <string name="home_format_conjugation">Conjugación</string>
+    <string name="home_format_chat">Chat nuevo</string>
     <string name="home_card_audio_label">Sin escuchar</string>
     <string name="home_card_audio">Audio nuevo</string>
     <string name="home_card_chats_label">Conversación</string>
@@ -78,34 +81,40 @@
     <string name="routines_title">Rutinas</string>
     <string name="routine_bedtime_title">Rutina para dormir</string>
     <string name="routine_bedtime_desc">Una secuencia tranquila que te lleva al sueño, terminando con un cuento suave.</string>
+    <string name="routine_daytime_title">Activación diurna</string>
+    <string name="routine_daytime_desc">Un calentamiento suave que sube hasta un final intenso y te deja despejado.</string>
     <string name="routine_duration_label">¿Cuánto tiempo esta noche?</string>
+    <string name="routine_duration_label_daytime">¿Cuánto tiempo hoy?</string>
     <string name="routine_minutes">%1$d min</string>
     <string name="routine_topic_label">Tema (opcional)</string>
     <string name="routine_topic_hint">Un tema relajante para incluir…</string>
+    <string name="routine_topic_hint_daytime">Un tema para incluir…</string>
     <string name="routine_suggestions_label">De lo que has estado explorando</string>
     <string name="routine_start">Empezar</string>
-    <string name="routines_empty">Aún no hay rutinas.</string>
     <string name="routine_preparing">Preparando tu rutina…</string>
+    <string name="routine_skip">Saltar</string>
+    <string name="routine_preparing_hint">Puedes salir de esta pantalla: te esperará en la pestaña Rutinas.</string>
+    <string name="routine_resume_title">Continuar: %1$s</string>
+    <string name="routine_resume_step">Paso %1$d de %2$d</string>
+    <string name="routine_resume_ready">Lista para empezar</string>
+    <string name="routine_resume_preparing">Preparándose…</string>
+    <string name="routine_resume_discard">Descartar esta rutina</string>
     <string name="routine_failed">No se pudo preparar la rutina.</string>
     <string name="routine_retry">Reintentar</string>
     <string name="routine_exit">Salir</string>
-    <string name="routine_show_answer">Ver respuesta</string>
     <string name="routine_continue">Continuar</string>
     <string name="routine_finish">Terminar</string>
     <string name="routine_done_title">Buenas noches</string>
     <string name="routine_done_body">Rutina completa. Que descanses.</string>
-    <string name="routine_guess_prompt">Recuérdalo y luego voltea.</string>
-    <string name="routine_flip">Voltear</string>
+    <string name="routine_done_title_daytime">Todo listo</string>
+    <string name="routine_done_body_daytime">Rutina completa. Ya estás en marcha.</string>
     <string name="routine_pi_prompt">¿Quién o cuándo?</string>
     <string name="routine_cloze_prompt">Elige la forma correcta.</string>
     <string name="routine_affective_prompt">¿Cuál es verdad para ti?</string>
-    <string name="routine_story_tap_hint">Toca para encender la pantalla.</string>
     <string name="routine_mc_cloze_prompt">Elige la palabra que encaja.</string>
     <string name="routine_recognition_prompt">¿Recuerdas esta palabra?</string>
     <string name="routine_recognition_reveal">Ver significado</string>
     <string name="routine_swipe_prompt">Desliza cada palabra a su género.</string>
-    <string name="routine_swipe_masculine">el (m.)</string>
-    <string name="routine_swipe_feminine">la (f.)</string>
     <string name="routine_cognate_prompt">Toca cada palabra — ¿cuáles significan lo que parecen y cuáles son falsos amigos?</string>
     <string name="routine_cognate_true">Un cognado verdadero — significa lo que parece.</string>
     <string name="routine_cognate_false_friend">Falso amigo — en realidad significa: %1$s</string>
@@ -113,7 +122,7 @@
     <string name="routine_status_title">Nivel de comodidad</string>
     <string name="routine_status_open">Nivel de comodidad</string>
     <string name="routine_status_legend">Qué tan cómodo cree la app que estás con cada ejercicio de gramática en español. A medida que sube tu comodidad, lo hace un poco más difícil y lo muestra menos para mantener el reto.</string>
-    <string name="routine_status_spanish_only">Por ahora los ejercicios de gramática adaptativos son solo para español, así que no hay nada que mostrar para tu idioma actual.</string>
+    <string name="routine_status_no_grammar_profile">Los ejercicios de gramática adaptativos necesitan un perfil gramatical para tu idioma, y todavía no lo hay.</string>
     <string name="routine_status_group_cloze">Contraste gramatical</string>
     <string name="routine_status_group_referential">PI referencial</string>
     <string name="routine_status_group_mc_cloze">Opción múltiple</string>
@@ -136,7 +145,6 @@
     </plurals>
     <string name="action_search">Buscar</string>
     <string name="new_chat">Nueva conversación</string>
-    <string name="add_text">Añadir un texto</string>
 
     <string name="review_undo">Deshacer última respuesta</string>
 
@@ -163,17 +171,7 @@
     <string name="shortcut_new_chat">Nueva conversación</string>
     <string name="shortcut_routine">Iniciar rutina</string>
 
-    <string name="new_title">Nueva sesión</string>
-    <string name="mode_conversation">Conversación</string>
-    <string name="mode_url">Traducir una URL</string>
-    <string name="label_level">Nivel</string>
-    <string name="label_country">País</string>
-    <string name="label_subject">Tema</string>
-    <string name="label_url">URL del artículo</string>
-    <string name="hint_subject">p. ej. Historia de China</string>
     <string name="hint_url">https://…</string>
-    <string name="action_generate">Generar</string>
-    <string name="provider_label">Usando %1$s · %2$s</string>
 
     <string name="chat_hint">Escribe o pega un enlace…</string>
     <string name="action_send">Enviar</string>
@@ -187,13 +185,13 @@
     <string name="translating">Traduciendo…</string>
     <string name="translate_unavailable">Traducción sin conexión no disponible. Toca Explicar para una explicación en contexto.</string>
     <string name="translate_of_lemma">traducción de %1$s</string>
-    <string name="dict_download">Descargar diccionario sin conexión (~85 MB)</string>
+    <string name="dict_download">Descargar diccionario sin conexión</string>
+    <string name="dict_download_sized">Descargar diccionario sin conexión (~%1$d MB)</string>
     <string name="dict_downloading">Descargando diccionario…</string>
     <string name="dict_loading">Buscando…</string>
     <string name="dict_pick_headword">¿Cuál guardar?</string>
     <string name="dict_as_written">«%1$s» — tal cual</string>
     <string name="thinking">Pensando…</string>
-    <string name="save_as_flashcard">Guardar como tarjeta</string>
     <string name="saved">Guardado</string>
 
     <!-- Menú de modelo en el chat -->
@@ -203,9 +201,8 @@
     <string name="model_menu_more">Más ajustes</string>
 
     <!-- Traducciones (textos importados/pegados para leer) -->
-    <string name="texts_empty">Aún no hay traducciones. Mantén pulsado el botón + para añadir una.</string>
+    <string name="texts_empty">Aún no hay traducciones. Pega un texto o un enlace para leerlo aquí.</string>
     <string name="text_status_importing">Importando…</string>
-    <string name="text_status_translating">Traduciendo…</string>
     <string name="text_failed">No se pudo importar: toca para reintentar</string>
     <string name="text_source_pasted">Texto pegado</string>
     <string name="text_reading_minutes">%1$s · %2$d min</string>
@@ -226,7 +223,6 @@
     <string name="text_view_both">Ambos</string>
     <string name="text_discuss">Conversar sobre el texto</string>
     <string name="text_importing">Importando…</string>
-    <string name="text_translating">Traduciendo…</string>
     <string name="text_translating_progress">Traduciendo… %1$d/%2$d</string>
     <string name="text_open_source">Abrir enlace original</string>
     <string name="text_continue">Seguir traduciendo</string>
@@ -238,7 +234,6 @@
     <string name="book_paused_auto">%1$d de %2$d secciones traducidas — se traducirán más mientras lees.</string>
     <string name="book_paused_manual">%1$d de %2$d secciones traducidas.</string>
     <string name="book_continue">Continuar</string>
-    <string name="book_translate_background">Traducir todo el libro en segundo plano</string>
     <string name="book_delete_title">¿Eliminar este libro?</string>
     <string name="book_delete_confirm">Se eliminarán el libro, su traducción y tu posición de lectura. El vocabulario guardado se conserva.</string>
     <string name="book_import_failed">No se pudo importar el libro</string>
@@ -261,23 +256,49 @@
     <string name="book_import_language_q">Este libro está escrito en</string>
     <string name="book_import_level">Traducir al %1$s en el nivel</string>
     <string name="book_import_reverse_note">Leerás el libro tal como está escrito. Toca cualquier palabra para traducirla y guardarla como tarjeta.</string>
-    <string name="book_import_translate_all">Traducir también todo el libro al %1$s</string>
+    <string name="book_import_download_q">Traducir por adelantado</string>
+    <string name="book_import_gloss_q">Traducir al %1$s</string>
     <string name="book_import_action">Importar</string>
-    <string name="settings_book_read_ahead">Traducir por adelantado al leer libros</string>
-    <string name="settings_book_read_ahead_desc">Mantén un par de secciones traducidas más allá de donde vas leyendo.</string>
+    <string name="settings_book_download_mode">Los libros nuevos se traducen</string>
+    <string name="settings_book_download_mode_desc">Cuánto se traduce solo un libro recién importado. Cada libro se puede cambiar después desde su menú.</string>
+
+    <string name="book_download_menu">Traducción…</string>
+    <string name="book_download_title">Traducción</string>
+    <string name="book_download_off">Solo cuando lo pida</string>
+    <string name="book_download_off_note">No se traduce nada hasta que toques Continuar.</string>
+    <string name="book_download_while_reading">Solo mientras leo</string>
+    <string name="book_download_while_reading_note">Se mantiene un par de secciones por delante de ti. Un libro sin leer no cuesta nada.</string>
+    <string name="book_download_background">Poco a poco en segundo plano</string>
+    <string name="book_download_background_note">Una sección cada hora o dos, incluso con la app cerrada. Se completa en unos días.</string>
+    <string name="book_download_rapid">Descargar el libro entero ahora</string>
+    <string name="book_download_rapid_note">Traduce el libro entero de una vez.</string>
+    <string name="book_download_rapid_done">Ya está traducido por completo.</string>
+    <plurals name="book_download_rapid_cost">
+        <item quantity="one">Queda %1$d sección — una llamada, un minuto más o menos.</item>
+        <item quantity="other">Quedan %1$d secciones — otras tantas llamadas, y un buen rato.</item>
+    </plurals>
+    <string name="book_download_model">Modelo</string>
+    <string name="book_download_spent">Gastado en este libro desde el %1$s: %2$s · %3$s tokens</string>
+    <plurals name="book_download_retranslate">
+        <item quantity="one">Rehacer también la %1$d sección que tradujo otro modelo</item>
+        <item quantity="other">Rehacer también las %1$d secciones que tradujo otro modelo</item>
+    </plurals>
+    <string name="book_download_channel">Descargas de libros</string>
+    <string name="book_download_notification_title">Traduciendo %1$s</string>
 
     <string name="library_title">Biblioteca</string>
-    <string name="library_empty">Aún no hay charlas. Empieza una con el botón +.</string>
-    <string name="library_empty_all">Aún no hay nada. Toca + para empezar una charla o mantén pulsado para traducir un texto.</string>
+    <string name="library_empty">Aún no hay charlas.</string>
+    <string name="library_empty_all">Aún no hay nada. Empieza una charla, traduce un texto o importa un libro.</string>
     <string name="search_hint">Buscar…</string>
     <string name="filter_all">Todo</string>
     <string name="filter_chats">Charlas</string>
-    <string name="filter_translations">Sitios</string>
+    <string name="filter_texts">Textos</string>
     <string name="filter_audio">Audio</string>
     <string name="filter_books">Libros</string>
-    <string name="library_empty_books">Aún no hay libros. Mantén pulsado + para importar un EPUB.</string>
+    <string name="library_empty_books">Aún no hay libros. Importa un EPUB para leerlo aquí.</string>
 
-    <!-- Charlas por lotes (mantén pulsado el botón +) -->
+    <!-- El botón + de la biblioteca y su menú -->
+    <string name="library_add">Añadir a la biblioteca</string>
     <string name="fab_new_chat">Nueva conversación</string>
     <string name="fab_many_chats">Varias conversaciones</string>
     <string name="fab_import_book">Importar libro</string>
@@ -301,26 +322,54 @@
         <item quantity="other">Mostrar %1$d más</item>
     </plurals>
 
-    <string name="flashcards_title">Léxico</string>
+    <string name="vocab_title">Léxico</string>
     <string name="tab_review">Repasar</string>
-    <string name="tab_browse">Explorar</string>
     <string name="review_done">Nada pendiente. ¡Bien hecho!</string>
+    <string name="review_session_complete">Has terminado todas las tarjetas de esta sesión.</string>
+    <string name="review_more">Repasar %1$d más</string>
+    <string name="review_more_label">Repasar más</string>
+    <string name="review_more_count">+%1$d</string>
     <string name="show_answer">Mostrar respuesta</string>
     <string name="rating_again">Otra vez</string>
     <string name="rating_hard">Difícil</string>
     <string name="rating_good">Bien</string>
     <string name="rating_easy">Fácil</string>
-    <string name="cards_due">%1$d pendientes</string>
     <string name="vocab_count">%1$d palabras</string>
+    <string name="vocab_count_filtered">%1$d de %2$d palabras</string>
+    <string name="vocab_no_matches">Ninguna palabra coincide con estos filtros.</string>
+    <string name="cd_sort_filter">Ordenar y filtrar</string>
+    <string name="sort_label">Ordenar por</string>
+    <string name="sort_newest">Más recientes primero</string>
+    <string name="sort_oldest">Más antiguas primero</string>
+    <string name="sort_alphabetical">De la A a la Z</string>
+    <string name="sort_due">Próximas a repasar</string>
+    <string name="sort_lapsed">Más olvidadas</string>
+    <string name="sort_common">Más comunes</string>
+    <string name="filter_status">Estado</string>
+    <string name="filter_pos">Categoría gramatical</string>
+    <string name="filter_explained">Explicación</string>
+    <string name="filter_any">Cualquiera</string>
+    <string name="filter_explained_yes">Explicadas</string>
+    <string name="filter_explained_no">Sin explicar aún</string>
+    <string name="filter_reset">Quitar filtros</string>
     <string name="vocab_empty">Aún no hay palabras. Guarda palabras mientras conversas para crear tu léxico.</string>
     <string name="action_more">Más</string>
     <string name="action_fill_explanations">Rellenar explicaciones</string>
     <string name="fill_progress">Explicando… %1$d/%2$d</string>
     <string name="vocab_example_label">Ejemplo</string>
     <string name="vocab_usage_note_label">Nota de uso</string>
+    <string name="review_show_explanation">Ver explicación</string>
+    <string name="review_hide_explanation">Ocultar explicación</string>
+    <string name="review_open_card">Abrir esta palabra</string>
     <string name="vocab_saved_label">En tu léxico</string>
     <string name="action_view_details">Abrir</string>
     <string name="vocab_seen_in_chat">Visto en tu charla «%1$s»</string>
+    <string name="vocab_seen_in_text">Guardado del texto «%1$s»</string>
+    <string name="vocab_seen_in_book">Guardado del libro «%1$s»</string>
+    <string name="vocab_seen_in_routine">Guardado durante una rutina</string>
+    <string name="saved_words_menu">Palabras guardadas (%1$d)</string>
+    <string name="saved_words_title">Guardadas desde aquí</string>
+    <string name="saved_words_empty">Aún no has guardado nada de aquí. Toca una palabra o frase mientras lees y elige Guardar.</string>
     <string name="vocab_return_to_context">Toca para volver al contexto</string>
     <string name="action_generate_explanation">Explicar esta palabra</string>
     <string name="vocab_delete">Eliminar palabra</string>
@@ -345,9 +394,9 @@
     <string name="edit_card_context">Oración de ejemplo</string>
     <string name="edit_card_pos">Categoría gramatical</string>
     <string name="edit_card_type">Tipo de tarjeta</string>
-    <string name="edit_card_direction">Dirección de repaso</string>
     <string name="edit_card_gender">Género</string>
     <string name="edit_card_usage_note">Nota de uso</string>
+    <string name="edit_card_more_fields">Más detalles</string>
     <string name="edit_card_marked">Marcada</string>
     <!-- Opciones de género gramatical -->
     <string name="gender_none">Ninguno</string>
@@ -357,7 +406,6 @@
     <string name="gender_common">masculino o femenino</string>
     <string name="gender_masculine_plural">masculino plural</string>
     <string name="gender_feminine_plural">femenino plural</string>
-    <string name="edit_card_image">Imagen</string>
     <string name="pos_none">Ninguna</string>
     <string name="pos_unknown">Desconocida</string>
     <string name="card_kind_vocab">Vocabulario</string>
@@ -366,8 +414,6 @@
     <string name="card_kind_conjugation">Conjugación</string>
     <string name="card_kind_grammar">Gramática</string>
     <string name="card_kind_cloze">Cloze</string>
-    <string name="review_direction_both">Ambas direcciones</string>
-    <string name="review_direction_first">%1$s primero</string>
 
     <!-- Imágenes de tarjetas (búsqueda en Openverse) -->
     <string name="action_add_images">Añadir imágenes</string>
@@ -402,10 +448,7 @@
     <string name="card_status_frozen">Congelada</string>
 
     <!-- Metadatos de la tarjeta -->
-    <string name="card_details_label">Detalles de la tarjeta</string>
     <string name="card_meta_status">Estado</string>
-    <string name="card_meta_direction">Dirección</string>
-    <string name="card_meta_added">Añadida</string>
     <string name="card_meta_reviews">Repasos</string>
     <string name="card_meta_due">Vence</string>
     <string name="card_meta_due_now">Pendiente ahora</string>
@@ -432,8 +475,6 @@
     <string name="action_dismiss">Descartar</string>
 
     <string name="settings_title">Ajustes</string>
-    <string name="settings_model_menu">Modelo</string>
-    <string name="settings_model_menu_desc">Claves API, modelo e instrucciones</string>
     <string name="settings_model_title">Modelo</string>
     <string name="settings_language_section">Idioma</string>
     <string name="settings_appearance_section">Apariencia</string>
@@ -450,6 +491,9 @@
     <string name="theme_country_tutor">Con %1$s · %2$s</string>
     <string name="settings_reading_font">Fuente de lectura</string>
     <string name="settings_text_size">Tamaño del texto</string>
+    <string name="settings_reading">Lectura</string>
+    <string name="settings_highlight_words">Resaltar palabras guardadas</string>
+    <string name="settings_highlight_words_explainer">Colorea el vocabulario guardado que toca repasar dondequiera que aparezca en chats, textos y libros. Cada elemento puede cambiarlo desde su menú.</string>
     <string name="reading_sample">El veloz murciélago hindú comía feliz cardillo.</string>
     <string name="font_serif">Source Serif</string>
     <string name="font_slab">Literata</string>
@@ -464,6 +508,11 @@
     <string name="settings_openrouter_key">Clave API de OpenRouter</string>
     <string name="settings_model">Modelo</string>
     <string name="settings_openrouter_model">ID de modelo de OpenRouter</string>
+    <string name="settings_openrouter_models">Modelos de OpenRouter</string>
+    <string name="settings_openrouter_models_desc">Todos usan la misma clave API. El modelo seleccionado es el predeterminado para chats, textos y libros nuevos; cada libro puede cambiarse a otro desde su menú de descarga.</string>
+    <string name="settings_openrouter_model_name">Nombre (opcional)</string>
+    <string name="settings_openrouter_model_add">Añadir modelo</string>
+    <string name="settings_openrouter_model_remove">Quitar modelo</string>
     <string name="settings_use_provider">Usar %1$s</string>
     <string name="settings_provider_in_use">En uso actualmente</string>
     <string name="settings_provider_not_in_use">Sin usar actualmente</string>
@@ -493,6 +542,7 @@
     <string name="action_unstar">Quitar destacado</string>
     <string name="action_mark_read">Marcar como leído</string>
     <string name="action_mark_unread">Marcar como no leído</string>
+    <string name="action_highlight_words">Resaltar palabras guardadas</string>
     <string name="cd_more_options">Más opciones</string>
     <string name="cd_starred">Destacado</string>
     <string name="chat_failed_reply">No se pudo obtener una respuesta.</string>
@@ -513,7 +563,6 @@
     <string name="audio_next">Siguiente</string>
     <string name="audio_previous">Anterior</string>
     <string name="audio_reorder">Reordenar</string>
-    <string name="audio_options">Opciones</string>
     <string name="audio_mark_unlistened">Marcar como no escuchado</string>
     <string name="audio_delete_played">Eliminar escuchados</string>
     <string name="audio_delete_all_played_q">¿Eliminar todo el audio escuchado?</string>
@@ -527,6 +576,7 @@
     <string name="audio_downloading">Descargando voz… %1$d%%</string>
     <string name="audio_downloading_indeterminate">Descargando voz…</string>
     <string name="audio_added">Añadido a Audio</string>
+    <string name="audio_nothing_to_add">Aún no hay nada que añadir a Audio</string>
     <string name="audio_send_to">Enviar a audio</string>
     <string name="action_generate_audio">Generar audio</string>
     <string name="audio_tts_prompt_title">¿Descargar la voz para escuchar?</string>
@@ -536,6 +586,35 @@
     <string name="settings_background_section">Segundo plano</string>
     <string name="settings_background_tasks">Tareas en segundo plano</string>
     <string name="settings_background_tasks_desc">Sugiere temas nuevos y reintenta los chats fallidos con la app cerrada. Usa tu clave de API.</string>
+    <!-- Ajustes: medidor de consumo -->
+    <string name="settings_usage_section">Consumo de este mes</string>
+    <string name="usage_empty">Aún no hay llamadas al modelo registradas este mes.</string>
+    <plurals name="usage_tokens_calls">
+        <item quantity="one">%1$s tokens · %2$d llamada</item>
+        <item quantity="other">%1$s tokens · %2$d llamadas</item>
+    </plurals>
+    <string name="usage_in_out">%1$s de entrada · %2$s de salida</string>
+    <string name="usage_each">%1$s cada una</string>
+    <string name="usage_last_month">Mes pasado: %1$s · %2$s tokens</string>
+    <string name="usage_by_feature">Por función</string>
+    <string name="usage_by_model">Por modelo</string>
+    <string name="usage_cost_estimated">≈ %1$s</string>
+    <string name="usage_cost_floor">%1$s+</string>
+    <string name="usage_cost_unknown">sin precio</string>
+    <string name="usage_scope">Todos los idiomas juntos: las claves de API se comparten.</string>
+    <string name="usage_counting_since">El recuento empezó el %1$s; lo anterior no quedó registrado.</string>
+    <string name="usage_note_estimated">≈ indica una estimación. Gemini informa de los tokens pero no del coste, así que sus cifras usan los precios de lista del nivel de pago — una clave del nivel gratuito no paga nada de eso. Las cifras de OpenRouter son lo que cobró.</string>
+    <string name="usage_note_unpriced">+ significa que algunas llamadas fueron a un modelo sin precio conocido: sus tokens se cuentan, su coste no.</string>
+    <string name="usage_feature_chat">Charlas</string>
+    <string name="usage_feature_text">Textos</string>
+    <string name="usage_feature_book">Libros</string>
+    <string name="usage_feature_routine">Rutinas</string>
+    <string name="usage_feature_course">Cursos</string>
+    <string name="usage_feature_cloze">Banco de «Rellena el hueco»</string>
+    <string name="usage_feature_quiz">Bancos de ráfaga</string>
+    <string name="usage_feature_vocab">Detalles de palabras guardadas</string>
+    <string name="usage_feature_bulk_add">Añadir palabras en bloque</string>
+    <string name="usage_feature_other">Otros</string>
     <string name="settings_speech_section">Voz (texto a voz)</string>
     <string name="settings_tts_title">Voz en el dispositivo</string>
     <string name="settings_tts_not_downloaded">No instalada. Descárgala para habilitar la escucha (pestaña Audio).</string>
@@ -552,6 +631,10 @@
     <string name="settings_audio_retention_days">Despu&#233;s de %1$d d&#237;as</string>
     <!-- Settings: review schedule (FSRS target recall) -->
     <string name="settings_srs_section">Programa de repaso</string>
+    <string name="settings_new_cards">Tarjetas nuevas por día</string>
+    <string name="settings_new_cards_unlimited">Sin límite</string>
+    <string name="settings_new_cards_none">Ninguna por ahora</string>
+    <string name="settings_new_cards_explainer">Cuántas palabras que aún no has estudiado se suman a los repasos de cada día. Las demás esperan su turno, así que una importación grande o un grupo de palabras añadidas llega poco a poco. Los repasos de palabras que ya conoces nunca se retienen.</string>
     <string name="settings_srs_retention">Retención objetivo</string>
     <string name="settings_srs_retention_value">%1$d%%</string>
     <string name="settings_srs_explainer">La proporción de repasos que quieres acertar. Un valor más alto hace que las tarjetas vuelvan antes y repases más; uno más bajo alarga los intervalos y olvidas más. Solo afecta a este idioma.</string>
@@ -582,9 +665,10 @@
     <string name="conj_not">no</string>
     <string name="conj_decode_hint">¿Qué verbo, persona y tiempo?</string>
     <string name="conj_start">Empezar</string>
+    <string name="conj_nothing_to_drill">Ningún verbo encaja con esta configuración. Añade un tiempo o un tipo de tarjeta, o reduce el énfasis en irregulares.</string>
     <string name="conj_restart">Otra ronda</string>
     <string name="conj_finish">Listo</string>
-    <string name="conj_unavailable">Por ahora el ejercicio de conjugación solo está en español.</string>
+    <string name="conj_unavailable">Todavía no hay datos de verbos de este idioma para el ejercicio de conjugación.</string>
 
     <string name="conj_setup_count">Preguntas</string>
     <string name="conj_setup_tenses">Tiempos</string>
@@ -593,7 +677,7 @@
     <string name="conj_setup_emphasis_low">Equilibrado</string>
     <string name="conj_setup_emphasis_mid">Más irregulares</string>
     <string name="conj_setup_emphasis_high">Solo irregulares</string>
-    <string name="conj_setup_vosotros">Incluir vosotros</string>
+    <string name="conj_setup_optional_person">Incluir %1$s</string>
 
     <string name="conj_results_title">Ronda completa</string>
     <string name="conj_results_accuracy">Aciertos</string>
@@ -613,11 +697,13 @@
     <string name="conj_direction_transform">Derívalo</string>
     <string name="conj_direction_generalize">Aplica el patrón</string>
     <string name="conj_transform_pret_to_subimp">→ imperfecto de subjuntivo</string>
+    <string name="conj_transform_pret_to_subfut">→ futuro de subjuntivo</string>
     <string name="conj_transform_yo_to_subpres">→ presente de subjuntivo</string>
     <string name="conj_transform_fut_to_cond">→ condicional</string>
     <string name="conj_transform_pres_to_pret">→ pretérito</string>
 
-    <!-- Los nombres de tiempos y personas ya están en español en ambos idiomas. -->
+    <!-- Los nombres de los tiempos siguen el idioma de la interfaz; los pronombres los aporta el
+         ConjugationSpec del idioma que se estudia, no estos recursos. -->
     <string name="conj_tense_present">presente</string>
     <string name="conj_tense_preterite">pretérito</string>
     <string name="conj_tense_imperfect">imperfecto</string>
@@ -625,12 +711,8 @@
     <string name="conj_tense_conditional">condicional</string>
     <string name="conj_tense_present_subjunctive">pres. de subjuntivo</string>
     <string name="conj_tense_imperfect_subjunctive">imp. de subjuntivo</string>
-    <string name="conj_person_yo">yo</string>
-    <string name="conj_person_tu">tú</string>
-    <string name="conj_person_el">él / ella</string>
-    <string name="conj_person_nosotros">nosotros</string>
-    <string name="conj_person_vosotros">vosotros</string>
-    <string name="conj_person_ellos">ellos / ellas</string>
+    <string name="conj_tense_future_subjunctive">futuro de subjuntivo</string>
+    <string name="conj_tense_personal_infinitive">infinitivo personal</string>
 
     <string name="conj_family_regular">Regular</string>
     <string name="conj_family_stem_change">Cambios de raíz</string>
@@ -668,17 +750,69 @@
     <string name="conj_class_subj_irregular">Subjuntivo irregular</string>
     <string name="conj_class_other">Irregular</string>
 
+    <!-- Clases de irregularidad del portugués. -->
+    <string name="conj_class_pt_stem_e_i">cambio e → i</string>
+    <string name="conj_class_pt_stem_o_u">cambio o → u</string>
+    <string name="conj_class_pt_stem_e_ei">e → ei</string>
+    <string name="conj_class_pt_eu_nh">eu en -nh-</string>
+    <string name="conj_class_pt_eu_c">eu en -ç-</string>
+    <string name="conj_class_pt_eu_ou">eu en -ou</string>
+    <string name="conj_class_pt_eu_other">Otro eu irregular</string>
+    <string name="conj_class_pt_subj_eu_stem">Subjuntivo sobre la raíz de eu</string>
+    <string name="conj_class_pt_strong_pret">Pretérito fuerte</string>
+    <string name="conj_class_pt_strong_pret_ending">Terminación átona de pretérito</string>
+    <string name="conj_class_pt_fut_stem">Raíz de futuro contraída</string>
+    <string name="conj_class_pt_orth_car_gar_car">Ortografía -car / -gar / -çar</string>
+    <string name="conj_class_pt_orth_cer_ger_guir">Ortografía -cer / -ger / -guir</string>
+    <string name="conj_class_pt_accent_shift">Tilde</string>
+    <string name="conj_class_pt_suppletive">Supletivo</string>
+    <string name="conj_class_pt_imperfect_irregular">Imperfecto irregular</string>
+    <string name="conj_class_pt_subj_irregular">Subjuntivo irregular</string>
+    <string name="conj_class_pt_other_irregular">Irregular</string>
+
     <string name="conj_reference_open">Tablas de conjugación</string>
-    <string name="conj_reference_title">Referencia</string>
     <string name="conj_reference_patterns">Patrones regulares</string>
     <string name="conj_reference_patterns_desc">Cómo conjuga cada clase cuando nada se desvía.</string>
     <string name="conj_reference_irregular">Patrones irregulares</string>
     <string name="conj_reference_irregular_desc">Cada clase de desviación, con los verbos que la muestran.</string>
     <string name="conj_reference_current">Actual</string>
-    <string name="conj_reference_verbs_desc">Busca entre los %1$d verbos españoles más comunes.</string>
+    <string name="conj_reference_verbs_desc">Busca entre los %1$d verbos más comunes.</string>
     <string name="conj_reference_search">Buscar verbos</string>
     <string name="conj_reference_no_match">Ningún verbo coincide.</string>
     <string name="conj_reference_legend">Clave de colores</string>
+
+    <!-- Sección de referencia -->
+    <string name="ref_title">Referencia</string>
+    <string name="ref_hub_desc">Gramática que puedes consultar a mitad de sesión: se construye con los mismos datos con los que te corrigen los ejercicios, así que no puede desviarse de ellos.</string>
+    <string name="ref_empty">Todavía no hay referencia para este idioma.</string>
+
+    <string name="ref_topic_tenses">Tiempos y modos</string>
+    <string name="ref_topic_tenses_desc">Qué dice cada paradigma, cuándo usarlo y cómo se forma.</string>
+    <string name="ref_topic_conjugation">Conjugación verbal</string>
+    <string name="ref_topic_conjugation_desc">Paradigmas completos de cualquier verbo, los patrones regulares y cada clase de irregularidad.</string>
+
+    <string name="ref_tenses_desc">Todos los paradigmas que practica este idioma, con los verbos modelo conjugados en cada uno. El color marca una forma que se desvía: los mismos colores que usa el ejercicio.</string>
+
+    <string name="ref_mood_indicative">Indicativo</string>
+    <string name="ref_mood_indicative_desc">Lo que es, fue o será, afirmado como un hecho.</string>
+    <string name="ref_mood_subjunctive">Subjuntivo</string>
+    <string name="ref_mood_subjunctive_desc">Lo que se quiere, se duda, se niega o aún no es real. Casi siempre en una oración que depende de algo en la principal.</string>
+    <string name="ref_mood_nonfinite">No personal</string>
+    <string name="ref_mood_nonfinite_desc">Lleva persona pero no tiempo propio.</string>
+
+    <string name="ref_tense_from_cell">Se forma sobre el %1$s (%2$s), así que hereda lo que haga esa forma.</string>
+    <string name="ref_tense_from_infinitive">Se forma sobre el infinitivo, así que se mantiene regular donde sus vecinos no lo son.</string>
+    <string name="ref_tense_infinitive_stem">Las terminaciones se añaden al infinitivo entero, no a la raíz, y por eso una raíz irregular aquí es un tipo de desviación aparte.</string>
+
+    <string name="ref_use_present">Lo que ocurre ahora, lo que ocurre habitualmente y lo que es cierto en general. Al hablar también cubre el futuro cercano.</string>
+    <string name="ref_use_preterite">Una acción terminada, vista entera: principio, medio y fin a la vez. Es el tiempo que hace avanzar un relato.</string>
+    <string name="ref_use_imperfect">El fondo: lo que solía pasar, lo que estaba pasando, cómo eran las cosas. Pone la escena en la que actúa el pretérito.</string>
+    <string name="ref_use_future">Lo que pasará y, con la misma frecuencia, la conjetura sobre el presente: preguntarse en voz alta qué será lo más probable.</string>
+    <string name="ref_use_conditional">Lo que pasaría si otra cosa fuera cierta, y el registro cortés para pedir. Comparte raíz con el futuro.</string>
+    <string name="ref_use_present_subjunctive">Querer, dudar, negar, esperar: todo lo que se plantea como algo que aún no es un hecho. Lo dispara la oración principal; no se elige libremente.</string>
+    <string name="ref_use_imperfect_subjunctive">El subjuntivo desplazado al pasado, y la mitad del \"si\" de una hipótesis.</string>
+    <string name="ref_use_future_subjunctive">Una condición todavía por venir: oraciones de \"cuando\" y \"si\" sobre lo que aún no ha pasado. Cotidiano en portugués; casi extinto en español.</string>
+    <string name="ref_use_personal_infinitive">Un infinitivo con terminación de sujeto, para que una oración diga quién hace algo sin pasar al subjuntivo.</string>
 
     <string name="stats_conjugation_section">Conjugación</string>
     <string name="stats_conj_drills">Practicadas</string>
@@ -686,4 +820,431 @@
     <string name="stats_conj_mastered">Firmes</string>
     <string name="stats_conj_seen">Formas vistas</string>
     <string name="routine_status_group_conjugation">Patrones de conjugación</string>
+
+    <!-- Escucha en ráfaga -->
+    <string name="routine_status_group_rapid_fire">Escucha en ráfaga</string>
+    <string name="quiz_title_format">Ráfaga: %1$s</string>
+    <string name="quiz_card_desc_numbers">Escucha un número y toca la opción correcta, rápido.</string>
+    <string name="quiz_card_desc_times">Escucha una hora y toca la opción correcta, rápido.</string>
+    <string name="quiz_card_desc_restaurant">Escucha una frase de un mesero o anfitrión y elige su significado.</string>
+    <string name="quiz_intro">Entrénate para captar al instante números y horas hablados. Primero prepara un banco de clips de audio: se generan una sola vez y se reutilizan en todas las sesiones.</string>
+    <string name="quiz_setup_pool">Preparar banco de práctica</string>
+    <string name="quiz_pool_open">Ajustes del banco</string>
+    <string name="quiz_model_downloading">Descargando el modelo de voz…</string>
+    <string name="quiz_pool_ready">%1$d de %2$d clips listos</string>
+    <string name="quiz_pool_generating">Aún se están generando: podrás empezar cuando haya suficientes clips listos.</string>
+    <string name="quiz_exercise_ready">%1$d clips listos</string>
+    <string name="quiz_nothing_to_play">No se pudo armar una sesión con los clips listos. Revisa los ajustes del banco.</string>
+    <string name="quiz_question_count">Preguntas por sesión</string>
+    <string name="quiz_speed">Velocidad de escucha</string>
+    <string name="quiz_speed_label">%1$s×</string>
+    <string name="quiz_speed_slower">Más lento</string>
+    <string name="quiz_speed_faster">Más rápido</string>
+    <string name="quiz_start">Empezar</string>
+    <string name="quiz_progress">%1$d / %2$d</string>
+    <string name="quiz_listening">Escucha…</string>
+    <string name="quiz_replay">Repetir</string>
+    <string name="quiz_score">Puntos %1$d</string>
+    <string name="quiz_streak">Racha %1$d</string>
+    <string name="quiz_results_title">Sesión completa</string>
+    <string name="quiz_results_score">Puntos</string>
+    <string name="quiz_results_accuracy">Aciertos</string>
+    <string name="quiz_results_avg_time">Respuesta media</string>
+    <string name="quiz_results_seconds">%1$.1f s</string>
+    <string name="quiz_results_best_streak">Mejor racha</string>
+    <string name="quiz_again">Jugar otra vez</string>
+    <string name="quiz_done">Listo</string>
+    <string name="quiz_pool_title_format">Banco de práctica: %1$s</string>
+    <string name="quiz_pool_current">Banco actual</string>
+    <string name="quiz_pool_disk">%1$d MB de audio en el dispositivo</string>
+    <string name="quiz_pool_failed">%1$d clips no se pudieron generar</string>
+    <string name="quiz_pool_retry">Reintentar los fallidos</string>
+    <string name="quiz_pool_delete">Eliminar banco</string>
+    <string name="quiz_pool_delete_confirm">¿Eliminar el banco de práctica y su audio? Tus estadísticas de progreso se conservan.</string>
+    <string name="quiz_pool_config">Configuración del banco</string>
+    <string name="quiz_pool_number_range">Rango de números</string>
+    <string name="quiz_pool_time_style">Cómo se dicen las horas</string>
+    <string name="quiz_pool_llm_note">Las formas coloquiales las escribe tu modelo de IA al generar el banco; sin clave API se usa el estilo numérico simple.</string>
+    <string name="quiz_pool_size">Tamaño del banco (clips)</string>
+    <string name="quiz_pool_estimate">Unos %1$d MB de audio, generados una sola vez en el dispositivo</string>
+    <string name="quiz_pool_generate">Generar banco</string>
+    <string name="quiz_pool_regenerate">Regenerar banco</string>
+    <string name="quiz_pool_seeding">Escribiendo las frases…</string>
+    <string name="quiz_pool_seed_no_key">No hay clave API configurada: se omitieron los clips que la necesitan (horas coloquiales, números grandes).</string>
+    <string name="quiz_pool_seed_fallbacks">%1$d clips omitidos: el modelo no dio una frase utilizable.</string>
+    <string name="quiz_cue_numbers">Números</string>
+    <string name="quiz_cue_times">Horas</string>
+    <string name="quiz_cue_restaurant">Restaurante</string>
+    <string name="quiz_pool_phrase_note">Las frases y sus opciones de respuesta las escribe por completo tu modelo de IA al generar el banco, así que hace falta una clave API.</string>
+    <string name="quiz_time_numeric">Simple</string>
+    <string name="quiz_time_colloquial">Coloquial</string>
+    <string name="quiz_time_mixed">Mixto</string>
+
+    <!-- Diccionario sin conexión: errores de descarga -->
+    <string name="dict_error_offline">No se pudo conectar con el servidor del diccionario. Revisa tu conexión e inténtalo de nuevo.</string>
+    <string name="dict_error_unavailable">El paquete de diccionario de este idioma no está disponible en el servidor (HTTP %1$d).</string>
+    <string name="dict_error_corrupt">La descarga no llegó completa. Inténtalo de nuevo.</string>
+    <string name="dict_error_not_configured">Las definiciones sin conexión no están configuradas en esta versión.</string>
+
+    <!-- Libros: lectura y exportación a EPUB -->
+    <string name="book_failed_progress">Se detuvo en %1$d/%2$d. %3$s</string>
+    <string name="book_paragraph_pending">Aún sin traducir…</string>
+    <string name="book_footnote">Nota</string>
+    <string name="book_footnote_label">Nota %1$s</string>
+    <string name="book_export_menu">Exportar EPUB…</string>
+    <string name="book_export_title">Exportar EPUB</string>
+    <string name="book_export_q">Incluir</string>
+    <string name="book_export_variant_target">Solo %1$s</string>
+    <string name="book_export_variant_bilingual">%1$s + %2$s</string>
+    <string name="book_export_variant_target_note">Una copia limpia para leer en cualquier lector electrónico.</string>
+    <string name="book_export_variant_bilingual_note">Cada párrafo seguido de su equivalente en %1$s.</string>
+    <string name="book_export_action">Exportar</string>
+    <string name="book_export_running">Escribiendo el EPUB…</string>
+    <string name="book_export_done_title">Exportado</string>
+    <string name="book_export_done">%1$d capítulos, %2$d párrafos.</string>
+    <plurals name="book_export_untranslated">
+        <item quantity="one">%1$d párrafo no tenía traducción y se muestra en %2$s.</item>
+        <item quantity="other">%1$d párrafos no tenían traducción y se muestran en %2$s.</item>
+    </plurals>
+    <string name="book_export_failed_title">Error al exportar</string>
+    <string name="book_export_failed">%1$s\n\nSi quedó un archivo a medio escribir en el destino, conviene eliminarlo.</string>
+    <string name="epub_nav_contents">Índice</string>
+    <string name="epub_cover">Portada</string>
+    <string name="epub_chapter_fallback">Capítulo %d</string>
+    <string name="epub_description_forward">Traducción automática al %1$s desde el %2$s con %3$s, hecha por Copiosa.</string>
+    <string name="epub_description_reverse">El texto en %1$s es el original del libro, exportado desde Copiosa.</string>
+    <string name="epub_description_gloss">La glosa en %1$s es una traducción automática hecha con %2$s.</string>
+    <string name="epub_description_level">Adaptado al nivel %1$s del MCER.</string>
+    <string name="epub_description_bilingual">Cada párrafo va seguido de su equivalente en %1$s.</string>
+
+    <!-- Repaso: resumen de la sesión -->
+    <string name="review_summary_counts">%1$d tarjetas · %2$d respuestas</string>
+    <string name="review_summary_first_try">%1$d%% bien a la primera</string>
+    <string name="review_summary_first_try_detail">%1$d de %2$d tarjetas superadas sin un «Otra vez»</string>
+    <string name="review_summary_results">Cómo respondiste</string>
+    <string name="review_summary_incoming">Qué tan bien las sabías al empezar</string>
+    <string name="review_bucket_new">Nuevas</string>
+    <string name="review_bucket_day">Menos de un día</string>
+    <string name="review_bucket_week">Menos de una semana</string>
+    <string name="review_bucket_month">Menos de un mes</string>
+    <string name="review_bucket_mature">Un mes o más</string>
+    <string name="action_play_audio">Reproducir audio</string>
+
+    <!-- Vocabulario: importar y exportar -->
+    <string name="action_import_anki">Importar desde Anki (.apkg)</string>
+    <string name="import_running">Importando tu mazo de Anki…</string>
+    <string name="import_done_title">Importación completa</string>
+    <string name="import_done_message">%1$d nuevas, %2$d actualizadas, %3$d archivos multimedia copiados.</string>
+    <string name="import_failed_title">Error al importar</string>
+    <string name="action_export_anki">Exportar a Anki (.apkg)</string>
+    <string name="export_running">Exportando tu mazo…</string>
+    <string name="export_done_title">Exportación completa</string>
+    <string name="export_done_message">%1$d tarjetas, %2$d repasos y %3$d archivos multimedia exportados.</string>
+    <string name="export_failed_title">Error al exportar</string>
+    <string name="action_export_json">Exportar como JSON</string>
+    <plurals name="json_export_done">
+        <item quantity="one">%1$d nota exportada.</item>
+        <item quantity="other">%1$d notas exportadas.</item>
+    </plurals>
+    <string name="action_import_json">Importar desde JSON</string>
+    <string name="json_import_title">Importar desde JSON</string>
+    <string name="json_import_nothing">Nada en este archivo difiere de tu mazo.</string>
+    <plurals name="json_import_updates">
+        <item quantity="one">Se actualizará %1$d nota.</item>
+        <item quantity="other">Se actualizarán %1$d notas.</item>
+    </plurals>
+    <plurals name="json_import_additions">
+        <item quantity="one">Se añadirá %1$d nota nueva.</item>
+        <item quantity="other">Se añadirán %1$d notas nuevas.</item>
+    </plurals>
+    <plurals name="json_import_unchanged">
+        <item quantity="one">%1$d nota no cambia.</item>
+        <item quantity="other">%1$d notas no cambian.</item>
+    </plurals>
+    <plurals name="json_import_unmatched">
+        <item quantity="one">Se omite %1$d entrada cuyo id no corresponde a ninguna nota de aquí.</item>
+        <item quantity="other">Se omiten %1$d entradas cuyos id no corresponden a ninguna nota de aquí.</item>
+    </plurals>
+    <plurals name="json_import_duplicates">
+        <item quantity="one">Se omite %1$d nota nueva que ya está en tu mazo.</item>
+        <item quantity="other">Se omiten %1$d notas nuevas que ya están en tu mazo.</item>
+    </plurals>
+    <plurals name="json_import_invalid">
+        <item quantity="one">Se omite %1$d entrada sin palabra o sin traducción.</item>
+        <item quantity="other">Se omiten %1$d entradas sin palabra o sin traducción.</item>
+    </plurals>
+    <string name="json_import_keeps">Las imágenes, el audio, el historial de repasos y todo lo que el archivo no menciona se quedan como están. Las notas que falten en el archivo no se eliminan.</string>
+    <string name="json_import_confirm">Importar</string>
+    <string name="json_import_done">%1$d actualizadas, %2$d añadidas.</string>
+
+    <!-- Vocabulario: añadir palabras -->
+    <string name="action_bulk_add">Añadir palabras…</string>
+    <string name="bulk_add_title">Añadir palabras</string>
+    <string name="bulk_add_helper">Escribe palabras o frases en %1$s, separadas por comas o en líneas distintas. Cada una se traduce al %2$s y se prepara como tarjeta; no se guarda nada hasta que confirmes.</string>
+    <string name="bulk_add_placeholder">mantel, pedir prestado, a propósito</string>
+    <plurals name="bulk_add_translate">
+        <item quantity="one">Traducir %1$d palabra</item>
+        <item quantity="other">Traducir %1$d palabras</item>
+    </plurals>
+    <string name="bulk_add_translate_none">Traducir</string>
+    <string name="bulk_add_progress">Traduciendo… %1$d/%2$d</string>
+    <string name="bulk_add_failed">No se pudo traducir nada. Revisa tu conexión o añade una clave API en Ajustes.</string>
+    <string name="bulk_add_review_helper">Desmarca lo que no quieras o toca el lápiz para corregir una tarjeta.</string>
+    <string name="bulk_add_duplicate">Ya está en tu mazo</string>
+    <string name="bulk_add_untranslated">No se pudo traducir: %1$s</string>
+    <plurals name="bulk_add_on_device">
+        <item quantity="one">%1$d tarjeta se tradujo en el dispositivo, así que no tiene ejemplo ni datos gramaticales.</item>
+        <item quantity="other">%1$d tarjetas se tradujeron en el dispositivo, así que no tienen ejemplo ni datos gramaticales.</item>
+    </plurals>
+    <plurals name="bulk_add_confirm">
+        <item quantity="one">Añadir %1$d tarjeta</item>
+        <item quantity="other">Añadir %1$d tarjetas</item>
+    </plurals>
+    <string name="bulk_add_confirm_none">Añadir tarjetas</string>
+    <plurals name="bulk_add_done">
+        <item quantity="one">%1$d tarjeta añadida</item>
+        <item quantity="other">%1$d tarjetas añadidas</item>
+    </plurals>
+    <string name="edit_card_alt_forms">También conocida como</string>
+    <string name="edit_card_alt_forms_hint">Sinónimos o variantes, separados por ;</string>
+    <string name="edit_card_country">País (opcional)</string>
+    <string name="action_mark">Marcar</string>
+    <string name="action_unmark">Desmarcar</string>
+
+    <!-- Vocabulario: palabras frecuentes -->
+    <string name="freq_bucket_100">top 100</string>
+    <string name="freq_bucket_250">top 250</string>
+    <string name="freq_bucket_500">top 500</string>
+    <string name="freq_bucket_1k">top 1k</string>
+    <string name="freq_bucket_2k">top 2k</string>
+    <string name="freq_scope_100">Las 100 más frecuentes</string>
+    <string name="freq_scope_250">Las 250 más frecuentes</string>
+    <string name="freq_scope_500">Las 500 más frecuentes</string>
+    <string name="freq_scope_1k">Las 1000 más frecuentes</string>
+    <string name="freq_scope_2k">Las 2000 más frecuentes</string>
+    <string name="freq_pick_100">100</string>
+    <string name="freq_pick_250">250</string>
+    <string name="freq_pick_500">500</string>
+    <string name="freq_pick_1k">1k</string>
+    <string name="freq_pick_2k">2k</string>
+    <string name="action_add_frequent">Añadir palabras frecuentes…</string>
+    <string name="freq_seed_title">Añadir palabras frecuentes</string>
+    <string name="freq_seed_scope">¿Hasta dónde en la lista de frecuencia?</string>
+    <string name="freq_seed_rate">Palabras nuevas por día</string>
+    <string name="freq_seed_count">Faltan %1$d palabras en tu mazo.</string>
+    <string name="freq_seed_none">Ya tienes todas las palabras de este rango.</string>
+    <string name="freq_seed_explain">Las tarjetas se crean sin conexión con el diccionario del dispositivo y van venciendo unas pocas cada vez, empezando por las palabras más comunes.</string>
+    <string name="freq_seed_action">Añadir %1$d</string>
+    <string name="freq_seed_progress">Añadiendo… %1$d/%2$d</string>
+    <string name="freq_seed_done_title">Palabras añadidas</string>
+    <string name="freq_seed_done">Se añadieron %1$d palabras.</string>
+    <string name="freq_seed_done_untranslated">Se añadieron %1$d palabras. A %2$d les falta una traducción que tendrás que completar.</string>
+    <string name="freq_seed_failed_title">No se pudieron añadir las palabras</string>
+    <string name="freq_seed_failed_unsupported">Este par de idiomas no se puede traducir en el dispositivo.</string>
+    <string name="freq_seed_failed_unavailable">El modelo de traducción sin conexión no está disponible. Conéctate una vez para descargarlo.</string>
+    <string name="action_remove_auto">Quitar palabras añadidas (%1$d)…</string>
+    <string name="freq_remove_title">¿Quitar las palabras añadidas?</string>
+    <string name="freq_remove_message">Elimina las %1$d palabras añadidas desde la lista de frecuencia, junto con su progreso de repaso. Las palabras que guardaste tú no se tocan. No se puede deshacer.</string>
+    <string name="freq_remove_done">Se quitaron %1$d palabras.</string>
+    <string name="freq_drill_title">Práctica de palabras frecuentes</string>
+    <string name="freq_drill_explain">Estudia tus palabras más comunes, incluidas las que aún no vencen del todo.</string>
+    <string name="freq_drill_count">%1$d tarjetas en el rango.</string>
+    <string name="freq_drill_size">Tamaño de la sesión</string>
+    <string name="stats_coverage_section">Cobertura de frecuencia</string>
+    <string name="stats_coverage_hint">Cuánto del vocabulario más común tienes. «Sabidas» cuenta las palabras cuyo intervalo de repaso ya pasó de 21 días.</string>
+    <string name="stats_coverage_row">%1$d en el mazo (%2$d%%) · %3$d sabidas (%4$d%%)</string>
+
+    <!-- Vocabulario: lista y detalle -->
+    <string name="review_preview_then">%1$s &#8250; %2$s</string>
+    <string name="due_short_now">toca</string>
+    <string name="due_short_new">nueva</string>
+    <string name="due_short_minutes">%1$d min</string>
+    <string name="due_short_hours">%1$d h</string>
+    <string name="due_short_days">%1$d d</string>
+    <string name="due_short_weeks">%1$d sem</string>
+    <string name="due_short_months">%1$d m</string>
+    <string name="due_short_years">%1$d a</string>
+    <string name="card_direction_title">%1$s → %2$s</string>
+    <string name="card_add_direction">Estudiar también %1$s</string>
+    <string name="card_meta_added_line">Añadida %1$s</string>
+
+    <!-- Errores y acciones comunes -->
+    <string name="error_service_busy">El servicio está ocupado ahora mismo. Inténtalo de nuevo en un momento.</string>
+    <string name="error_refused">El modelo no devolvió nada para esto; puede que haya rechazado el contenido.</string>
+    <string name="action_done">Listo</string>
+    <string name="action_save_anyway">Guardar de todos modos</string>
+
+    <!-- Chat: ajustes y detalles de la respuesta -->
+    <string name="message_meta_more">Detalles de la respuesta</string>
+    <string name="message_meta_title">Detalles de la respuesta</string>
+    <string name="message_meta_country">País</string>
+    <string name="message_meta_model">Modelo</string>
+    <string name="message_meta_level">Nivel</string>
+    <string name="message_meta_injected">Palabras objetivo incluidas</string>
+    <string name="message_meta_used">Palabras usadas (detectadas en la respuesta)</string>
+    <string name="message_meta_unused">Palabras sin usar</string>
+    <string name="message_meta_distinctive">Palabras distintivas</string>
+    <string name="message_meta_raw">Respuesta sin procesar</string>
+
+    <!-- Ajustes: clave, prompt y modelo en segundo plano -->
+    <string name="settings_key_visibility">Mostrar u ocultar la clave</string>
+    <string name="settings_core_prompt">Prompt de conversación</string>
+    <string name="settings_custom_instructions">Instrucciones personalizadas</string>
+    <string name="settings_prompt_placeholders">Marcadores: %1$s</string>
+    <string name="settings_save_prompt">Guardar prompt</string>
+    <string name="settings_reset_prompt">Restablecer</string>
+    <string name="settings_prompt_warning_icon">Al prompt le faltan marcadores</string>
+    <string name="prompt_warning_title">Faltan marcadores</string>
+    <string name="prompt_warning_message">A tu prompt le falta: %1$s. El modelo no recibirá esa información. ¿Guardar de todos modos?</string>
+    <string name="settings_background_model">Modelo en segundo plano</string>
+    <string name="settings_background_model_same">El mismo que el principal (%1$s)</string>
+    <string name="settings_background_model_desc">Se usa para el trabajo que no estás esperando: completar las palabras guardadas, mantener el banco de «Rellena el hueco», las sugerencias de temas y la traducción de títulos. Un modelo más barato lo hace igual de bien. Los chats, textos, libros, rutinas y lecciones siguen con el modelo principal.</string>
+
+    <!-- Libros: audio -->
+    <string name="book_audio_untitled">Libro</string>
+    <string name="book_audio_title">¿Generar audio para este libro?</string>
+    <string name="book_audio_body">La voz del dispositivo leerá %1$d capítulos en voz alta: aproximadamente %2$s de escucha y cerca de %3$s en disco. Aparecerán en Audio, en «%4$s».</string>
+    <string name="book_audio_partial">Por ahora solo hay %1$d de %2$d capítulos traducidos. El resto se añade solo a medida que avance la traducción.</string>
+    <string name="book_audio_nothing_new">Todos los capítulos traducidos ya tienen audio.</string>
+    <string name="book_audio_nothing_ready">Todavía no hay capítulos traducidos: termina primero la descarga.</string>
+    <string name="book_audio_queued">%1$d capítulos en cola</string>
+    <string name="book_audio_generating">Leyendo «%1$s» en voz alta</string>
+    <string name="book_audio_progress">Capítulo %1$d de %2$d</string>
+    <string name="book_audio_channel">Audio de libros</string>
+    <string name="audio_tag_tracks">%1$d pistas</string>
+    <string name="audio_tag_unheard">%1$d sin escuchar</string>
+    <string name="audio_tag_all_heard">todo escuchado</string>
+    <string name="audio_tag_continue">Continuar</string>
+    <string name="audio_tag_play_all">Reproducir desde el principio</string>
+    <string name="audio_tag_delete">Eliminar carpeta</string>
+    <string name="audio_tag_delete_q">¿Eliminar «%1$s» y todo su audio?</string>
+    <string name="audio_hours_minutes">%1$d h %2$d min</string>
+    <string name="audio_minutes">%1$d min</string>
+
+    <!-- Cursos -->
+    <string name="course_card_title">Cursos</string>
+    <string name="course_card_desc">Aprende un tiempo verbal desde cero: lecciones guiadas y breves, y luego las tarjetas lo mantienen vivo.</string>
+    <string name="course_hub_title">Cursos</string>
+    <string name="course_start_format">Empezar: %1$s</string>
+    <string name="course_continue_format">Continuar: %1$s</string>
+    <string name="course_graduated">Completado: los repasos lo mantienen fresco</string>
+    <string name="course_checkup_due">Toca un control</string>
+    <string name="course_review_flagged">Repasar: %1$s</string>
+    <string name="course_prereq_notice">Mejor después de: %1$s</string>
+    <string name="course_lesson_minutes">%1$d min</string>
+    <string name="course_lesson_in_progress">en curso</string>
+    <string name="course_detail_overline">CURSO · TIEMPOS VERBALES</string>
+    <string name="course_open_course">Abrir curso</string>
+    <string name="course_progress_summary">%1$d de %2$d · %3$d%%</string>
+    <string name="course_part_label">PARTE %1$d</string>
+    <string name="course_lesson_meta">%1$s · %2$s · %3$s</string>
+    <string name="course_missing">Este curso no está disponible para tu idioma actual.</string>
+    <string-array name="course_part_ordinals">
+        <item>PRIMERA PARTE</item>
+        <item>SEGUNDA PARTE</item>
+        <item>TERCERA PARTE</item>
+        <item>CUARTA PARTE</item>
+        <item>QUINTA PARTE</item>
+        <item>SEXTA PARTE</item>
+    </string-array>
+    <plurals name="course_teaching_steps">
+        <item quantity="one">%d paso de explicación</item>
+        <item quantity="other">%d pasos de explicación</item>
+    </plurals>
+    <plurals name="course_practice_cards">
+        <item quantity="one">%d tarjeta</item>
+        <item quantity="other">%d tarjetas</item>
+    </plurals>
+    <string name="course_warm_up">Calentamiento · de lecciones anteriores</string>
+    <string name="course_player_subtitle">%1$s · lección %2$d de %3$d</string>
+    <string name="course_paradigm_known">%1$d de %2$d sabidas</string>
+    <string name="course_examples_heading">EN LA PRÁCTICA</string>
+    <string name="course_form_untaught">—</string>
+    <string name="course_preparing">Preparando tu lección…</string>
+    <string name="course_failed">No se pudo preparar esta lección. Toca reiniciar para armarla de nuevo.</string>
+    <string name="course_restart">Reiniciar</string>
+    <string name="course_restart_confirm">¿Empezar esta lección otra vez desde el principio? Se armará de nuevo con ejercicios distintos y se pierde tu avance en esta sesión. Las respuestas que ya diste siguen contando.</string>
+    <string name="course_finish">Terminar</string>
+    <string name="course_wrap_title">Lección completa</string>
+    <string name="course_wrap_accuracy">%1$d de %2$d correctas</string>
+    <string name="course_feedback_loading">Viendo en qué tropezaste…</string>
+    <string name="course_wrap_graduated">¡Curso completo! Se sumó un pequeño grupo de tarjetas a tus repasos para que se mantenga fresco.</string>
+
+    <!-- Rellena el hueco -->
+    <string name="cloze_title">Rellena el hueco</string>
+    <string name="home_format_cloze">Rellena el hueco</string>
+    <string name="stats_cloze_section">Rellena el hueco</string>
+    <string name="stats_cloze_answered">Respondidas</string>
+    <string name="stats_cloze_speed">Respuesta media</string>
+    <string name="stats_cloze_solid">Firmes</string>
+    <string name="stats_cloze_bank">En el banco</string>
+    <string name="action_convert_cloze">Pasar las tarjetas cloze a Rellena el hueco</string>
+    <string name="cloze_convert_title">Pasar tarjetas cloze</string>
+    <string name="cloze_convert_none">No hay tarjetas cloze hechas a mano que pasar.</string>
+    <string name="cloze_convert_message">Pasa %1$d tarjetas cloze al banco de oraciones como %2$d oraciones (%3$d enlazadas a una tarjeta de vocabulario) y luego elimina las tarjetas. Su calendario e historial de repasos van con ellas.</string>
+    <string name="cloze_convert_skipped_media">%1$d tarjetas tienen imagen o audio y no se tocarán.</string>
+    <string name="cloze_convert_skipped_many">%1$d tarjetas tienen demasiados huecos para dividirlas y no se tocarán.</string>
+    <string name="cloze_convert_confirm">Pasar y eliminar</string>
+    <string name="cloze_convert_done">Se pasaron %1$d oraciones al banco.</string>
+    <string name="activity_cloze">Rellena el hueco</string>
+    <string name="cloze_prompt">¿Qué palabra va aquí?</string>
+    <string name="cloze_bank_size">%1$d oraciones listas</string>
+    <string name="cloze_bank_explainer">Oraciones de tus propias tarjetas y lecturas, con el hueco en una palabra que estás estudiando.</string>
+    <string name="cloze_start">Empezar</string>
+    <string name="cloze_none_usable">Ninguna de tus oraciones tiene todavía suficientes opciones de respuesta entre las que elegir. Buscar más oraciones puede ayudar.</string>
+    <string name="cloze_stock_first">Crear a partir de mis tarjetas</string>
+    <string name="cloze_stock_more">Buscar más oraciones</string>
+    <string name="cloze_stock_none">No hay nada nuevo que añadir.</string>
+    <string name="cloze_stock_added">Se añadieron %1$d.</string>
+    <string name="cloze_stock_mixed">Se añadieron %1$d. %2$d oraciones no sirvieron — lo más frecuente: %3$s.</string>
+    <string name="cloze_reject_too_short">demasiado corta</string>
+    <string name="cloze_reject_too_long">demasiado larga</string>
+    <string name="cloze_reject_markup">la oración tiene formato</string>
+    <string name="cloze_reject_answer_missing">la palabra no estaba en la oración</string>
+    <string name="cloze_reject_answer_repeated">la palabra aparece dos veces</string>
+    <string name="cloze_reject_answer_initial">la palabra empieza la oración</string>
+    <string name="cloze_reject_not_content">la palabra no tiene categoría gramatical</string>
+    <string name="cloze_reject_unanchored">la palabra no es una que estudies</string>
+    <string name="cloze_reject_little_context">poco contexto alrededor del hueco</string>
+    <string name="cloze_reject_too_hard">el resto de la oración es demasiado difícil</string>
+    <string name="question_candidates">Opciones</string>
+    <string name="question_one_fits">solo una encaja</string>
+    <string name="question_translate">Traducir la oración</string>
+    <string name="question_right">Correcto.</string>
+    <string name="question_not_quite">No del todo.</string>
+    <string name="question_again_later">Otra vez más tarde</string>
+    <string name="question_position">%1$d de %2$d</string>
+    <string name="question_position_labelled">%1$s · %2$d de %3$d</string>
+    <string name="cloze_report">Informar de un problema</string>
+    <string name="cloze_report_ambiguous">Otra opción también encaja en el hueco</string>
+    <string name="cloze_report_wrong">Esta oración no funciona</string>
+    <string name="cloze_report_done">Informado</string>
+    <string name="cloze_flag_restore">Devolver</string>
+    <string name="cloze_flag_delete">Eliminar</string>
+    <string name="cloze_flagged_section">Apartadas</string>
+    <string name="cloze_results_score">%1$d de %2$d</string>
+    <string name="cloze_results_missed">Falladas</string>
+    <string name="cloze_again">Otra vez</string>
+    <string name="cloze_finish">Terminar</string>
+    <string name="routines_cloze_title">Rellena el hueco</string>
+    <string name="routines_cloze_desc">Oraciones que ya leíste, a las que les falta una de tus palabras.</string>
+
+    <!-- Escucha y ordena -->
+    <string name="rebuild_title">Escucha y ordena</string>
+    <string name="activity_listen_rebuild">Escucha y ordena</string>
+    <string name="routines_rebuild_desc">Escucha una de tus oraciones y toca sus palabras en orden.</string>
+    <string name="rebuild_explainer">Oraciones de tu banco de huecos, leídas en voz alta por la voz del dispositivo. Ves cada una solo después de ordenarla. Aquí no se programa nada: es práctica de escucha.</string>
+    <string name="rebuild_needs_voice">Hace falta la voz del dispositivo para leer las oraciones en voz alta.</string>
+    <string name="rebuild_bank_empty">Tu banco de oraciones está vacío. Llénalo primero desde Rellena el hueco.</string>
+    <string name="rebuild_none_fit">Ninguna de tus oraciones tiene todavía un largo adecuado (4–12 palabras). Añadir más puede ayudar.</string>
+    <string name="rebuild_open_cloze">Abrir Rellena el hueco</string>
+    <string name="rebuild_prompt">¿Qué escuchaste?</string>
+    <string name="rebuild_hint">Toca las palabras en el orden en que las escuchas.</string>
+    <string name="rebuild_play">Escuchar</string>
+    <string name="rebuild_playing">Sonando…</string>
+    <string name="rebuild_preparing">Preparando…</string>
+    <string name="rebuild_slow">Más lento</string>
+    <string name="rebuild_show_answer">Ver respuesta</string>
+    <string name="rebuild_missed">Así es la oración.</string>
+    <string name="rebuild_results_note">Ordenadas al primer intento.</string>
 </resources>

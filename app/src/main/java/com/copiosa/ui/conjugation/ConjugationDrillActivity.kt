@@ -44,8 +44,9 @@ import com.copiosa.domain.conjugation.ConjugatedForm
 import com.copiosa.domain.conjugation.DrillGrade
 import com.copiosa.domain.conjugation.DrillItem
 import com.copiosa.domain.conjugation.SegmentRole
-import com.copiosa.domain.conjugation.VerbLexicon
+import com.copiosa.domain.conjugation.ConjugationSpec
 import com.copiosa.ui.components.ProgressBar
+import com.copiosa.ui.components.rememberRevealTapGuard
 
 /**
  * The drill runner, shared by the standalone screen and the routine step.
@@ -58,6 +59,7 @@ import com.copiosa.ui.components.ProgressBar
 @Composable
 fun ConjugationDrillActivity(
     items: List<DrillItem>,
+    spec: ConjugationSpec,
     onGrade: (DrillItem, ConjugatedForm, DrillGrade, Long) -> Unit,
     onComplete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -82,14 +84,18 @@ fun ConjugationDrillActivity(
     }
 
     val item = items[index]
-    val form = remember(item) { item.conjugate() }
+    val form = remember(item) { item.conjugate(spec) }
     // A verb the lexicon can no longer place (an older saved plan) is skipped rather than crashing.
     if (form == null) {
         LaunchedEffect(item) { if (index + 1 >= items.size) onComplete() else index++ }
         return
     }
 
+    // The grades take the reveal button's place, so a double tap on it must not pick one.
+    val revealGuard = rememberRevealTapGuard(index)
+
     fun grade(grade: DrillGrade) {
+        if (!revealGuard.settled()) return
         onGrade(item, form, grade, latencyMs)
         if (index + 1 >= items.size) onComplete() else index++
     }
@@ -103,12 +109,12 @@ fun ConjugationDrillActivity(
             Spacer(Modifier.height(20.dp))
         }
 
-        Prompt(item, form, revealed)
+        Prompt(item, form, revealed, spec)
 
         Spacer(Modifier.height(24.dp))
 
         if (revealed) {
-            Reveal(item, form)
+            Reveal(item, form, spec)
             Spacer(Modifier.weight(1f))
             GradeRow(onGrade = ::grade)
         } else {
@@ -116,6 +122,7 @@ fun ConjugationDrillActivity(
             Button(
                 onClick = {
                     latencyMs = System.currentTimeMillis() - shownAt
+                    revealGuard.mark()
                     revealed = true
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -126,8 +133,8 @@ fun ConjugationDrillActivity(
 
 /** What the learner is given. Each direction hides a different half of the cell. */
 @Composable
-private fun Prompt(item: DrillItem, form: ConjugatedForm, revealed: Boolean) {
-    val verb = VerbLexicon.byInfinitive(item.infinitive)
+private fun Prompt(item: DrillItem, form: ConjugatedForm, revealed: Boolean, spec: ConjugationSpec) {
+    val verb = spec.lexicon.byInfinitive(item.infinitive)
     Column {
         Text(
             item.direction.label(),
@@ -143,7 +150,7 @@ private fun Prompt(item: DrillItem, form: ConjugatedForm, revealed: Boolean) {
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(8.dp))
-                CellLine(item)
+                CellLine(item, spec)
             }
 
             is DrillItem.Decode -> {
@@ -165,7 +172,7 @@ private fun Prompt(item: DrillItem, form: ConjugatedForm, revealed: Boolean) {
             }
 
             is DrillItem.Transform -> {
-                val source = item.conjugateSource()
+                val source = item.conjugateSource(spec)
                 Text(
                     source?.form ?: item.infinitive,
                     style = MaterialTheme.typography.headlineMedium,
@@ -173,21 +180,21 @@ private fun Prompt(item: DrillItem, form: ConjugatedForm, revealed: Boolean) {
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(item.rule.label(), style = MaterialTheme.typography.bodyMedium)
-                CellLine(item)
+                CellLine(item, spec)
             }
 
             is DrillItem.Generalize -> {
                 // Show the pattern by example, then ask about a verb never drilled before: the only
                 // way through is the rule itself.
                 Text(item.cls.label(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Exemplars(item)
+                Exemplars(item, spec)
                 Spacer(Modifier.height(16.dp))
                 Text(item.infinitive, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 verb?.gloss?.takeIf { it.isNotBlank() }?.let {
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(8.dp))
-                CellLine(item)
+                CellLine(item, spec)
             }
         }
     }
@@ -195,9 +202,9 @@ private fun Prompt(item: DrillItem, form: ConjugatedForm, revealed: Boolean) {
 
 /** "nosotros · preterite" — the coordinates being asked for. */
 @Composable
-private fun CellLine(item: DrillItem) {
+private fun CellLine(item: DrillItem, spec: ConjugationSpec) {
     Text(
-        "${item.target.person.label()} · ${item.target.tense.label()}",
+        "${item.target.person.label(spec)} · ${item.target.tense.label()}",
         style = MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.primary,
     )
@@ -205,9 +212,9 @@ private fun CellLine(item: DrillItem) {
 
 /** Two or three worked examples of the pattern a generalize card is testing. */
 @Composable
-private fun Exemplars(item: DrillItem.Generalize) {
+private fun Exemplars(item: DrillItem.Generalize, spec: ConjugationSpec) {
     val examples = remember(item) {
-        VerbLexicon.verbsInClass(item.cls)
+        spec.lexicon.verbsInClass(item.cls)
             .filter { it.infinitive != item.infinitive }
             .take(EXEMPLAR_COUNT)
             .mapNotNull { verb ->
@@ -230,7 +237,7 @@ private fun Exemplars(item: DrillItem.Generalize) {
  * would actually make — the regular form the rules alone would have produced, struck through.
  */
 @Composable
-private fun Reveal(item: DrillItem, form: ConjugatedForm) {
+private fun Reveal(item: DrillItem, form: ConjugatedForm, spec: ConjugationSpec) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(12.dp),
@@ -238,7 +245,7 @@ private fun Reveal(item: DrillItem, form: ConjugatedForm) {
     ) {
         Column(Modifier.padding(16.dp)) {
             if (item is DrillItem.Decode) {
-                DecodeAnswer(item, form)
+                DecodeAnswer(item, form, spec)
             } else {
                 Text(segmentedForm(form), style = MaterialTheme.typography.headlineMedium)
             }
@@ -274,10 +281,10 @@ private fun Reveal(item: DrillItem, form: ConjugatedForm) {
  * Ordered by what was hard to name, subject first, with the infinitive it came from underneath.
  */
 @Composable
-private fun DecodeAnswer(item: DrillItem.Decode, form: ConjugatedForm) {
+private fun DecodeAnswer(item: DrillItem.Decode, form: ConjugatedForm, spec: ConjugationSpec) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
-            item.target.person.label(),
+            item.target.person.label(spec),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,
@@ -293,7 +300,7 @@ private fun DecodeAnswer(item: DrillItem.Decode, form: ConjugatedForm) {
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
-            VerbLexicon.byInfinitive(form.infinitive)?.gloss?.takeIf { it.isNotBlank() }?.let {
+            spec.lexicon.byInfinitive(form.infinitive)?.gloss?.takeIf { it.isNotBlank() }?.let {
                 Spacer(Modifier.width(8.dp))
                 Text(
                     it,

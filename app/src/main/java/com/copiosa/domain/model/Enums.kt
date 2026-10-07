@@ -30,6 +30,44 @@ enum class BookDirection {
     REVERSE,
 }
 
+/**
+ * How eagerly a book's sections are translated — the one per-book knob for what an imported EPUB is
+ * allowed to spend. Chosen in the reader's (or library row's) download-mode dialog, and at import.
+ *
+ * The order is the order the dialog lists them in, cheapest first; each mode does everything the one
+ * above it does and more.
+ */
+enum class BookDownloadMode {
+    /**
+     * Nothing automatic: sections arrive only when the reader taps "continue translating". Where a
+     * [BookDirection.REVERSE] book starts — it is readable as imported, so its native gloss is a
+     * cost the learner has to ask for.
+     */
+    OFF,
+
+    /**
+     * Translate just ahead of the reading position (BookReadingViewModel.READ_AHEAD_SECTIONS), so
+     * reading never stalls and an unread book costs nothing. The default for a forward import.
+     */
+    WHILE_READING,
+
+    /**
+     * Read-ahead, plus the background trickle: BookTranslateTask advances one section per run, runs
+     * ~90 minutes apart, so a novel fills in over days without a cost spike.
+     */
+    BACKGROUND,
+
+    /**
+     * Translate the whole book now — a foreground worker walks it to the end in one sequential run
+     * (tens of minutes on a novel). Stays on the book after the run so an interrupted download
+     * resumes when the book is next opened.
+     */
+    RAPID;
+
+    /** Whether the reader should translate past the section being read. */
+    val readsAhead: Boolean get() = this != OFF
+}
+
 /** Which kind of session a conversation represents. */
 enum class Mode {
     CONVERSATION,

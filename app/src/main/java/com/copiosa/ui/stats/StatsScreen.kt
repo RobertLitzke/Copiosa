@@ -32,7 +32,6 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,8 +52,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.copiosa.R
 import com.copiosa.data.stats.ActivityMinutes
+import com.copiosa.data.stats.ClozeStats
 import com.copiosa.data.stats.ConjugationStats
 import com.copiosa.data.stats.DayMinutes
 import com.copiosa.data.stats.ReadingStats
@@ -64,7 +65,9 @@ import com.copiosa.domain.conjugation.IrregularityFamily
 import com.copiosa.domain.conjugation.Tense
 import com.copiosa.domain.model.ReviewRating
 import com.copiosa.domain.stats.FocusActivityType
+import com.copiosa.domain.vocab.freq.BucketCoverage
 import com.copiosa.ui.conjugation.label
+import com.copiosa.ui.vocab.scopeLabel
 import com.copiosa.ui.components.ScreenHeader
 import com.copiosa.ui.components.SectionLabel
 import com.copiosa.ui.components.SegmentedToggle
@@ -82,7 +85,7 @@ fun StatsScreen(
     onBack: () -> Unit,
     viewModel: StatsViewModel = hiltViewModel(),
 ) {
-    val ui by viewModel.ui.collectAsState()
+    val ui by viewModel.ui.collectAsStateWithLifecycle()
     var confirmClear by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -106,6 +109,7 @@ fun StatsScreen(
                 TimeSection(stats.time)
                 VocabSection(stats.vocab)
                 ConjugationSection(stats.conjugation)
+                ClozeSection(stats.cloze)
                 ReadingSection(stats.reading)
 
                 OutlinedButton(
@@ -209,6 +213,72 @@ private fun VocabSection(v: VocabStats) {
             SectionLabel(stringResource(R.string.stats_answer_distribution))
             RatingDistribution(v.ratingCounts)
         }
+        if (v.coverage.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            SectionLabel(stringResource(R.string.stats_coverage_section))
+            CoverageBars(v.coverage)
+        }
+    }
+}
+
+/**
+ * Frequency coverage, one row per band. Two figures, not one: how many of the band's words are in
+ * the deck at all, and how many have actually stuck. Seeding a few hundred words moves the first
+ * number the moment it finishes and the second not at all, which is the honest picture — showing
+ * only "in deck" would let a fresh seed read as fluency.
+ */
+@Composable
+private fun CoverageBars(coverage: List<BucketCoverage>) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        coverage.forEach { row ->
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(
+                        row.bucket.scopeLabel(),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        stringResource(
+                            R.string.stats_coverage_row,
+                            row.inDeck,
+                            row.inDeckPercent,
+                            row.mature,
+                            row.maturePercent,
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                // One track, two fills: the paler "in deck" bar with the solid "known" bar over it.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(row.inDeckPercent / 100f)
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(row.maturePercent / 100f)
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
+            }
+        }
+        Text(
+            stringResource(R.string.stats_coverage_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -246,6 +316,32 @@ private fun ConjugationSection(c: ConjugationStats) {
                 BucketRow(Tense.fromSlug(slug)?.label() ?: slug, correct, total)
             }
         }
+    }
+}
+
+@Composable
+private fun ClozeSection(c: ClozeStats) {
+    // A bank with nothing answered in it isn't a statistic yet, and an empty card is noise.
+    if (c.answered == 0) return
+    StatCard(stringResource(R.string.stats_cloze_section)) {
+        StatTileGrid(
+            listOf(
+                Tile("${c.answered}", stringResource(R.string.stats_cloze_answered)),
+                Tile(c.accuracyPercent?.let { "$it%" } ?: "—", stringResource(R.string.stats_accuracy)),
+                Tile(
+                    if (c.avgLatencyMs == 0L) {
+                        "—"
+                    } else {
+                        stringResource(R.string.conj_results_seconds, c.avgLatencyMs / 1000f)
+                    },
+                    stringResource(R.string.stats_cloze_speed),
+                ),
+                // Banked and solid are shown apart for the same reason vocab coverage splits them:
+                // mining a hundred sentences is not the same as knowing them.
+                Tile("${c.mature}", stringResource(R.string.stats_cloze_solid)),
+                Tile("${c.bankSize}", stringResource(R.string.stats_cloze_bank)),
+            ),
+        )
     }
 }
 
@@ -675,6 +771,8 @@ private fun activityLabel(type: FocusActivityType): String = stringResource(
         FocusActivityType.QUIZ -> R.string.activity_quiz
         FocusActivityType.ROUTINE -> R.string.activity_routine
         FocusActivityType.CONJUGATION -> R.string.activity_conjugation
+        FocusActivityType.CLOZE -> R.string.activity_cloze
+        FocusActivityType.LISTEN_REBUILD -> R.string.activity_listen_rebuild
     },
 )
 

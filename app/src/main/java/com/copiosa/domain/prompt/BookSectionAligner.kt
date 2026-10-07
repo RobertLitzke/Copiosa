@@ -49,6 +49,31 @@ object BookSectionAligner {
     }
 
     /**
+     * What a reply cut off by the output ceiling got through: the paragraphs it *finished*, by ord.
+     *
+     * [parse] is the wrong reader for such a reply twice over. Short of markers, it falls to the
+     * order-proportional best effort, which spreads seven finished paragraphs across ten rows; and
+     * when the cut lands inside the last paragraph every marker is present, so it reports a clean
+     * alignment with half a paragraph in the final row. So this trusts the reply only as far as it
+     * kept the contract — the expected markers, in order, from the first — and drops the last one
+     * it reached, since that is where the output stopped. Empty when nothing was finished cleanly.
+     */
+    fun completedPrefix(raw: String, expectedOrds: List<Int>): Map<Int, String> {
+        val matches = MARKER.findAll(raw).toList()
+        val kept = LinkedHashMap<Int, String>()
+        for ((i, m) in matches.withIndex()) {
+            val ord = m.groupValues[1].toInt()
+            if (i >= expectedOrds.size || ord != expectedOrds[i]) break
+            val end = if (i + 1 < matches.size) matches[i + 1].range.first else raw.length
+            val body = raw.substring(m.range.last + 1, end).trim()
+            if (body.isEmpty()) break
+            kept[ord] = body
+        }
+        kept.keys.lastOrNull()?.let { kept.remove(it) }
+        return kept
+    }
+
+    /**
      * Strips whatever markers exist, splits the rest into blank-line blocks, and maps block `j` of
      * `k` onto expected index `floor(j * n / k)`, concatenating collisions.
      */

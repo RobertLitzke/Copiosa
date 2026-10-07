@@ -96,5 +96,54 @@ class BookSectionerTest {
         blocks = listOf(EpubBlock(BlockKind.HEADING, "## $title")) + paras,
     )
 
+    @Test
+    fun `an image costs nothing against the section budget`() {
+        // The budget bounds one LLM call, and images are filtered out of the request, so charging
+        // them would shrink the real amount of prose each call carries.
+        val withImages = BookSectioner.assign(
+            listOf(chapter("One", para(2000), image(), image(), image(), para(2000))),
+        )
+        val withoutImages = BookSectioner.assign(listOf(chapter("One", para(2000), para(2000))))
+
+        assertEquals(
+            withoutImages.map { it.sectionIndex }.distinct().size,
+            withImages.map { it.sectionIndex }.distinct().size,
+        )
+    }
+
+    @Test
+    fun `an image keeps its position rather than being deferred like a heading`() {
+        val blocks = BookSectioner.assign(listOf(chapter("One", image(), para(100))))
+        // Ords are the reader's list indices, so a plate has to stay where the author put it.
+        assertEquals(
+            listOf(BlockKind.HEADING, BlockKind.IMAGE, BlockKind.PARA),
+            blocks.map { it.kind },
+        )
+        assertEquals((0 until blocks.size).toList(), blocks.map { it.ord })
+    }
+
+    @Test
+    fun `lists, tables and notes are ordinary body text`() {
+        val blocks = BookSectioner.assign(
+            listOf(
+                chapter(
+                    "One",
+                    EpubBlock(BlockKind.LIST, "- ${"w".repeat(2500)}"),
+                    EpubBlock(BlockKind.TABLE, "| ${"w".repeat(2500)} |"),
+                    EpubBlock(BlockKind.NOTE, "[^1]: ${"w".repeat(100)}"),
+                ),
+            ),
+        )
+
+        assertEquals((0 until blocks.size).toList(), blocks.map { it.ord })
+        // They fill the budget like prose, so the oversized pair splits rather than riding along.
+        assertTrue(blocks.map { it.sectionIndex }.distinct().size > 1)
+        // And a note is absorbed by the running section rather than opening one of its own —
+        // a section per chapter of notes would be an extra LLM call per chapter.
+        assertEquals(blocks[blocks.lastIndex - 1].sectionIndex, blocks.last().sectionIndex)
+    }
+
     private fun para(chars: Int) = EpubBlock(BlockKind.PARA, "w".repeat(chars))
+
+    private fun image() = EpubBlock(BlockKind.IMAGE, "![](1.jpg)")
 }

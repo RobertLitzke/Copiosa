@@ -33,14 +33,8 @@ class FakeFocusStatsDao : FocusStatsDao {
     override fun observeDayTotals(lang: String, fromDay: Long): Flow<List<DayTotal>> =
         flow { emit(dayTotals(fromDay) { it == lang }) }
 
-    override fun observeDayTotalsAll(fromDay: Long): Flow<List<DayTotal>> =
-        flow { emit(dayTotals(fromDay) { true }) }
-
     override fun observeActiveDays(lang: String, fromDay: Long): Flow<List<Long>> =
         flow { emit(dayTotals(fromDay) { it == lang }.map { it.epochDay }.sortedDescending()) }
-
-    override fun observeActiveDaysAll(fromDay: Long): Flow<List<Long>> =
-        flow { emit(dayTotals(fromDay) { true }.map { it.epochDay }.sortedDescending()) }
 
     override fun observeDayTotalsScoped(lang: String?): Flow<List<DayTotal>> =
         flow { emit(dayTotals(Long.MIN_VALUE) { lang == null || it == lang }) }

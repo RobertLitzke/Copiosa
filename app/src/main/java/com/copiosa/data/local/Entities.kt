@@ -6,6 +6,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.copiosa.domain.model.AudioStatus
 import com.copiosa.domain.model.BookDirection
+import com.copiosa.domain.model.BookDownloadMode
 import com.copiosa.domain.model.CardKind
 import com.copiosa.domain.model.Cefr
 import com.copiosa.domain.model.FlashcardState
@@ -15,6 +16,7 @@ import com.copiosa.domain.model.ReviewDirection
 import com.copiosa.domain.model.ReviewRating
 import com.copiosa.domain.model.Role
 import com.copiosa.domain.quiz.CueType
+import com.copiosa.domain.reading.ReadMode
 import com.copiosa.domain.routine.ActivityType
 import com.copiosa.domain.stats.FocusActivityType
 import com.copiosa.domain.routine.RoutineRunStatus
@@ -52,12 +54,19 @@ data class ConversationEntity(
     val read: Boolean = true,
     // User-flagged favourite, toggled from the list context menu or the open chat/text overflow menu.
     val starred: Boolean = false,
+    // Per-item override of AppSettings.highlightSavedWords: whether due vocabulary is tinted in this
+    // chat/text. Null (the default) follows the language's setting, so flipping that moves every
+    // item that has never been touched individually.
+    val highlightWords: Boolean? = null,
     // Reading position for imported texts: the first-visible block index + pixel offset, persisted so
     // the reader resumes where the user left off. finishedReading is set once they reach the bottom
     // and drives the Texts list's "read" coloring (more precise than the binary [read] used by chats).
     val scrollIndex: Int = 0,
     val scrollOffset: Int = 0,
     val finishedReading: Boolean = false,
+    // Which language version the reader was last showing, kept alongside the position for the same
+    // reason: reopening a text should put it back exactly as it was left, not reset it to Target.
+    val readMode: ReadMode = ReadMode.TARGET,
     // Background-retry bookkeeping only. Failure itself is still *derived* (a chat whose newest
     // message is a USER turn is awaiting a reply) — these two just bound how often the maintenance
     // task retries one, so a permanently-broken chat eventually stops costing calls. Reset once a
@@ -98,86 +107,8 @@ data class MessageEntity(
     val rawResponse: String? = null,
 )
 
-@Entity(tableName = "flashcards", indices = [Index("targetLanguage")])
-data class FlashcardEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val front: String,
-    val back: String,
-    val contextSentence: String? = null,
-    val sourceConversationId: Long? = null,
-    // LLM-generated enrichment, populated on demand (single "explain" or batched "fill").
-    val explanation: String? = null,
-    // Short usage/register note kept separate from [back] so the translation field stays clean (just
-    // the 1-3 gloss strings). Split out of a crammed [back] on save/import, or typed by the user.
-    val usageNote: String? = null,
-    val partOfSpeech: String? = null,
-    val cefrLevel: String? = null,
-    // Structured content fields, set on import (from a cleaned Anki deck's `la:*` tags) or on save.
-    // [cardKind] gates LLM-vocab use + highlighting (only VOCAB/PHRASE). [gender] is M/F/MF/MPL/FPL
-    // for display ("el"/"la"), null when not a gendered noun. [country] is a user-set free-text
-    // country the word is specific to (e.g. "México"), shown below the language flag; null when not
-    // country-specific. [altForms] holds "; "-joined synonyms/gendered variants (primary stays in
-    // [front]), shown as accepted answers on a back-to-front review. [frontIsTarget] is whether
-    // [front] is the target language (false for a reverse card whose front is native) — drives the
-    // review prompt's flag.
-    // [region] is a retired auto-imported dialect slug: no longer read, written, or displayed, but the
-    // column is kept so existing rows migrate without a destructive table rebuild.
-    val cardKind: CardKind = CardKind.VOCAB,
-    val gender: String? = null,
-    val region: String? = null,
-    val country: String? = null,
-    val altForms: String? = null,
-    // Precomputed surface forms for highlighting: a ";"-joined set of normalized inflections
-    // (plurals/conjugations) of the card's target-language side ([front], or [back] when
-    // [frontIsTarget] is false), so the renderer can light up "gatos" for a saved "gato"
-    // without a per-open dictionary lookup. Filled on save/edit and by a one-time background backfill
-    // (see FlashcardRepository); null means "not computed yet" (renderer falls back to the headword).
-    val inflectedForms: String? = null,
-    val frontIsTarget: Boolean = true,
-    // Which side a review starts from. BOTH alternates randomly each review (app-created cards default
-    // to this); TARGET_FIRST/NATIVE_FIRST pin the prompt side. Imported cards keep their Anki direction
-    // (TARGET_FIRST for forward, NATIVE_FIRST for reverse) so they behave as before.
-    val reviewDirection: ReviewDirection = ReviewDirection.TARGET_FIRST,
-    val targetLanguage: String,
-    val nativeLanguage: String,
-    val createdAt: Long,
-    // Spaced-repetition state. [dueAt]/[state]/[lastReviewedAt] plus the FSRS memory state
-    // ([stability]/[difficulty]/[fsrsStep]) are what the FSRS engine reads and writes. The SM-2-shaped
-    // fields ([intervalDays]/[easeFactor]/[repetitions]/[lapses]) are kept populated so an Anki .apkg
-    // export has classic-scheduler columns to fill and so a card degrades gracefully if Anki ever
-    // drops it back to SM-2. stability == null means the card is still new to FSRS.
-    val dueAt: Long,
-    val intervalDays: Double = 0.0,
-    val easeFactor: Double = 2.5,
-    val repetitions: Int = 0,
-    val lapses: Int = 0,
-    val lastReviewedAt: Long? = null,
-    val state: FlashcardState = FlashcardState.NEW,
-    val stability: Double? = null,
-    val difficulty: Double? = null,
-    val fsrsStep: Int? = null,
-    // "Frozen" — the user has set this word aside. Suspended cards are excluded from review *and*
-    // from the random vocab woven into conversations, but keep their schedule so unfreezing restores
-    // them where they left off. Mirrors Anki's per-card suspended flag.
-    val suspended: Boolean = false,
-    // User-flagged "marked" card (Anki's own term), toggled from review or the editor and used to
-    // filter the vocabulary list. Round-trips through .apkg as Anki's native `marked` tag.
-    val marked: Boolean = false,
-    // Anki provenance + passthrough. Set on cards imported from a .apkg so a re-export reconstructs
-    // the original note losslessly, and so a re-import updates the same card in place instead of
-    // duplicating it. [ankiNoteGuid] + [ankiOrd] together identify one specific Anki card (a note's
-    // forward/reverse templates are separate cards). [ankiFieldsJson] keeps every original field (the
-    // front/back text above is only a display projection of two of them); [imageFile]/[audioFile] name
-    // the card's media in the app media store. All null for cards created in Copiosa.
-    val ankiNoteGuid: String? = null,
-    val ankiOrd: Int? = null,
-    val ankiNoteTypeId: Long? = null,
-    val ankiFieldsJson: String? = null,
-    val ankiTags: String? = null,
-    val ankiDeckName: String? = null,
-    val imageFile: String? = null,
-    val audioFile: String? = null,
-)
+// The vocabulary tables — NoteEntity, CardEntity and the FlashcardEntity view over them — live in
+// Flashcards.kt.
 
 /**
  * A generated piece of listening audio in the playlist. The source [text] is rendered on-device by
@@ -187,8 +118,13 @@ data class FlashcardEntity(
  * fractional key so a drag-reorder only rewrites the moved rows. [sourceConversationId]/
  * [sourceMessageId] record where the audio came from (an imported Text or a chat reply), all null for
  * audio created some other way.
+ *
+ * A [tag] groups items into what the Audio pane renders as a folder — a book's chapters all carry
+ * the book's title. Tagged items are exempt from the played-items-sink rule: a book must stay in
+ * chapter order forever, so [markPlayed][com.copiosa.data.repository.AudioRepository.markPlayed]
+ * leaves their [sortOrder] alone.
  */
-@Entity(tableName = "audio_items", indices = [Index("langCode")])
+@Entity(tableName = "audio_items", indices = [Index("langCode"), Index("tag")])
 data class AudioItemEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val title: String,
@@ -208,6 +144,16 @@ data class AudioItemEntity(
     val sourceMessageId: Long? = null,
     // Short failure reason for a FAILED item, surfaced in the row (e.g. "Synthesis failed").
     val error: String? = null,
+    // Free-text grouping label, null for a loose playlist item. Deliberately the display name rather
+    // than a key, so the concept generalises past books without a second table.
+    val tag: String? = null,
+    // Provenance for book audio, the same idiom as sourceConversationId. Kept alongside [tag] because
+    // the tag is a name the user sees (and a re-translated book may rename itself), whereas picking up
+    // where generation left off needs a stable identity.
+    val sourceBookId: Long? = null,
+    val sourceChapterIndex: Int? = null,
+    // Resume point in ms, for tracks too long to restart from the top. Zeroed when marked played.
+    val positionMs: Long = 0,
 )
 
 /**
@@ -219,7 +165,7 @@ data class AudioItemEntity(
     tableName = "reviews",
     foreignKeys = [
         ForeignKey(
-            entity = FlashcardEntity::class,
+            entity = CardEntity::class,
             parentColumns = ["id"],
             childColumns = ["cardId"],
             onDelete = ForeignKey.CASCADE,
@@ -243,6 +189,104 @@ data class ReviewLogEntity(
     // Lifecycle state resulting from this review (drives Anki revlog `type`).
     val state: FlashcardState,
     val reviewDurationMs: Int? = null,
+)
+
+/**
+ * One cloze sentence in the practice bank: a sentence the learner has already met, with one word
+ * blanked, carrying its own FSRS schedule.
+ *
+ * [text] holds Anki-style `{{c1::answer}}` markup so [com.copiosa.domain.model.Cloze] renders it
+ * with no new parser and no third blank convention. [answer] and [lemma] are denormalised out of it
+ * because every query that matters — dedup, the per-lemma cap, distractor choice — needs them
+ * without parsing.
+ *
+ * [cardId] deliberately carries **no** foreign key. A cascade would delete a perfectly good sentence
+ * when its vocab card is deleted, and the sentence is independently valuable: it just stops nudging.
+ * A dangling id resolves to null and the row keeps working.
+ *
+ * [textKey] is the dedup key — the sentence lowercased, stripped of punctuation and collapsed
+ * whitespace, with the answer left in. Unique per (language, lemma), which is what makes every miner
+ * idempotent: they can re-scan the same book every six hours and insert nothing.
+ *
+ * [ankiNoteGuid]/[ankiOrd] are set only on rows converted from an imported Anki cloze card, so a
+ * later re-import of the same .apkg recognises the card as already converted instead of recreating
+ * the flashcard the conversion deleted.
+ */
+@Entity(
+    tableName = "cloze_sentences",
+    indices = [
+        Index("targetLanguage", "dueAt"),
+        Index("cardId"),
+        Index(value = ["targetLanguage", "lemma", "textKey"], unique = true),
+    ],
+)
+data class ClozeSentenceEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val targetLanguage: String,
+    val text: String,
+    val answer: String,
+    val lemma: String,
+    val textKey: String,
+    val cardId: Long? = null,
+    val translation: String? = null,
+    // "; "-joined wrong options, following FlashcardEntity.altForms. Null means "pick fresh ones on
+    // next sight" — which is also how a learner's "could be more than one answer" flag clears them.
+    val distractors: String? = null,
+    // Provenance and the undo handle: "context", "dict", "book:<id>", "llm", "legacy:<cardId>".
+    val source: String,
+    // Set aside by the learner (a bad sentence) — and the tombstone that stops a miner re-adding it.
+    val suspended: Boolean = false,
+    // Why it was flagged: "ambiguous" (options regenerate) or "wrong" (suspended for good).
+    val flaggedReason: String? = null,
+    // FSRS state, mirroring FlashcardEntity. No easeFactor: that column exists only to give an .apkg
+    // export a classic-scheduler value, and cloze rows are not exported.
+    val dueAt: Long,
+    val intervalDays: Double = 0.0,
+    val stability: Double? = null,
+    val difficulty: Double? = null,
+    val fsrsStep: Int? = null,
+    val repetitions: Int = 0,
+    val lapses: Int = 0,
+    val lastReviewedAt: Long? = null,
+    val state: FlashcardState = FlashcardState.NEW,
+    val ankiNoteGuid: String? = null,
+    val ankiOrd: Int? = null,
+    val createdAt: Long,
+)
+
+/**
+ * One graded answer on a cloze sentence — the same append-only shape as [ReviewLogEntity].
+ *
+ * It exists for three reasons: converting a hand-made cloze flashcard copies its `reviews` rows here
+ * so deleting the card loses no history; the stats screen reads accuracy and speed from it; and a
+ * schedule with no log could never contribute to a future FSRS parameter fit, which is the stated
+ * purpose of the flashcard review log it mirrors.
+ */
+@Entity(
+    tableName = "cloze_reviews",
+    foreignKeys = [
+        ForeignKey(
+            entity = ClozeSentenceEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["clozeId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("clozeId")],
+)
+data class ClozeReviewEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val clozeId: Long,
+    val reviewedAt: Long,
+    val rating: ReviewRating,
+    val lastIntervalDays: Double,
+    val intervalDays: Double,
+    val stabilityAfter: Double? = null,
+    val difficultyAfter: Double? = null,
+    val state: FlashcardState,
+    // How long the learner took to answer, which is what chose the rating. Null on rows carried over
+    // from a converted flashcard, where the original review recorded no duration.
+    val latencyMs: Long? = null,
 )
 
 /**
@@ -341,29 +385,6 @@ data class TopicEntity(
 )
 
 /**
- * A conversation topic proposed *for* the learner by background maintenance, mined from their recent
- * chat subjects and recorded [TopicEntity] interests weighted toward recency.
- *
- * Distinct from [TopicEntity], which records what the user has already engaged with; this is the
- * forward-looking suggestion set. Refreshed at most every few days and replaced wholesale, so stale
- * suggestions never accumulate. [dismissedAt] is set when the user waves one away.
- */
-@Entity(
-    tableName = "suggested_topics",
-    indices = [Index(value = ["phrase", "targetLanguage"], unique = true)],
-)
-data class SuggestedTopicEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val phrase: String,
-    /** Why this was suggested, shown as supporting copy where the suggestion surfaces. */
-    val rationale: String? = null,
-    val targetLanguage: String,
-    val score: Double = 0.0,
-    val generatedAt: Long,
-    val dismissedAt: Long? = null,
-)
-
-/**
  * One rapid-fire listening pool per (language, cue type): the user's [configJson] (a serialized
  * QuizPoolConfig) plus the cue rows below. Numbers and Times are separate top-level activities, each
  * with its own independent pool, so a rebuild of one type never touches the other. Rebuilding a pool
@@ -429,7 +450,8 @@ data class QuizCueEntity(
  *
  * [direction] decides what that translation is *for*. A [BookDirection.REVERSE] book is already in
  * the target language and is readable in full the moment it is imported; its translation pass is an
- * optional native-language gloss, gated behind [autoTranslate], so such a book can cost nothing.
+ * optional native-language gloss, which is why such a book is imported at
+ * [BookDownloadMode.OFF] and can cost nothing.
  */
 @Entity(tableName = "books", indices = [Index("targetLanguage")])
 data class BookEntity(
@@ -456,20 +478,37 @@ data class BookEntity(
     val wordCount: Int,
     val totalSections: Int,
     val translatedSections: Int = 0,
-    // "Slow translate": the background maintenance task keeps translating this book to the end.
-    val autoTranslate: Boolean = false,
+    // How eagerly sections are translated: read-ahead only, the background trickle, a full-speed
+    // download, or nothing at all. The single knob for what this book is allowed to spend.
+    val downloadMode: BookDownloadMode = BookDownloadMode.WHILE_READING,
     // Reading position: ord of the first visible paragraph + pixel offset within it (the
     // scrollIndex/scrollOffset pattern from conversations).
     val posParagraph: Int = 0,
     val posOffset: Int = 0,
+    // The language version last shown, persisted with the position (the conversations idiom again):
+    // a novel being read in Both mode reopens in Both mode.
+    val readMode: ReadMode = ReadMode.TARGET,
     val finishedReading: Boolean = false,
     val starred: Boolean = false,
+    // Per-item override of AppSettings.highlightSavedWords; null follows the language's setting.
+    val highlightWords: Boolean? = null,
     val createdAt: Long,
+    // Moves when a *section is stored*, not when the book is read: it is the translation pipeline's
+    // progress clock (see BookDao.pendingSlowTranslate). "Which book was I reading" is [lastReadAt].
     val updatedAt: Long,
+    // When the reading position last moved. Kept apart from [updatedAt] because a book downloading
+    // in the background is touched constantly without being read at all, and so used to pass for
+    // the one in progress. Null until the book is first scrolled after this column existed.
+    val lastReadAt: Long? = null,
     // Background-retry bookkeeping for the slow-translate task, reset on every successful section
-    // (the conversations idiom: bounds how often maintenance retries a permanently-broken book).
+    // (the conversations idiom: paces how often maintenance retries a failing book).
     val autoRetryAttempts: Int = 0,
     val lastAutoRetryAt: Long? = null,
+    // Why the last attempt failed, as com.copiosa.data.remote.code; null once a section stores
+    // successfully. Persisted rather than kept in the manager's in-memory error map because a
+    // background stall is only ever *read* long after the process that produced it has gone: the
+    // count that stopped moving is otherwise the whole diagnosis the reader gets.
+    val lastError: String? = null,
 )
 
 /**
@@ -478,10 +517,13 @@ data class BookEntity(
  * **on the same row** — that 1:1 identity is what makes the original/translated toggle exact
  * (same list items, no index remapping).
  *
- * [kind] is a plain TEXT slug ("PARA" | "HEADING") rather than an enum through [Converters], so an
- * unknown future value can never crash a read. [chapterIndex] is the 0-based content-chapter the
- * paragraph came from; grouping by it is what the reader's table of contents is built from (see
- * `com.copiosa.domain.book.buildToc`).
+ * [kind] is a plain TEXT slug rather than an enum through [Converters], so an unknown future value
+ * can never crash a read. That tolerance is what let the slug set grow past "PARA"/"HEADING" to
+ * cover lists, tables, footnotes and images without a migration: rows written by an older build
+ * carry only the two original slugs and stay valid, and any reader that meets a slug it does not
+ * know must fall back to rendering the row as a paragraph rather than matching exhaustively.
+ * [chapterIndex] is the 0-based content-chapter the paragraph came from; grouping by it is what the
+ * reader's table of contents is built from (see `com.copiosa.domain.book.buildToc`).
  *
  * Which of [originalText]/[translatedText] the learner is *studying* depends on the book's
  * [BookEntity.direction] — see `com.copiosa.domain.book.targetText`.
@@ -509,18 +551,56 @@ data class BookParagraphEntity(
     // The translation unit (section) this paragraph belongs to, assigned at import.
     val sectionIndex: Int,
     val kind: String,
-    // Markdown: "## Title" headings, *italic*, **bold**.
+    // Markdown: "## Title" headings, *italic*, **bold*, "- "/"1. " list items with two spaces of
+    // indent per nesting level, GFM pipe tables, "[^3]: " note bodies, "![](2.jpg)" images. Read
+    // structure out of it only via com.copiosa.data.epub.BlockMarkup, and only from *this* column —
+    // translatedText is trimmed and reworded in transit.
     val originalText: String,
     // Null until the paragraph's section is translated; a null inside a translated section is an
     // alignment miss and the reader falls back to showing the original in a muted style.
     val translatedText: String? = null,
 ) {
     companion object {
-        // Frozen identifiers — persisted as TEXT.
+        // Frozen identifiers — persisted as TEXT. Mirrors com.copiosa.data.epub.BlockKind; add
+        // here and there together, and never rename one that has been written to a database.
         const val KIND_PARA = "PARA"
         const val KIND_HEADING = "HEADING"
+        const val KIND_LIST = "LIST"
+        const val KIND_TABLE = "TABLE"
+        const val KIND_NOTE = "NOTE"
+        const val KIND_IMAGE = "IMAGE"
     }
 }
+
+/**
+ * Which model produced one section's translation. A section is exactly one LLM call, so this is the
+ * provenance record for that call — a book can be translated by more than one model over its life
+ * (the download-mode dialog can change [BookEntity.model] mid-book), and this is what lets the
+ * dialog say "12 sections were done with a different model" and offer to redo them.
+ *
+ * One row per *translated* section, written in the same transaction that stores the section's text,
+ * so it can never claim a translation that isn't there. Keyed by section rather than carried on
+ * every [BookParagraphEntity]: ~60–150 rows a book instead of several thousand.
+ */
+@Entity(
+    tableName = "book_sections",
+    primaryKeys = ["bookId", "sectionIndex"],
+    foreignKeys = [
+        ForeignKey(
+            entity = BookEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["bookId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class BookSectionEntity(
+    val bookId: Long,
+    val sectionIndex: Int,
+    val provider: ProviderId,
+    val model: String,
+    val translatedAt: Long,
+)
 
 /**
  * One focused-study session: a contiguous stretch of one [FocusActivityType] in one profile.
@@ -632,4 +712,109 @@ data class ConjugationAttemptEntity(
     val latencyMs: Long,
     val createdAt: Long,
     val epochDay: Long,
+)
+
+/**
+ * Where a learner stands with one authored course (see `domain/course/CourseCatalog`). One row per
+ * (course, language); created on first open. [status] holds a `CourseStatus` name and the checkup
+ * fields drive the post-graduation retention ladder: [checkupStage] indexes the expanding interval
+ * ladder and [nextCheckupAt] is when the hub/Home nudge lights up — computed on read, no background
+ * task. Status names and courseId slugs are frozen identifiers.
+ */
+@Entity(
+    tableName = "course_progress",
+    indices = [Index(value = ["courseId", "targetLanguage"], unique = true)],
+)
+data class CourseProgressEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val courseId: String,
+    val targetLanguage: String,
+    val status: String = "ACTIVE",
+    val startedAt: Long,
+    val graduatedAt: Long? = null,
+    val checkupStage: Int = 0,
+    val nextCheckupAt: Long? = null,
+    val lastCheckupAt: Long? = null,
+)
+
+/**
+ * Per-lesson standing inside a course. [needsReview] is set by a failed checkup — the hub then
+ * offers the lesson's micro-lesson — and cleared when it is retaken. [generatedItemsJson] keeps the
+ * lesson's best validated LLM items (a serialized segment list) so checkups and micro-lessons have
+ * contextual material offline.
+ */
+@Entity(
+    tableName = "course_lesson_state",
+    indices = [Index(value = ["courseId", "lessonId", "targetLanguage"], unique = true)],
+)
+data class CourseLessonStateEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val courseId: String,
+    val lessonId: String,
+    val targetLanguage: String,
+    val completedAt: Long? = null,
+    val passes: Int = 0,
+    val lastAccuracy: Double? = null,
+    val needsReview: Boolean = false,
+    val generatedItemsJson: String? = null,
+)
+
+/**
+ * One course sitting — a lesson, a checkup, or a micro-lesson — mirroring [RoutineRunEntity] where
+ * it matters: [planJson] is a serialized `LessonPlan` so the sitting survives process death, and
+ * [currentIndex] is the resume point. [kind] holds a `SessionKind` name and [status] a
+ * `CourseSessionStatus` name; both frozen. [lessonId] is null for a checkup, which spans the course.
+ */
+@Entity(
+    tableName = "course_sessions",
+    indices = [Index(value = ["courseId", "targetLanguage"])],
+)
+data class CourseSessionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val courseId: String,
+    val lessonId: String? = null,
+    val kind: String,
+    val targetLanguage: String,
+    val status: String = "SYNTHESIZING",
+    val planJson: String? = null,
+    val currentIndex: Int = 0,
+    val createdAt: Long,
+    val completedAt: Long? = null,
+    // Short failure reason when status == FAILED.
+    val error: String? = null,
+)
+
+/**
+ * The usage meter: what model calls consumed, summed per local day for each (provider, model,
+ * feature) — a running total rather than a log, so a year of chatting is a few thousand rows.
+ *
+ * [feature] is an [com.copiosa.domain.usage.LlmFeature] name, stored as text so a name written by a
+ * newer build is kept rather than coerced. [bookId] is the book a call was made for, 0 for none:
+ * that is what lets a book say what it has cost. It is deliberately not a foreign key — deleting a
+ * book must not delete the record of money already spent on it.
+ *
+ * [costReported] is part of the key because the two kinds of row are read differently. Where the
+ * provider billed the call (OpenRouter), [costUsd] is that bill and is the truth. Where it reported
+ * tokens only (Gemini), [costUsd] stays 0 and the cost is estimated from the tokens when the row is
+ * read (see [com.copiosa.domain.usage.LlmPricing]) — so a corrected price reprices history.
+ *
+ * [promptTokens] includes [cachedTokens]; [outputTokens] includes thinking.
+ */
+@Entity(
+    tableName = "llm_usage",
+    primaryKeys = ["day", "provider", "model", "feature", "bookId", "costReported"],
+)
+data class LlmUsageEntity(
+    /** Local-zone epoch day, the convention `focus_sessions.epochDay` uses. */
+    val day: Long,
+    val provider: ProviderId,
+    val model: String,
+    val feature: String,
+    val bookId: Long = 0,
+    val costReported: Boolean,
+    val calls: Int,
+    val promptTokens: Long,
+    val cachedTokens: Long,
+    val outputTokens: Long,
+    val costUsd: Double,
 )

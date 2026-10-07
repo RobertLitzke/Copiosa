@@ -40,6 +40,27 @@ object Cloze {
     fun answer(text: String): String =
         CLOZE_RE.replace(text) { it.groupValues[2] }.trim()
 
+    /** Every distinct cloze number in [text], in the order they first appear. */
+    fun ords(text: String): List<Int> =
+        CLOZE_RE.findAll(text).mapNotNull { it.groupValues[1].toIntOrNull() }.distinct().toList()
+
+    /**
+     * [text] rewritten so that only [ord] is still a deletion — renumbered to `c1` — and every other
+     * deletion is filled in with its answer.
+     *
+     * This is how one hand-made card carrying `{{c1::…}}` and `{{c2::…}}` becomes two independently
+     * scheduled bank sentences. Null when [ord] isn't in [text].
+     */
+    fun singleDeletion(text: String, ord: Int): String? {
+        if (ord !in ords(text)) return null
+        return CLOZE_RE.replace(text) { m ->
+            val n = m.groupValues[1].toIntOrNull()
+            val answer = m.groupValues[2]
+            val hint = m.groupValues.getOrNull(3)?.takeIf { it.isNotEmpty() }
+            if (n == ord) "{{c1::" + answer + (hint?.let { "::" + it } ?: "") + "}}" else answer
+        }.trim()
+    }
+
     /** The answer word(s) for the active deletion (or every deletion when [activeOrd] is null). */
     fun activeAnswers(text: String, activeOrd: Int?): List<String> =
         CLOZE_RE.findAll(text)

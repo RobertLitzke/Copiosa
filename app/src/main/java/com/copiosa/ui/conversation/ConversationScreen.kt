@@ -70,7 +70,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -98,6 +97,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.copiosa.R
 import com.copiosa.data.local.MessageEntity
 import com.copiosa.data.settings.AppSettings
@@ -106,6 +106,11 @@ import com.copiosa.domain.model.ProviderId
 import com.copiosa.domain.model.Role
 import com.copiosa.domain.prompt.StructuredReplyParser
 import com.copiosa.domain.stats.FocusActivityType
+import com.copiosa.ui.components.ConfirmDeleteDialog
+import com.copiosa.ui.components.HighlightWordsMenuItem
+import com.copiosa.ui.components.Prompt
+import com.copiosa.ui.components.ReaderTranslationCard
+import com.copiosa.ui.components.SavedNotice
 import com.copiosa.ui.components.SectionLabel
 import com.copiosa.ui.components.TrackFocusTime
 import com.copiosa.ui.components.SelectableMessage
@@ -113,6 +118,7 @@ import com.copiosa.ui.components.TranslationCard
 import com.copiosa.ui.audio.TtsDownloadPrompt
 import com.copiosa.ui.components.WordColorizer
 import com.copiosa.ui.components.llmErrorText
+import com.copiosa.ui.components.rememberAudioRequestGate
 import com.copiosa.ui.conversation.skin.PersonaChatHeader
 import com.copiosa.ui.conversation.skin.PersonaInputBar
 import com.copiosa.ui.conversation.skin.PersonaMessageItem
@@ -132,17 +138,19 @@ fun ConversationScreen(
     onOpenVocab: (Long) -> Unit,
     viewModel: ConversationViewModel = hiltViewModel(),
 ) {
-    val messages by viewModel.messages.collectAsState()
-    val ui by viewModel.ui.collectAsState()
-    val config by viewModel.config.collectAsState()
-    val activeId by viewModel.activeId.collectAsState()
-    val starred by viewModel.starred.collectAsState()
-    val conversationTitle by viewModel.title.collectAsState()
-    val highlightTargets by viewModel.highlightTargets.collectAsState()
-    val translate by viewModel.translate.collectAsState()
-    val savedNotice by viewModel.savedNotice.collectAsState()
-    val nextTopics by viewModel.nextTopics.collectAsState()
-    val isTextMode by viewModel.isTextMode.collectAsState()
+    val messages by viewModel.messages.collectAsStateWithLifecycle()
+    val ui by viewModel.ui.collectAsStateWithLifecycle()
+    val config by viewModel.config.collectAsStateWithLifecycle()
+    val activeId by viewModel.activeId.collectAsStateWithLifecycle()
+    val starred by viewModel.starred.collectAsStateWithLifecycle()
+    val conversationTitle by viewModel.title.collectAsStateWithLifecycle()
+    val reading = viewModel.readingSelection
+    val highlightTargets by reading.highlightTargets.collectAsStateWithLifecycle()
+    val highlightWords by viewModel.highlightWords.collectAsStateWithLifecycle()
+    val translate by reading.translate.collectAsStateWithLifecycle()
+    val savedNotice by reading.savedNotice.collectAsStateWithLifecycle()
+    val nextTopics by viewModel.nextTopics.collectAsStateWithLifecycle()
+    val isTextMode by viewModel.isTextMode.collectAsStateWithLifecycle()
     // An imported text seeds the conversation with a hidden leading user turn; drop it from the chat
     // so the discussion reads as the translated text (assistant) followed by the learner's questions.
     val displayed = remember(messages, isTextMode) {
@@ -153,19 +161,13 @@ fun ConversationScreen(
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    var showTtsPrompt by remember { mutableStateOf(false) }
-    var pendingAudioAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val addedToAudioText = stringResource(R.string.audio_added)
-    val notifyAdded: () -> Unit = { scope.launch { snackbarHost.showSnackbar(addedToAudioText) } }
-    // Runs [enqueue] now if the voice is installed, otherwise prompts to download it first and defers.
-    val requestAudio: (() -> Unit) -> Unit = { enqueue ->
-        if (viewModel.isTtsReady()) {
-            enqueue()
-        } else {
-            pendingAudioAction = enqueue
-            showTtsPrompt = true
-        }
+    val nothingToAddText = stringResource(R.string.audio_nothing_to_add)
+    // Says what happened rather than what was asked for: an empty reply queues nothing.
+    val notifyAudio: (queued: Boolean) -> Unit = { queued ->
+        scope.launch { snackbarHost.showSnackbar(if (queued) addedToAudioText else nothingToAddText) }
     }
+    val audioGate = rememberAudioRequestGate(viewModel::isTtsReady, viewModel::startTtsDownload)
 
     // Persona chat skin; null keeps the stock chat UI untouched.
     val chatSkin = rememberChatSkin()
@@ -177,7 +179,6 @@ fun ConversationScreen(
     val colorizer = remember(highlightTargets, focusStyle) { WordColorizer(highlightTargets, focusStyle.span) }
 
     val errorText = ui.error?.let { llmErrorText(it) }
-    val savedText = stringResource(R.string.saved)
 
     // A dangling user turn with nothing in flight is a failed/awaited reply — offer an inline retry so
     // a chat that failed (e.g. quota) can still be opened from the list and recovered here.
@@ -193,13 +194,6 @@ fun ConversationScreen(
         if (errorText != null) {
             snackbarHost.showSnackbar(errorText)
             viewModel.consumeError()
-        }
-    }
-    // The "Saved" confirmation is a transient top banner (see below), not a snackbar — it auto-hides.
-    LaunchedEffect(savedNotice) {
-        if (savedNotice) {
-            delay(1800)
-            viewModel.consumeSavedNotice()
         }
     }
     // On a new reply, anchor the learner's question near the top so a long answer reads from its
@@ -233,12 +227,14 @@ fun ConversationScreen(
                     title = headerTitle,
                     showMenu = activeId != 0L,
                     starred = starred,
+                    highlightWords = highlightWords,
                     onBack = onBack,
                     onLevel = viewModel::setLevel,
                     onProvider = viewModel::setProvider,
                     onOpenModelSettings = onOpenModelSettings,
                     onToggleStar = viewModel::toggleStar,
                     onMarkUnread = viewModel::markUnread,
+                    onToggleHighlightWords = viewModel::toggleHighlightWords,
                     onDelete = { showDeleteConfirm = true },
                 )
             } else {
@@ -247,12 +243,14 @@ fun ConversationScreen(
                     title = headerTitle,
                     showMenu = activeId != 0L,
                     starred = starred,
+                    highlightWords = highlightWords,
                     onBack = onBack,
                     onLevel = viewModel::setLevel,
                     onProvider = viewModel::setProvider,
                     onOpenModelSettings = onOpenModelSettings,
                     onToggleStar = viewModel::toggleStar,
                     onMarkUnread = viewModel::markUnread,
+                    onToggleHighlightWords = viewModel::toggleHighlightWords,
                     onDelete = { showDeleteConfirm = true },
                 )
             }
@@ -280,7 +278,8 @@ fun ConversationScreen(
                                 isActiveSelection = ui.selectionMessageId == message.id,
                                 onSelected = viewModel::onSelectionTranslate,
                                 onCleared = viewModel::dismissTranslate,
-                                onSendToAudio = { requestAudio { viewModel.sendToAudio(message.id); notifyAdded() } },
+                                onSendToAudio = { audioGate.request { notifyAudio(viewModel.sendToAudio(message.id)) } },
+                                language = config.targetLanguage,
                             )
                         }
                     } else {
@@ -290,7 +289,7 @@ fun ConversationScreen(
                             isActiveSelection = ui.selectionMessageId == message.id,
                             onSelected = viewModel::onSelectionTranslate,
                             onCleared = viewModel::dismissTranslate,
-                            onSendToAudio = { requestAudio { viewModel.sendToAudio(message.id); notifyAdded() } },
+                            onSendToAudio = { audioGate.request { notifyAudio(viewModel.sendToAudio(message.id)) } },
                         )
                     }
                 }
@@ -337,82 +336,36 @@ fun ConversationScreen(
         }
         SnackbarHost(snackbarHost, modifier = Modifier.align(Alignment.BottomCenter))
 
-        // "Saved" confirmation: a small themed pill at the top, below the chat bar so it doesn't
-        // cover the chat or the input. ~56dp clears the top bar's height.
-        AnimatedVisibility(
-            visible = savedNotice,
-            enter = slideInVertically { -it } + fadeIn(),
-            exit = slideOutVertically { -it } + fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp),
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                shadowElevation = 6.dp,
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(savedText, style = MaterialTheme.typography.labelLarge)
-                }
-            }
-        }
+        SavedNotice(visible = savedNotice, onConsume = reading::consumeSavedNotice)
     }
 
     if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDeleteConfirm = false
-                    viewModel.delete()
-                    onBack()
-                }) { Text(stringResource(R.string.action_delete)) }
+        ConfirmDeleteDialog(
+            title = R.string.delete_conversation_title,
+            message = R.string.delete_conversation_confirm,
+            onConfirm = {
+                showDeleteConfirm = false
+                viewModel.delete()
+                onBack()
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text(stringResource(R.string.action_cancel)) }
-            },
-            title = { Text(stringResource(R.string.delete_conversation_title)) },
-            text = { Text(stringResource(R.string.delete_conversation_confirm)) },
+            onDismiss = { showDeleteConfirm = false },
         )
     }
 
-    if (showTtsPrompt) {
-        TtsDownloadPrompt(
-            onConfirm = {
-                showTtsPrompt = false
-                viewModel.startTtsDownload()
-                pendingAudioAction?.invoke()
-                pendingAudioAction = null
-            },
-            onDismiss = { showTtsPrompt = false; pendingAudioAction = null },
-        )
-    }
+    audioGate.Prompt()
 
     translate?.let { t ->
         val explainText = stringResource(R.string.explain_prompt, t.original)
-        TranslationCard(
-            original = t.original,
-            translation = t.translation,
-            translationOf = t.translationOf,
-            loading = t.loading,
-            definition = t.definition,
-            canExplain = activeId != 0L,
-            anchorYPx = t.anchorY,
-            savedCard = t.savedCard,
-            lemmaSuggestion = t.saveLemma,
-            savePos = t.savePos,
+        ReaderTranslationCard(
+            state = t,
+            selection = reading,
+            onOpenVocab = onOpenVocab,
+            // Chat's own wrappers: they also clear which bubble the selection lives in.
             onSave = { viewModel.saveCurrentTranslation(it) },
-            onSelectEntry = viewModel::selectSaveEntry,
-            onExplain = { viewModel.explain(explainText) },
-            onDownloadDictionary = viewModel::downloadDictionary,
-            onOpenSaved = { t.savedCard?.let { onOpenVocab(it.id) } },
             onDismiss = viewModel::dismissTranslate,
-            onSendToAudio = { requestAudio { viewModel.sendSelectionToAudio(t.original); notifyAdded() } },
+            canExplain = activeId != 0L,
+            onExplain = { viewModel.explain(explainText) },
+            onSendToAudio = { audioGate.request { notifyAudio(viewModel.sendSelectionToAudio(t.original)) } },
         )
     }
 }
@@ -423,12 +376,14 @@ internal fun ChatTopBar(
     title: String,
     showMenu: Boolean,
     starred: Boolean,
+    highlightWords: Boolean,
     onBack: () -> Unit,
     onLevel: (Cefr) -> Unit,
     onProvider: (ProviderId) -> Unit,
     onOpenModelSettings: () -> Unit,
     onToggleStar: () -> Unit,
     onMarkUnread: () -> Unit,
+    onToggleHighlightWords: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -468,9 +423,11 @@ internal fun ChatTopBar(
                 ChatOverflowMenu(
                     expanded = overflowOpen,
                     starred = starred,
+                    highlightWords = highlightWords,
                     onDismiss = { overflowOpen = false },
                     onToggleStar = onToggleStar,
                     onMarkUnread = onMarkUnread,
+                    onToggleHighlightWords = onToggleHighlightWords,
                     onDelete = onDelete,
                 )
             }
@@ -480,14 +437,16 @@ internal fun ChatTopBar(
     }
 }
 
-/** Overflow menu shown in an open chat's top bar: star, mark unread, delete. */
+/** Overflow menu shown in an open chat's top bar: star, mark unread, highlighting, delete. */
 @Composable
 internal fun ChatOverflowMenu(
     expanded: Boolean,
     starred: Boolean,
+    highlightWords: Boolean,
     onDismiss: () -> Unit,
     onToggleStar: () -> Unit,
     onMarkUnread: () -> Unit,
+    onToggleHighlightWords: () -> Unit,
     onDelete: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
@@ -502,6 +461,11 @@ internal fun ChatOverflowMenu(
             text = { Text(stringResource(R.string.action_mark_unread)) },
             leadingIcon = { Icon(Icons.Filled.MarkChatUnread, contentDescription = null) },
             onClick = { onMarkUnread(); onDismiss() },
+        )
+        HighlightWordsMenuItem(
+            checked = highlightWords,
+            onToggle = onToggleHighlightWords,
+            onDismiss = onDismiss,
         )
         DropdownMenuItem(
             text = { Text(stringResource(R.string.action_delete)) },
@@ -552,7 +516,7 @@ internal fun ModelPill(config: ChatConfig, onClick: () -> Unit) {
                 modifier = Modifier.size(16.dp),
             )
             Text(
-                "${AppSettings.displayName(config.model)} · ${config.level.name}",
+                "${config.modelLabel} · ${config.level.name}",
                 style = MaterialTheme.typography.labelLarge,
             )
             Icon(Icons.Filled.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -587,7 +551,7 @@ internal fun ModelMenu(
                         Text(p.displayLabel(), style = MaterialTheme.typography.titleSmall)
                         if (p == config.provider) {
                             Text(
-                                AppSettings.displayName(config.model),
+                                config.modelLabel,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

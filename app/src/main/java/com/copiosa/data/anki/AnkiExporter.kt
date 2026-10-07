@@ -3,6 +3,7 @@ package com.copiosa.data.anki
 import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.data.local.ReviewLogEntity
 import com.copiosa.domain.model.FlashcardState
+import com.copiosa.domain.model.ReviewDirection
 import com.copiosa.domain.model.ReviewRating
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -112,12 +113,18 @@ class AnkiExporter {
         for (name in deckNames) deckIds[name] = if (name == "Default") 1L else ++deckSeq
 
         // Group cards into notes: imported cards share their guid (forward+reverse → one note); an
-        // app-created card is its own note keyed on a stable synthetic guid.
+        // app-created note is keyed on a stable synthetic guid built from its note id. That is the
+        // same guid such a note exported under before notes existed, when it was a single card —
+        // the split gave each note the id of the card it grew out of — so a deck already in Anki
+        // still matches.
         val groups = LinkedHashMap<String, MutableList<FlashcardEntity>>()
         for (input in cards) {
-            val key = input.card.ankiNoteGuid ?: "la-${input.card.id}"
-            groups.getOrPut(key) { ArrayList() }.add(input.card)
+            val card = input.card
+            val key = card.ankiNoteGuid ?: "la-${if (card.noteId != 0L) card.noteId else card.id}"
+            groups.getOrPut(key) { ArrayList() }.add(card)
         }
+        val ordByCardId = HashMap<Long, Int>()
+        for (group in groups.values) ordByCardId += templateOrds(group)
 
         // First pass: each note type's field count (so flds is padded to match the model) and the set
         // of template ordinals it uses (so the model declares a template for every card).
@@ -130,7 +137,7 @@ class AnkiExporter {
             val f = noteFields(card)
             fieldsByCardId[card.id] = f
             fieldCountByMid[mid] = maxOf(fieldCountByMid[mid] ?: MIN_FIELDS, f.size, MIN_FIELDS)
-            ordsByMid.getOrPut(mid) { sortedSetOf(0) }.add(card.ankiOrd ?: 0)
+            ordsByMid.getOrPut(mid) { sortedSetOf(0) }.add(ordByCardId.getValue(card.id))
         }
 
         val outNotes = ArrayList<OutNote>()
@@ -152,7 +159,7 @@ class AnkiExporter {
                     guid = guid,
                     mid = mid,
                     mod = modSec,
-                    tags = formatTags(buildTags(rep, group)),
+                    tags = formatTags(buildTags(rep, group, ordByCardId)),
                     flds = fields.joinToString(FIELD_SEP),
                     sfld = stripHtmlMedia(fields.first()),
                     csum = checksum(fields.first()),
@@ -186,7 +193,7 @@ class AnkiExporter {
                         id = cId,
                         nid = nId,
                         did = deckIds.getValue(card.ankiDeckName ?: DEFAULT_DECK_NAME),
-                        ord = card.ankiOrd ?: 0,
+                        ord = ordByCardId.getValue(card.id),
                         mod = modSec,
                         type = type,
                         queue = queue,
@@ -281,7 +288,11 @@ class AnkiExporter {
      * rebuilds the structured columns. Tag tokens can't contain whitespace, so a multi-word country/pos
      * (rare) is skipped rather than corrupting the tag string.
      */
-    private fun buildTags(rep: FlashcardEntity, group: List<FlashcardEntity>): List<String> {
+    private fun buildTags(
+        rep: FlashcardEntity,
+        group: List<FlashcardEntity>,
+        ords: Map<Long, Int>,
+    ): List<String> {
         val out = ArrayList<String>()
         rep.ankiTags?.split(WHITESPACE)?.filterTo(out) { it.isNotEmpty() }
         // Restore Anki's native "marked" tag (a note is marked if any of its cards is).
@@ -290,19 +301,44 @@ class AnkiExporter {
         rep.gender?.let { if (it.isNotBlank() && it.noWhitespace()) out.add("la:gender:${it.lowercase()}") }
         rep.country?.let { if (it.isNotBlank() && it.noWhitespace()) out.add("la:country:$it") }
         rep.partOfSpeech?.let { if (it.isNotBlank() && it.noWhitespace()) out.add("la:pos:$it") }
-        out.add("la:tgt:${targetFieldIndex(group)}")
+        rep.autoSource?.let { if (it.isNotBlank() && it.noWhitespace()) out.add("la:auto:$it") }
+        out.add("la:tgt:${targetFieldIndex(group, ords)}")
         return out.distinct()
     }
 
-    /** Which projected field (0/1) holds the target language, recovered from the lowest-ord card. */
-    private fun targetFieldIndex(group: List<FlashcardEntity>): Int {
-        val rep = group.minByOrNull { it.ankiOrd ?: 0 } ?: return 0
-        val isReverse = (rep.ankiOrd ?: 0) != 0
+    /**
+     * Which projected field (0/1) holds the target language, recovered from the lowest-ord card: the
+     * field its template shows first is the target one exactly when the card asks term-first.
+     */
+    private fun targetFieldIndex(group: List<FlashcardEntity>, ords: Map<Long, Int>): Int {
+        val rep = group.minByOrNull { ords.getValue(it.id) } ?: return 0
+        val isReverse = ords.getValue(rep.id) != 0
+        val termFirst = rep.reviewDirection != ReviewDirection.NATIVE_FIRST
         return if (isReverse) {
-            if (rep.frontIsTarget) 1 else 0
+            if (termFirst) 1 else 0
         } else {
-            if (rep.frontIsTarget) 0 else 1
+            if (termFirst) 0 else 1
         }
+    }
+
+    /**
+     * The template ordinal each card of one note exports as. A card imported from Anki keeps the
+     * ordinal it came with. One made in Copiosa takes the template that faces its way — forward for
+     * term-first, reverse for native-first — or, where an imported sibling already holds that
+     * ordinal, the lowest one free: two cards of a note can never share a template.
+     */
+    private fun templateOrds(group: List<FlashcardEntity>): Map<Long, Int> {
+        val out = HashMap<Long, Int>()
+        val taken = HashSet<Int>()
+        for (card in group) card.ankiOrd?.let { if (taken.add(it)) out[card.id] = it }
+        for (card in group) {
+            if (card.id in out) continue
+            val preferred = if (card.reviewDirection == ReviewDirection.NATIVE_FIRST) 1 else 0
+            val ord = if (preferred !in taken) preferred else generateSequence(0) { it + 1 }.first { it !in taken }
+            taken += ord
+            out[card.id] = ord
+        }
+        return out
     }
 
     private fun formatTags(tokens: List<String>): String =

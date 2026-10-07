@@ -13,6 +13,8 @@ import org.junit.Test
  */
 class DrillItemCodecTest {
 
+    private val SPANISH = ConjugationSpecs.SPANISH
+
     private val cell = Cell(Tense.IMPERFECT_SUBJUNCTIVE, Person.YO)
 
     private val samples = listOf(
@@ -27,7 +29,7 @@ class DrillItemCodecTest {
 
     @Test
     fun everyShapeRoundTrips() {
-        samples.forEach { assertEquals(it, DrillItemCodec.decode(DrillItemCodec.encode(it))) }
+        samples.forEach { assertEquals(it, DrillItemCodec.decode(DrillItemCodec.encode(it), SPANISH)) }
     }
 
     @Test
@@ -35,7 +37,7 @@ class DrillItemCodecTest {
         // The key omits the verb, so the stored item has to carry it separately or the card would
         // come back naming a class with nothing to ask about.
         val item = samples.last() as DrillItem.Generalize
-        val restored = DrillItemCodec.decode(DrillItemCodec.encode(item)) as DrillItem.Generalize
+        val restored = DrillItemCodec.decode(DrillItemCodec.encode(item), SPANISH) as DrillItem.Generalize
         assertEquals("poner", restored.infinitive)
         assertEquals(IrregularityClass.STRONG_PRET_U, restored.cls)
     }
@@ -43,17 +45,17 @@ class DrillItemCodecTest {
     @Test
     fun unusableItemsAreDroppedRatherThanThrown() {
         // A verb no longer in the lexicon, a slug from a future build, a transform with no source.
-        assertNull(DrillItemCodec.decode(ConjugationDrillItem("produce", "gorblefy", "pres.1s")))
-        assertNull(DrillItemCodec.decode(ConjugationDrillItem("teleport", "tener", "pres.1s")))
-        assertNull(DrillItemCodec.decode(ConjugationDrillItem("produce", "tener", "future_perfect.1s")))
-        assertNull(DrillItemCodec.decode(ConjugationDrillItem("transform", "saber", "sub_imp.1s")))
-        assertNull(DrillItemCodec.decode(ConjugationDrillItem("generalize", "strong_pret_u", "pret.1s")))
+        assertNull(DrillItemCodec.decode(ConjugationDrillItem("produce", "gorblefy", "pres.1s"), SPANISH))
+        assertNull(DrillItemCodec.decode(ConjugationDrillItem("teleport", "tener", "pres.1s"), SPANISH))
+        assertNull(DrillItemCodec.decode(ConjugationDrillItem("produce", "tener", "future_perfect.1s"), SPANISH))
+        assertNull(DrillItemCodec.decode(ConjugationDrillItem("transform", "saber", "sub_imp.1s"), SPANISH))
+        assertNull(DrillItemCodec.decode(ConjugationDrillItem("generalize", "strong_pret_u", "pret.1s"), SPANISH))
     }
 
     @Test
     fun decodeAllKeepsWhatItCanAndSkipsTheRest() {
         val stored = samples.map(DrillItemCodec::encode) + ConjugationDrillItem("produce", "gorblefy", "pres.1s")
-        val decoded = DrillItemCodec.decodeAll(stored)
+        val decoded = DrillItemCodec.decodeAll(stored, SPANISH)
         assertEquals(samples.size, decoded.size)
         assertTrue(decoded.none { it.infinitive == "gorblefy" })
     }
@@ -63,7 +65,7 @@ class DrillItemCodecTest {
         // The key is what per-item mastery is stored against; a codec that changed it would silently
         // orphan a learner's history for every in-routine card.
         samples.forEach {
-            assertEquals(it.itemKey, DrillItemCodec.decode(DrillItemCodec.encode(it))!!.itemKey)
+            assertEquals(it.itemKey, DrillItemCodec.decode(DrillItemCodec.encode(it), SPANISH)!!.itemKey)
         }
     }
 }

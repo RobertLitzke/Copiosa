@@ -16,6 +16,31 @@ import org.junit.Test
  */
 class BookTocTest {
 
+    // --- export gating -----------------------------------------------------
+
+    @Test
+    fun `a forward book is exportable only once it is fully translated`() {
+        assertFalse(bookFullyReadable(wantsTranslation = true, translatedSections = 5, totalSections = 12))
+        assertTrue(bookFullyReadable(wantsTranslation = true, translatedSections = 12, totalSections = 12))
+    }
+
+    /**
+     * The case a bare `translatedSections >= totalSections` gets wrong: a reverse book with the
+     * gloss switched off is its own target text and complete the moment it is imported.
+     */
+    @Test
+    fun `a reverse book without a gloss is exportable with nothing translated`() {
+        assertTrue(bookFullyReadable(wantsTranslation = false, translatedSections = 0, totalSections = 12))
+    }
+
+    @Test
+    fun `bilingual needs both languages end to end`() {
+        assertTrue(bookFullyBilingual(wantsTranslation = true, translatedSections = 12, totalSections = 12))
+        assertFalse(bookFullyBilingual(wantsTranslation = true, translatedSections = 11, totalSections = 12))
+        // Readable, but there is no second language to pair with.
+        assertFalse(bookFullyBilingual(wantsTranslation = false, translatedSections = 0, totalSections = 12))
+    }
+
     // --- chapterProgress ---------------------------------------------------
 
     @Test

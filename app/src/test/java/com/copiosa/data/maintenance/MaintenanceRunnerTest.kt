@@ -30,16 +30,10 @@ class MaintenanceRunnerTest {
 
     private class FakeLastRunStore(initial: Map<String, Long> = emptyMap()) : LastRunStore {
         val stamps = initial.toMutableMap()
-        private val scratch = mutableMapOf<String, Long>()
 
         override suspend fun get(taskId: String, tag: String) = stamps["$taskId/$tag"] ?: 0L
         override suspend fun set(taskId: String, tag: String, at: Long) {
             stamps["$taskId/$tag"] = at
-        }
-
-        override suspend fun getLong(key: String) = scratch[key]
-        override suspend fun putLong(key: String, value: Long) {
-            scratch[key] = value
         }
     }
 

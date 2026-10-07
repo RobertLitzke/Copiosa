@@ -17,9 +17,13 @@ import javax.inject.Singleton
  * FSRS-backed scheduler. The memory-state math is delegated to the FSRS engine — the same algorithm
  * modern Anki uses — so a card's stability/difficulty/due round-trip cleanly to and from Anki.
  *
- * Pure given (card, rating, now, retention): engines are cached per retention and only read, so the
- * result is deterministic (FSRS fuzzing uses a fixed seed). Returns the updated card plus the
- * [ReviewLogEntity] for this grade; the caller persists both.
+ * Side-effect free: engines are cached per retention and only ever read. The memory state it derives
+ * (stability, difficulty, state, step) is deterministic given (card, rating, now, retention), but the
+ * **due date is not** — FSRS fuzzes intervals past a couple of days, so two identical grades return
+ * schedules a few percent apart. Nothing may assume a reproducible due date; see
+ * `SpacedRepetitionMemoryTest`.
+ *
+ * Returns the updated card plus the [ReviewLogEntity] for this grade; the caller persists both.
  */
 @Singleton
 class SpacedRepetitionScheduler @Inject constructor() {
@@ -45,21 +49,46 @@ class SpacedRepetitionScheduler @Inject constructor() {
 
     data class Result(val card: FlashcardEntity, val log: ReviewLogEntity)
 
+    /**
+     * The FSRS memory state of one schedulable item, independent of which table it lives in — so the
+     * cloze bank rides the same engine as the deck rather than growing a second scheduler.
+     *
+     * [FlashcardEntity.easeFactor] is deliberately absent: [toFsrsCard] never reads it and
+     * [schedule] never writes it. It exists only so an .apkg export has a classic-scheduler column
+     * to fill, which is a property of flashcards, not of FSRS.
+     */
+    data class Memory(
+        val state: FlashcardState = FlashcardState.NEW,
+        val dueAt: Long = 0L,
+        val intervalDays: Double = 0.0,
+        val stability: Double? = null,
+        val difficulty: Double? = null,
+        val fsrsStep: Int? = null,
+        val lastReviewedAt: Long? = null,
+        val repetitions: Int = 0,
+        val lapses: Int = 0,
+    )
+
+    /**
+     * Grades [memory] and returns its new state. The whole of the FSRS math lives here; the
+     * [FlashcardEntity] overload is this plus a [ReviewLogEntity].
+     */
     fun schedule(
-        card: FlashcardEntity,
+        memory: Memory,
         rating: ReviewRating,
         now: Long,
         retention: Double = DEFAULT_RETENTION,
-    ): Result {
-        val seeded = seedFromSm2(card)
+        cardId: Int = 0,
+    ): Memory {
+        val seeded = seedFromSm2(memory)
         val reviewed = engineFor(retention)
-            .reviewCard(toFsrsCard(seeded, now), rating.toFsrs(), Instant.ofEpochMilli(now)).card()
+            .reviewCard(toFsrsCard(seeded, now, cardId), rating.toFsrs(), Instant.ofEpochMilli(now)).card()
 
         val dueMs = reviewed.due.toEpochMilli()
         val intervalDays = ((dueMs - now).toDouble() / DAY_MILLIS).coerceAtLeast(0.0)
         val lapsed = rating == ReviewRating.AGAIN && seeded.state == FlashcardState.REVIEW
 
-        val updated = seeded.copy(
+        return seeded.copy(
             stability = reviewed.stability,
             difficulty = reviewed.difficulty,
             fsrsStep = reviewed.step,
@@ -70,42 +99,69 @@ class SpacedRepetitionScheduler @Inject constructor() {
             lastReviewedAt = now,
             state = reviewed.state.toModel(),
         )
+    }
+
+    fun schedule(
+        card: FlashcardEntity,
+        rating: ReviewRating,
+        now: Long,
+        retention: Double = DEFAULT_RETENTION,
+    ): Result {
+        val after = schedule(card.memory(), rating, now, retention, card.id.toInt())
+        val updated = card.applying(after)
         val log = ReviewLogEntity(
             cardId = card.id,
             reviewedAt = now,
             rating = rating,
-            lastIntervalDays = seeded.intervalDays,
+            // Seeding only ever fills stability/difficulty and scheduling never touches easeFactor,
+            // so the pre-review interval and the ease are the card's own — no need to seed to read them.
+            lastIntervalDays = card.intervalDays,
             intervalDays = updated.intervalDays,
             stabilityAfter = updated.stability,
             difficultyAfter = updated.difficulty,
-            easeFactor = updated.easeFactor,
+            easeFactor = card.easeFactor,
             state = updated.state,
         )
         return Result(updated, log)
     }
 
     /**
-     * Projected next-due epoch-ms for one rating, without persisting anything — for showing the
-     * consequence of each grade on the review buttons. Pure and side-effect free (the engine is only
-     * read), so it mirrors what [schedule] would produce for the same `(card, rating, now)`.
+     * Where one grade sends a card: when it next comes up, and — while the grade leaves it stepping
+     * through (re)learning — when it would come up after that, assuming the step is then passed.
+     *
+     * The second number is what a learner actually wants from a lapsed card's buttons: "10 minutes"
+     * alone says nothing about whether the card is being knocked back to square one or merely nudged.
+     * Null once the grade graduates the card outright, where there is no intermediate step to report.
      */
-    fun previewDue(
-        card: FlashcardEntity,
-        rating: ReviewRating,
-        now: Long,
-        retention: Double = DEFAULT_RETENTION,
-    ): Long =
-        engineFor(retention)
-            .reviewCard(toFsrsCard(seedFromSm2(card), now), rating.toFsrs(), Instant.ofEpochMilli(now))
-            .card().due.toEpochMilli()
+    data class Preview(val dueAt: Long, val followUpAt: Long? = null)
 
-    /** Projected next-due epoch-ms for every rating (Again/Hard/Good/Easy). */
+    /**
+     * [Preview] of every rating (Again/Hard/Good/Easy), without persisting anything — for showing the
+     * consequence of each grade on the review buttons. Side-effect free (the engine is only read).
+     *
+     * An estimate, not a promise: FSRS fuzzing means the grade the learner then presses lands a few
+     * percent either side of what was shown. That is invisible at the granularity the buttons are
+     * rendered at ("2 weeks"), which is the only reason it is fine to show.
+     */
     fun previewAll(
         card: FlashcardEntity,
         now: Long,
         retention: Double = DEFAULT_RETENTION,
-    ): Map<ReviewRating, Long> =
-        ReviewRating.entries.associateWith { previewDue(card, it, now, retention) }
+    ): Map<ReviewRating, Preview> {
+        val memory = card.memory()
+        val cardId = card.id.toInt()
+        return ReviewRating.entries.associateWith { rating ->
+            val graded = schedule(memory, rating, now, retention, cardId)
+            // A card still in (re)learning has at least one more short step before its real interval
+            // resumes; project that step being passed to get the interval on the far side of it.
+            val followUpAt = if (graded.state == FlashcardState.REVIEW) {
+                null
+            } else {
+                schedule(graded, ReviewRating.GOOD, graded.dueAt, retention, cardId).dueAt
+            }
+            Preview(graded.dueAt, followUpAt)
+        }
+    }
 
     /**
      * How much [retention] stretches or compresses every interval, relative to the FSRS baseline of
@@ -134,25 +190,25 @@ class SpacedRepetitionScheduler @Inject constructor() {
      * midpoint, so the engine *continues* its schedule instead of resetting it to a brand-new card.
      * New/learning cards keep null memory state and are treated by FSRS as first reviews.
      */
-    private fun seedFromSm2(card: FlashcardEntity): FlashcardEntity {
-        if (card.stability != null) return card
-        if (card.state != FlashcardState.REVIEW || card.intervalDays <= 0.0) return card
-        return card.copy(
-            stability = card.intervalDays.coerceAtLeast(MIN_STABILITY),
+    private fun seedFromSm2(memory: Memory): Memory {
+        if (memory.stability != null) return memory
+        if (memory.state != FlashcardState.REVIEW || memory.intervalDays <= 0.0) return memory
+        return memory.copy(
+            stability = memory.intervalDays.coerceAtLeast(MIN_STABILITY),
             difficulty = SEED_DIFFICULTY,
         )
     }
 
-    private fun toFsrsCard(card: FlashcardEntity, now: Long): Card =
+    private fun toFsrsCard(memory: Memory, now: Long, cardId: Int): Card =
         Card.builder()
-            .cardId(card.id.toInt())
-            .state(card.state.toFsrs())
+            .cardId(cardId)
+            .state(memory.state.toFsrs())
             // FSRS step is only meaningful while (re)learning; review cards carry none.
-            .step(if (card.state == FlashcardState.REVIEW) null else (card.fsrsStep ?: 0))
-            .stability(card.stability)
-            .difficulty(card.difficulty)
-            .due(Instant.ofEpochMilli(if (card.dueAt > 0) card.dueAt else now))
-            .lastReview(card.lastReviewedAt?.let { Instant.ofEpochMilli(it) })
+            .step(if (memory.state == FlashcardState.REVIEW) null else (memory.fsrsStep ?: 0))
+            .stability(memory.stability)
+            .difficulty(memory.difficulty)
+            .due(Instant.ofEpochMilli(if (memory.dueAt > 0) memory.dueAt else now))
+            .lastReview(memory.lastReviewedAt?.let { Instant.ofEpochMilli(it) })
             .build()
 
     private fun ReviewRating.toFsrs(): Rating = when (this) {
@@ -205,3 +261,30 @@ class SpacedRepetitionScheduler @Inject constructor() {
         private const val SEED_DIFFICULTY = 5.0
     }
 }
+
+/** The scheduler's view of a flashcard. Internal so the equivalence test can compare both paths. */
+internal fun FlashcardEntity.memory(): SpacedRepetitionScheduler.Memory =
+    SpacedRepetitionScheduler.Memory(
+        state = state,
+        dueAt = dueAt,
+        intervalDays = intervalDays,
+        stability = stability,
+        difficulty = difficulty,
+        fsrsStep = fsrsStep,
+        lastReviewedAt = lastReviewedAt,
+        repetitions = repetitions,
+        lapses = lapses,
+    )
+
+/** Writes a graded [SpacedRepetitionScheduler.Memory] back onto the card it came from. */
+private fun FlashcardEntity.applying(m: SpacedRepetitionScheduler.Memory): FlashcardEntity = copy(
+    state = m.state,
+    dueAt = m.dueAt,
+    intervalDays = m.intervalDays,
+    stability = m.stability,
+    difficulty = m.difficulty,
+    fsrsStep = m.fsrsStep,
+    lastReviewedAt = m.lastReviewedAt,
+    repetitions = m.repetitions,
+    lapses = m.lapses,
+)

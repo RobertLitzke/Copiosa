@@ -1,6 +1,7 @@
 package com.copiosa.domain.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -51,5 +52,36 @@ class ClozeTest {
         val text = "Ayer {{c1::fui}} al cine y {{c2::comí}} palomitas"
         assertEquals(listOf("fui"), Cloze.activeAnswers(text, activeOrd = 1))
         assertEquals(listOf("fui", "comí"), Cloze.activeAnswers(text, activeOrd = null))
+    }
+
+    // --- splitting a multi-deletion card, for the legacy conversion ----------
+
+    @Test
+    fun ords_listsEachClozeNumberOnce() {
+        assertEquals(listOf(1, 2), Cloze.ords("El {{c1::gato}} ve al {{c2::perro}}"))
+        // A number used twice is one deletion shown in two places, not two deletions.
+        assertEquals(listOf(1), Cloze.ords("{{c1::El}} gato {{c1::duerme}}"))
+        assertEquals(emptyList<Int>(), Cloze.ords("No markup"))
+    }
+
+    @Test
+    fun singleDeletion_keepsOneBlankAndFillsInTheRest() {
+        val text = "El {{c1::gato}} ve al {{c2::perro}}"
+        assertEquals("El {{c1::gato}} ve al perro", Cloze.singleDeletion(text, 1))
+        // The kept deletion is renumbered to c1, so every banked row is uniformly single-cloze.
+        assertEquals("El gato ve al {{c1::perro}}", Cloze.singleDeletion(text, 2))
+    }
+
+    @Test
+    fun singleDeletion_preservesAHint() {
+        assertEquals(
+            "El {{c1::gato::animal}} duerme",
+            Cloze.singleDeletion("El {{c1::gato::animal}} duerme", 1),
+        )
+    }
+
+    @Test
+    fun singleDeletion_isNullForAnOrdinalThatIsNotThere() {
+        assertNull(Cloze.singleDeletion("El {{c1::gato}} duerme", 2))
     }
 }

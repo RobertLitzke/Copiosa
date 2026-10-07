@@ -1,5 +1,6 @@
 package com.copiosa.domain.routine.activities
 
+import com.copiosa.domain.language.LanguageFeature
 import com.copiosa.domain.prompt.RoutineContentParser
 import com.copiosa.domain.prompt.RoutineContentPrompt
 import com.copiosa.domain.routine.ActivityBuildContext
@@ -23,7 +24,8 @@ object MultipleChoiceCloze : ActivityDescriptor {
         type = ActivityType.MULTIPLE_CHOICE_CLOZE,
         eligibleBands = setOf(ArousalBand.SETTLE),
         arousalWeight = 0.50, estMinutes = 2.5,
-        supportedLanguages = setOf("es"), needsLlm = true, needsDict = true,
+        supportedLanguages = null, needsLlm = true, needsDict = true,
+        requires = setOf(LanguageFeature.GRAMMAR),
         arousalLevel = ArousalLevel.MEDIUM,
     )
 

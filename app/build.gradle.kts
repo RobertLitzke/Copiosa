@@ -1,4 +1,5 @@
 import java.net.URI
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -29,6 +30,21 @@ val downloadSherpaOnnxAar by tasks.registering {
 }
 tasks.named("preBuild") { dependsOn(downloadSherpaOnnxAar) }
 
+// Room writes the schema of each version it builds here, and the file is committed. The migrations
+// are hand-written SQL, so this is what a later change is diffed against to see what Room now
+// expects of a table, index or view — the thing a migration must reproduce character for character.
+ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+
+// Who to contact about this build's traffic, sent in the User-Agent Wikimedia asks every client
+// for (CommonsApi). A personal address belongs to whoever built the APK, not to the repository, so
+// it is read from the gitignored local.properties (`copiosa.contact=you@example.com`) and falls
+// back to the project page: a fresh clone builds with nothing to set up. tools/cardtool/commons.py
+// reads the same key.
+val contact: String = Properties()
+    .apply { rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use(::load) }
+    .getProperty("copiosa.contact")?.trim()?.takeIf { it.isNotEmpty() }
+    ?: "https://github.com/RobertLitzke/Copiosa"
+
 android {
     namespace = "com.copiosa"
     compileSdk = 36
@@ -42,6 +58,8 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+
+        buildConfigField("String", "CONTACT", "\"${contact.replace("\\", "").replace("\"", "")}\"")
     }
 
     buildTypes {
@@ -69,6 +87,17 @@ android {
             // Stub android.util.Log and friends instead of throwing, so JVM tests can cover code
             // that logs (e.g. MaintenanceRunner's per-task failure isolation).
             isReturnDefaultValues = true
+
+            // Gradle does not forward -D from the command line into the forked test JVM, so the
+            // authored-text dump (CourseTextDumpTest) would have no way to be told what to write
+            // where. Everything else ignores these, and with courseDump unset the dump is a no-op.
+            // `migrationDb` is the same arrangement for Migration42To43DryRunTest, which replays the
+            // notes/cards split over a pulled copy of a real database.
+            all { test ->
+                listOf("courseDump", "courseId", "courseLang", "migrationDb").forEach { name ->
+                    test.systemProperty(name, System.getProperty(name).orEmpty())
+                }
+            }
         }
     }
 
@@ -89,6 +118,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
 
@@ -129,6 +159,11 @@ dependencies {
 
     implementation(libs.mlkit.translate)
     implementation(libs.readability4j)
+    // Declared explicitly even though readability4j drags it in: EpubParser and ArticleExtractor
+    // both import org.jsoup directly, and a first-party compile dependency satisfied only
+    // transitively moves whenever that library does. Newer than the 1.11.2 readability4j 1.0.8
+    // asks for, deliberately: it parses untrusted markup. See libs.versions.toml.
+    implementation(libs.jsoup)
     implementation(libs.fsrs)
 
     // On-device TTS. The prebuilt AAR (native onnxruntime + Supertonic support) is vendored in

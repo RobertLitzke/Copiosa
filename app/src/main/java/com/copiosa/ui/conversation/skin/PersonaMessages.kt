@@ -25,6 +25,9 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.intl.LocaleList
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -52,10 +55,12 @@ internal fun PersonaMessageItem(
     onSelected: (Long, String, Float) -> Unit,
     onCleared: () -> Unit,
     onSendToAudio: () -> Unit,
+    /** BCP-47 tag of the language the tutor writes in; the paper layout hyphenates by it. */
+    language: String,
 ) {
     when (chatSkin.spec.layout) {
         ChatLayout.PAPER -> PaperMessage(
-            message, chatSkin, colorizer, isActiveSelection, onSelected, onCleared, onSendToAudio,
+            message, chatSkin, colorizer, isActiveSelection, onSelected, onCleared, onSendToAudio, language,
         )
         ChatLayout.BUBBLES -> BubbleMessage(
             message, chatSkin, index, colorizer, isActiveSelection, onSelected, onCleared, onSendToAudio,
@@ -75,7 +80,8 @@ private fun AssistantBody(
     isActiveSelection: Boolean,
     onSelected: (Long, String, Float) -> Unit,
     onCleared: () -> Unit,
-    justify: Boolean = false,
+    // Non-null sets the text as a justified block, hyphenated in this language.
+    justifyIn: String? = null,
 ) {
     SelectableMessage(
         content = message.content,
@@ -83,8 +89,18 @@ private fun AssistantBody(
         isActive = isActiveSelection,
         onSelected = { text, anchorY -> onSelected(message.id, text, anchorY) },
         onCleared = onCleared,
-        styleOverride = if (justify) {
-            chatSkin.chatTextStyle.copy(textAlign = TextAlign.Justify)
+        styleOverride = if (justifyIn != null) {
+            // Justifying without hyphenation can only close a line by stretching its spaces, which
+            // on a phone-width column leaves rivers. Breaking words, and choosing breaks over the
+            // whole paragraph rather than line by line, is what makes the block even. The locale is
+            // the text's, not the app's: an English UI would otherwise hyphenate Spanish by English
+            // rules.
+            chatSkin.chatTextStyle.copy(
+                textAlign = TextAlign.Justify,
+                hyphens = Hyphens.Auto,
+                lineBreak = LineBreak.Paragraph,
+                localeList = LocaleList(justifyIn),
+            )
         } else {
             chatSkin.chatTextStyle
         },
@@ -104,6 +120,7 @@ private fun PaperMessage(
     onSelected: (Long, String, Float) -> Unit,
     onCleared: () -> Unit,
     onSendToAudio: () -> Unit,
+    language: String,
 ) {
     val isTutor = message.role != Role.USER
     // With no name labels, the learner's turn is set apart by an indent and a dimmed ink.
@@ -114,7 +131,7 @@ private fun PaperMessage(
         if (isTutor) {
             AssistantBody(
                 message, chatSkin, colorizer, isActiveSelection, onSelected, onCleared,
-                justify = true,
+                justifyIn = language,
             )
             AssistantActionRow(message = message, onSendToAudio = onSendToAudio)
         } else {

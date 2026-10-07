@@ -7,6 +7,8 @@ import org.junit.Test
 
 class ConjugationMasteryTest {
 
+    private val SPANISH = ConjugationSpecs.SPANISH
+
     @Test
     fun recallSpeedSeparatesAnswersTheRoutineEngineWouldTreatAsIdentical() {
         // The regression this test exists for: AdaptationMath calls anything under 8s "fast", so a
@@ -66,10 +68,10 @@ class ConjugationMasteryTest {
 
     @Test
     fun sessionStatsSplitEveryWay() {
-        val verb = VerbLexicon.byInfinitive("tener")!!
+        val verb = SPANISH.lexicon.byInfinitive("tener")!!
         fun answer(tense: Tense, person: Person, grade: DrillGrade, ms: Long) = DrillAnswer(
             item = DrillItem.Produce("tener", Cell(tense, person)),
-            form = ConjugationEngine.conjugate(verb, tense, person)!!,
+            form = SPANISH.engine.conjugate(verb, tense, person)!!,
             grade = grade, latencyMs = ms,
         )
         val stats = ConjugationSessionStats.from(

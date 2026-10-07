@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Visibility
@@ -24,11 +26,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,8 +46,11 @@ import com.copiosa.R
 import com.copiosa.data.settings.AppSettings
 import com.copiosa.data.tts.SupertonicVoices
 import com.copiosa.data.tts.TtsModelState
+import com.copiosa.domain.model.OpenRouterModel
+import com.copiosa.domain.model.OpenRouterModels
 import com.copiosa.domain.model.ProviderId
 import com.copiosa.domain.prompt.PromptBuilder
+import com.copiosa.ui.books.BookDownloadModePicker
 import com.copiosa.ui.components.LabeledDropdown
 import com.copiosa.ui.components.ProgressBar
 import com.copiosa.ui.components.SectionLabel
@@ -56,6 +63,7 @@ private fun missingPlaceholders(prompt: String): List<String> =
 internal fun ModelsTab(
     settings: AppSettings,
     keys: KeyPresence,
+    usage: UsageOverview,
     ttsState: TtsModelState,
     voiceCount: Int,
     previewing: Boolean,
@@ -98,19 +106,26 @@ internal fun ModelsTab(
                 initialKey = remember(selected) { viewModel.apiKey(selected) },
                 geminiModel = settings.geminiModel,
                 openRouterModel = settings.openRouterModel,
-                onUse = { key, model ->
+                openRouterModels = settings.openRouterModels,
+                onUse = { key, model, models ->
                     if (key.isNotBlank()) viewModel.setApiKey(selected, key)
                     viewModel.update {
                         when (selected) {
                             ProviderId.GEMINI -> it.copy(provider = ProviderId.GEMINI, geminiModel = model)
-                            ProviderId.OPENROUTER ->
-                                it.copy(provider = ProviderId.OPENROUTER, openRouterModel = model.trim())
+                            ProviderId.OPENROUTER -> it.copy(
+                                provider = ProviderId.OPENROUTER,
+                                openRouterModel = model.trim(),
+                                openRouterModels = OpenRouterModels.normalize(models, model),
+                            )
                         }
                     }
                 },
             )
         }
     }
+
+    SectionLabel(stringResource(R.string.settings_usage_section), modifier = Modifier.padding(top = 8.dp))
+    UsageCard(usage, settings)
 
     SectionLabel(stringResource(R.string.settings_background_section), modifier = Modifier.padding(top = 8.dp))
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
@@ -121,11 +136,23 @@ internal fun ModelsTab(
                 checked = settings.backgroundLlmTasks,
                 onCheckedChange = viewModel::setBackgroundLlmTasks,
             )
-            SwitchRow(
-                title = stringResource(R.string.settings_book_read_ahead),
-                subtitle = stringResource(R.string.settings_book_read_ahead_desc),
-                checked = settings.bookAutoReadAhead,
-                onCheckedChange = viewModel::setBookAutoReadAhead,
+            BackgroundModelPicker(
+                settings = settings,
+                onSelect = viewModel::setBackgroundModel,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            SectionLabel(
+                stringResource(R.string.settings_book_download_mode),
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Text(
+                stringResource(R.string.settings_book_download_mode_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            BookDownloadModePicker(
+                selected = settings.bookDefaultDownloadMode,
+                onSelect = viewModel::setBookDefaultDownloadMode,
             )
         }
     }
@@ -154,9 +181,47 @@ internal fun ModelsTab(
 }
 
 /**
+ * Which model does the work nobody is waiting on, for the provider in use. The first entry follows
+ * the main model, and is what an untouched profile has; the rest are that provider's own list — the
+ * fixed Gemini set, or the OpenRouter roster above, which is where a cheaper id gets added.
+ *
+ * Unlike the provider card this applies on selection: there is no key or roster edit to stage with it.
+ */
+@Composable
+private fun BackgroundModelPicker(
+    settings: AppSettings,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val models = when (settings.provider) {
+        ProviderId.GEMINI -> AppSettings.GEMINI_MODELS
+        ProviderId.OPENROUTER -> settings.openRouterModels.map { it.id }
+    }
+    // Precomputed because optionLabel runs outside composition (can't call stringResource).
+    val sameAsMain = stringResource(R.string.settings_background_model_same, settings.label(settings.activeModel))
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LabeledDropdown(
+            label = stringResource(R.string.settings_background_model),
+            options = listOf("") + models,
+            selected = settings.backgroundChoiceFor(settings.provider),
+            optionLabel = { if (it.isEmpty()) sameAsMain else settings.label(it) },
+            onSelect = onSelect,
+        )
+        Text(
+            stringResource(R.string.settings_background_model_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
  * Editor for one provider's API key + model. The key field and model control are staged locally; the
  * "Use …" button persists them and makes this the active provider in one step (so there's no separate
  * "Save", and it's clear which provider the app is actually using).
+ *
+ * Gemini offers a fixed list; OpenRouter is a roster the learner builds themselves — any number of
+ * ids, all on the one key, one of them marked as the default for new work.
  */
 @Composable
 private fun ProviderConfig(
@@ -166,12 +231,18 @@ private fun ProviderConfig(
     initialKey: String,
     geminiModel: String,
     openRouterModel: String,
-    onUse: (key: String, model: String) -> Unit,
+    openRouterModels: List<OpenRouterModel>,
+    onUse: (key: String, model: String, openRouterModels: List<OpenRouterModel>) -> Unit,
 ) {
     var keyText by remember(provider, initialKey) { mutableStateOf(initialKey) }
     var keyVisible by remember(provider) { mutableStateOf(false) }
-    var modelText by remember(provider, openRouterModel) { mutableStateOf(openRouterModel) }
     var geminiSelected by remember(provider, geminiModel) { mutableStateOf(geminiModel) }
+    // The roster is edited in place, so it's staged as a list plus the *index* of the default. An id
+    // can't be the selection key here: it changes on every keystroke while that row is being typed.
+    var models by remember(provider, openRouterModels) { mutableStateOf(openRouterModels) }
+    var defaultIndex by remember(provider, openRouterModels, openRouterModel) {
+        mutableIntStateOf(openRouterModels.indexOfFirst { it.id == openRouterModel }.coerceAtLeast(0))
+    }
 
     val keyLabel = stringResource(
         if (provider == ProviderId.GEMINI) R.string.settings_gemini_key else R.string.settings_openrouter_key,
@@ -206,23 +277,38 @@ private fun ProviderConfig(
             optionLabel = { AppSettings.displayName(it) },
             onSelect = { geminiSelected = it },
         )
-        ProviderId.OPENROUTER -> OutlinedTextField(
-            value = modelText,
-            onValueChange = { modelText = it },
-            label = { Text(stringResource(R.string.settings_openrouter_model)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+        ProviderId.OPENROUTER -> OpenRouterRoster(
+            models = models,
+            defaultIndex = defaultIndex,
+            onEdit = { index, entry -> models = models.toMutableList().also { it[index] = entry } },
+            onSetDefault = { defaultIndex = it },
+            onAdd = { models = models + OpenRouterModel("") },
+            onRemove = { index ->
+                models = models.toMutableList().also { it.removeAt(index) }
+                // Removing the default hands the role to whatever took its place in the list.
+                defaultIndex = when {
+                    index < defaultIndex -> defaultIndex - 1
+                    else -> defaultIndex
+                }.coerceIn(0, (models.size - 1).coerceAtLeast(0))
+            },
         )
     }
 
-    val model = if (provider == ProviderId.GEMINI) geminiSelected else modelText.trim()
+    val model = if (provider == ProviderId.GEMINI) {
+        geminiSelected
+    } else {
+        models.getOrNull(defaultIndex)?.id?.trim().orEmpty()
+    }
     val keyChanged = keyText != initialKey
     val modelChanged = model != (if (provider == ProviderId.GEMINI) geminiModel else openRouterModel)
-    // Enabled when switching provider, or applying edits to the already-active one.
-    val canApply = !isActive || keyChanged || modelChanged
+    val rosterChanged = provider == ProviderId.OPENROUTER &&
+        OpenRouterModels.normalize(models, model) != openRouterModels
+    // Enabled when switching provider, or applying edits to the already-active one. A roster whose
+    // default row has been emptied has nothing to apply — the model id is what actually gets sent.
+    val canApply = model.isNotBlank() && (!isActive || keyChanged || modelChanged || rosterChanged)
 
     Button(
-        onClick = { onUse(keyText, model) },
+        onClick = { onUse(keyText, model, models) },
         enabled = canApply,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -233,6 +319,76 @@ private fun ProviderConfig(
         style = MaterialTheme.typography.bodySmall,
         color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
     )
+}
+
+/**
+ * The OpenRouter model roster: any number of `vendor/model` ids, each with an optional nickname, and
+ * a radio marking which one new chats, texts and books start on. Individual books can be pointed at
+ * any of the others from their download dialog — that is what makes a roster worth keeping.
+ *
+ * The last row can't be deleted: OpenRouter with no model is not a state worth being able to reach.
+ */
+@Composable
+private fun OpenRouterRoster(
+    models: List<OpenRouterModel>,
+    defaultIndex: Int,
+    onEdit: (Int, OpenRouterModel) -> Unit,
+    onSetDefault: (Int) -> Unit,
+    onAdd: () -> Unit,
+    onRemove: (Int) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionLabel(stringResource(R.string.settings_openrouter_models))
+        models.forEachIndexed { index, entry ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                RadioButton(
+                    selected = index == defaultIndex,
+                    onClick = { onSetDefault(index) },
+                )
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    OutlinedTextField(
+                        value = entry.id,
+                        onValueChange = { onEdit(index, entry.copy(id = it)) },
+                        label = { Text(stringResource(R.string.settings_openrouter_model)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = entry.name,
+                        onValueChange = { onEdit(index, entry.copy(name = it)) },
+                        label = { Text(stringResource(R.string.settings_openrouter_model_name)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                IconButton(onClick = { onRemove(index) }, enabled = models.size > 1) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = stringResource(R.string.settings_openrouter_model_remove),
+                    )
+                }
+            }
+        }
+        Text(
+            stringResource(R.string.settings_openrouter_models_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(onClick = onAdd) {
+            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text(
+                stringResource(R.string.settings_openrouter_model_add),
+                modifier = Modifier.padding(start = 6.dp),
+            )
+        }
+    }
 }
 
 @Composable

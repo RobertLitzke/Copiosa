@@ -7,13 +7,14 @@ import com.copiosa.data.routine.RoutineAdaptation
 import com.copiosa.domain.conjugation.ConjugatedForm
 import com.copiosa.domain.conjugation.ConjugationDrillConfig
 import com.copiosa.domain.conjugation.ConjugationDrillSelector
-import com.copiosa.domain.conjugation.ConjugationEngine
 import com.copiosa.domain.conjugation.ConjugationMastery
+import com.copiosa.domain.conjugation.ConjugationSpec
+import com.copiosa.domain.conjugation.ConjugationSpecs
 import com.copiosa.domain.conjugation.DrillGrade
 import com.copiosa.domain.conjugation.DrillItem
+import com.copiosa.domain.conjugation.DrillVerbFilter
 import com.copiosa.domain.conjugation.IrregularityFamily
 import com.copiosa.domain.conjugation.ItemStat
-import com.copiosa.domain.conjugation.VerbLexicon
 import com.copiosa.domain.routine.AdaptationMath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -39,8 +40,14 @@ class ConjugationDrillRepository @Inject constructor(
     private val adaptation: RoutineAdaptation,
 ) {
 
-    /** Whether the drill has anything to offer for a profile. Spanish-only in v1. */
-    fun supports(lang: String): Boolean = VerbLexicon.forLanguage(lang).isNotEmpty()
+    /**
+     * The paradigm data for a profile, or null when the drill has nothing to offer it — either the
+     * language has no [ConjugationSpec] at all, or its lexicon hasn't been generated yet.
+     */
+    fun specFor(lang: String): ConjugationSpec? =
+        ConjugationSpecs.forTag(lang)?.takeIf { it.lexicon.verbs.isNotEmpty() }
+
+    fun supports(lang: String): Boolean = specFor(lang) != null
 
     suspend fun selectItems(
         lang: String,
@@ -48,21 +55,21 @@ class ConjugationDrillRepository @Inject constructor(
         count: Int = config.itemCount,
         random: Random = Random.Default,
         now: Long = System.currentTimeMillis(),
+        scope: DrillVerbFilter? = null,
     ): List<DrillItem> = withContext(Dispatchers.IO) {
-        val verbs = VerbLexicon.forLanguage(lang)
-        if (verbs.isEmpty()) return@withContext emptyList()
+        val spec = specFor(lang) ?: return@withContext emptyList()
 
         val stats = dao.itemStats(lang).associate {
             it.itemKey to ItemStat(it.attempts, it.mastery, it.lastSeenAt)
         }
-        ConjugationDrillSelector(random).select(
-            verbs = verbs,
+        ConjugationDrillSelector(spec, random).select(
             config = config,
             stats = stats,
             familyMastery = familyMastery(lang),
             seenVerbs = dao.seenInfinitives(lang).toSet(),
             now = now,
             count = count,
+            scope = scope,
         )
     }
 
@@ -180,13 +187,13 @@ data class DrillSummary(
 }
 
 /** Resolves a drill item to the form it is asking about, or null if the lexicon can't place it. */
-fun DrillItem.conjugate(): ConjugatedForm? =
-    VerbLexicon.byInfinitive(infinitive)?.let {
-        ConjugationEngine.conjugate(it, target.tense, target.person)
+fun DrillItem.conjugate(spec: ConjugationSpec): ConjugatedForm? =
+    spec.lexicon.byInfinitive(infinitive)?.let {
+        spec.engine.conjugate(it, target.tense, target.person)
     }
 
 /** The source cell of a transform card, resolved the same way. */
-fun DrillItem.Transform.conjugateSource(): ConjugatedForm? =
-    VerbLexicon.byInfinitive(infinitive)?.let {
-        ConjugationEngine.conjugate(it, source.tense, source.person)
+fun DrillItem.Transform.conjugateSource(spec: ConjugationSpec): ConjugatedForm? =
+    spec.lexicon.byInfinitive(infinitive)?.let {
+        spec.engine.conjugate(it, source.tense, source.person)
     }

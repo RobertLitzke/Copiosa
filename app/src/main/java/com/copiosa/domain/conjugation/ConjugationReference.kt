@@ -16,28 +16,34 @@ data class ReferenceSection(val key: String, val subtitle: String? = null, val t
 
 /**
  * The reference content behind the drill's top-right icon, built **from the engine** rather than
- * written out — so a table can never disagree with what the drill just marked you on.
+ * written out — so a table can never disagree with what the drill just marked you on. One instance per
+ * language; reach it through [ConjugationSpec.reference].
  *
  * Kept in `domain` and keyed by plain strings rather than `@StringRes`, so a future app-wide
  * reference section can reuse it by supplying its own key → resource mapping; the UI half is the only
  * thing that knows about `R.string`.
  */
-object ConjugationReference {
+class ConjugationReference(private val spec: ConjugationSpec) {
 
-    /** The three model verbs every Spanish course opens with. */
-    val MODEL_VERBS = listOf("hablar", "comer", "vivir")
+    private val lexicon get() = spec.lexicon
+    private val engine get() = spec.engine
+
+    /** The model verbs the language's courses open with, one per conjugation class. */
+    val modelVerbs: List<String> get() = spec.modelVerbs
+
+    private fun defaultPersons() = spec.persons
 
     /**
-     * How each class conjugates when nothing deviates: one table per tense, the three model verbs as
-     * rows. This is the baseline every highlighted irregularity is a departure from.
+     * How each class conjugates when nothing deviates: one table per tense, the model verbs as rows.
+     * This is the baseline every highlighted irregularity is a departure from.
      */
-    fun paradigmSections(persons: List<Person> = Person.entries): List<ReferenceSection> {
-        val models = MODEL_VERBS.mapNotNull { VerbLexicon.byInfinitive(it) }
+    fun paradigmSections(persons: List<Person> = defaultPersons()): List<ReferenceSection> {
+        val models = spec.modelVerbs.mapNotNull { lexicon.byInfinitive(it) }
         if (models.isEmpty()) return emptyList()
         return listOf(
             ReferenceSection(
                 key = KEY_PATTERNS,
-                tables = Tense.entries.map { tense ->
+                tables = spec.tenses.map { tense ->
                     ReferenceTable(
                         titleKey = tense.slug,
                         tense = tense,
@@ -53,9 +59,9 @@ object ConjugationReference {
      * One table per class of irregularity, showing the verbs that exhibit it in the tense where it
      * actually shows up. Classes with too few examples are dropped rather than shown half-empty.
      */
-    fun irregularSections(persons: List<Person> = Person.entries): List<ReferenceSection> {
-        val tables = IrregularityClass.entries.mapNotNull { cls ->
-            val verbs = VerbLexicon.verbsInClass(cls).take(EXEMPLARS_PER_CLASS)
+    fun irregularSections(persons: List<Person> = defaultPersons()): List<ReferenceSection> {
+        val tables = spec.irregularityClasses.mapNotNull { cls ->
+            val verbs = lexicon.verbsInClass(cls).take(EXEMPLARS_PER_CLASS)
             if (verbs.isEmpty()) return@mapNotNull null
             // The tense a class is clearest in: whichever most of its verbs deviate in.
             val tense = verbs.flatMap { verb ->
@@ -73,20 +79,22 @@ object ConjugationReference {
 
     /**
      * Verbs matching [query], most frequent first. Deliberately returns the entries rather than built
-     * tables: conjugating all 200 verbs across seven paradigms is 8,400 forms, which is a visible
+     * tables: conjugating every verb across every paradigm is thousands of forms, which is a visible
      * stutter if done on every keystroke. The caller builds each verb's table with [verbSection] as it
      * scrolls into view.
      */
     fun verbMatches(query: String = ""): List<VerbEntry> {
         val needle = query.trim().lowercase()
-        if (needle.isEmpty()) return VerbLexicon.verbs.sortedBy { it.rank }
-        return VerbLexicon.verbs
+        if (needle.isEmpty()) return lexicon.verbs.sortedBy { it.rank }
+        return lexicon.verbs
             .filter { it.infinitive.startsWith(needle) || it.gloss.lowercase().contains(needle) }
             .sortedBy { it.rank }
     }
 
-    /** One verb's full paradigms — all seven tenses as rows. */
-    fun verbSection(verb: VerbEntry, persons: List<Person> = Person.entries): ReferenceSection =
+    fun byInfinitive(infinitive: String): VerbEntry? = lexicon.byInfinitive(infinitive)
+
+    /** One verb's full paradigms — every tense the language drills, as rows. */
+    fun verbSection(verb: VerbEntry, persons: List<Person> = defaultPersons()): ReferenceSection =
         ReferenceSection(
             key = verb.infinitive,
             subtitle = verb.gloss,
@@ -95,10 +103,10 @@ object ConjugationReference {
                     titleKey = verb.infinitive,
                     tense = null,
                     persons = persons,
-                    rows = Tense.entries.map { tense ->
+                    rows = spec.tenses.map { tense ->
                         ReferenceRow(
                             label = tense.slug,
-                            forms = persons.mapNotNull { ConjugationEngine.conjugate(verb, tense, it) },
+                            forms = persons.mapNotNull { engine.conjugate(verb, tense, it) },
                         )
                     },
                 ),
@@ -108,10 +116,12 @@ object ConjugationReference {
     private fun row(verb: VerbEntry, tense: Tense, persons: List<Person>) = ReferenceRow(
         label = verb.infinitive,
         note = verb.gloss.takeIf { it.isNotBlank() },
-        forms = persons.mapNotNull { ConjugationEngine.conjugate(verb, tense, it) },
+        forms = persons.mapNotNull { engine.conjugate(verb, tense, it) },
     )
 
-    const val KEY_PATTERNS = "patterns"
-    const val KEY_IRREGULAR = "irregular"
-    private const val EXEMPLARS_PER_CLASS = 4
+    companion object {
+        const val KEY_PATTERNS = "patterns"
+        const val KEY_IRREGULAR = "irregular"
+        private const val EXEMPLARS_PER_CLASS = 4
+    }
 }

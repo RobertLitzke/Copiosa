@@ -1,6 +1,7 @@
 package com.copiosa.di
 
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import com.copiosa.BuildConfig
 import com.copiosa.data.remote.CommonsApi
 import com.copiosa.data.remote.GeminiApi
 import com.copiosa.data.remote.OpenRouterApi
@@ -35,10 +36,15 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(): OkHttpClient {
-        val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
         return OkHttpClient.Builder()
             .addInterceptor(RetryInterceptor())
-            .addInterceptor(logging)
+            .apply {
+                // Request lines are a debugging aid; a release build has no business writing which
+                // model was called, and how often, to a log other apps' crash reports can carry.
+                if (BuildConfig.DEBUG) {
+                    addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
+                }
+            }
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)
             .build()

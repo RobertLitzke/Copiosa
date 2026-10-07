@@ -8,14 +8,14 @@ import androidx.room.TypeConverters
     entities = [
         ConversationEntity::class,
         MessageEntity::class,
-        FlashcardEntity::class,
+        NoteEntity::class,
+        CardEntity::class,
         ReviewLogEntity::class,
         AudioItemEntity::class,
         RoutineRunEntity::class,
         ActivityAttemptEntity::class,
         ActivityProficiencyEntity::class,
         TopicEntity::class,
-        SuggestedTopicEntity::class,
         StoryThreadEntity::class,
         QuizPoolEntity::class,
         QuizCueEntity::class,
@@ -25,9 +25,17 @@ import androidx.room.TypeConverters
         ConjugationAttemptEntity::class,
         BookEntity::class,
         BookParagraphEntity::class,
+        BookSectionEntity::class,
+        CourseProgressEntity::class,
+        CourseLessonStateEntity::class,
+        CourseSessionEntity::class,
+        ClozeSentenceEntity::class,
+        ClozeReviewEntity::class,
+        LlmUsageEntity::class,
     ],
-    version = 33,
-    exportSchema = false,
+    views = [FlashcardEntity::class],
+    version = 46,
+    exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -40,10 +48,12 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun activityAttemptDao(): ActivityAttemptDao
     abstract fun activityProficiencyDao(): ActivityProficiencyDao
     abstract fun topicDao(): TopicDao
-    abstract fun suggestedTopicDao(): SuggestedTopicDao
     abstract fun storyThreadDao(): StoryThreadDao
     abstract fun quizDao(): QuizDao
     abstract fun focusStatsDao(): FocusStatsDao
     abstract fun conjugationDrillDao(): ConjugationDrillDao
     abstract fun bookDao(): BookDao
+    abstract fun courseDao(): CourseDao
+    abstract fun clozeDao(): ClozeDao
+    abstract fun llmUsageDao(): LlmUsageDao
 }

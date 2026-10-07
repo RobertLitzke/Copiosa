@@ -1,10 +1,7 @@
 package com.copiosa.ui.books
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -24,23 +21,24 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,12 +47,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -62,36 +57,53 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.copiosa.R
 import com.copiosa.data.epub.BookMedia
+import com.copiosa.data.epub.imageKeyOf
 import com.copiosa.data.local.BookEntity
+import com.copiosa.data.local.BookParagraphEntity
+import com.copiosa.domain.book.fullyReadable
 import com.copiosa.domain.book.nativeText
 import com.copiosa.domain.book.targetText
 import com.copiosa.domain.book.wantsTranslation
 import com.copiosa.domain.model.BookDirection
+import com.copiosa.domain.reading.ReadMode
+import com.copiosa.domain.reading.canStep
+import com.copiosa.domain.reading.stepped
 import com.copiosa.domain.stats.FocusActivityType
+import com.copiosa.ui.audio.TtsDownloadPrompt
+import com.copiosa.ui.components.AsyncFileImage
+import com.copiosa.ui.components.BLOCK_STRIDE
+import com.copiosa.ui.components.BilingualBlockRow
 import com.copiosa.ui.components.CefrBadge
-import com.copiosa.ui.components.MarkdownText
+import com.copiosa.ui.components.ConfirmDeleteDialog
+import com.copiosa.ui.components.HighlightWordsMenuItem
+import com.copiosa.ui.components.ReaderTranslationCard
+import com.copiosa.ui.components.ReadingProgressRule
+import com.copiosa.ui.components.SavedNotice
+import com.copiosa.ui.components.SavedWordsSheet
 import com.copiosa.ui.components.SegmentedToggle
-import com.copiosa.ui.components.SelectableMessage
 import com.copiosa.ui.components.TrackFocusTime
 import com.copiosa.ui.components.TranslationCard
 import com.copiosa.ui.components.WordColorizer
+import com.copiosa.ui.components.correspondenceTint
 import com.copiosa.ui.components.llmErrorText
-import com.copiosa.ui.flashcards.FileImage
-import com.copiosa.ui.theme.LocalReadingStyle
-import com.copiosa.ui.theme.skin.LocalAppSkin
+import com.copiosa.ui.components.readFraction
+import com.copiosa.ui.components.readingModeSwipe
+import com.copiosa.ui.components.rememberCorrespondenceTint
+import com.copiosa.ui.components.rememberReadModeState
+import com.copiosa.ui.components.rememberReadingSelectionSpan
+import com.copiosa.ui.components.rememberScrollRestore
+import com.copiosa.ui.vocab.FileImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -113,105 +125,74 @@ fun BookReadingScreen(
     onOpenVocab: (Long) -> Unit,
     viewModel: BookReadingViewModel = hiltViewModel(),
 ) {
-    val book by viewModel.book.collectAsState()
-    val status by viewModel.status.collectAsState()
-    val autoReadAhead by viewModel.autoReadAhead.collectAsState()
-    val hintDismissed by viewModel.frontierHintDismissed.collectAsState()
-    val highlightTargets by viewModel.highlightTargets.collectAsState()
-    val translate by viewModel.translate.collectAsState()
-    val savedNotice by viewModel.savedNotice.collectAsState()
-    val savedScroll by viewModel.savedScroll.collectAsState()
-    val chapters by viewModel.chapters.collectAsState()
-    val currentChapter by viewModel.currentChapter.collectAsState()
+    val book by viewModel.book.collectAsStateWithLifecycle()
+    val status by viewModel.status.collectAsStateWithLifecycle()
+    val autoReadAhead by viewModel.autoReadAhead.collectAsStateWithLifecycle()
+    val hintDismissed by viewModel.frontierHintDismissed.collectAsStateWithLifecycle()
+    val reading = viewModel.readingSelection
+    val highlightTargets by reading.highlightTargets.collectAsStateWithLifecycle()
+    val highlightWords by viewModel.highlightWords.collectAsStateWithLifecycle()
+    val translate by reading.translate.collectAsStateWithLifecycle()
+    val savedNotice by reading.savedNotice.collectAsStateWithLifecycle()
+    val savedScroll by viewModel.savedScroll.collectAsStateWithLifecycle()
+    val savedMode by viewModel.savedMode.collectAsStateWithLifecycle()
+    val chapters by viewModel.chapters.collectAsStateWithLifecycle()
+    val needsTtsDownload by viewModel.needsTtsDownload.collectAsStateWithLifecycle()
+    val currentChapter by viewModel.currentChapter.collectAsStateWithLifecycle()
     val paragraphs = viewModel.paragraphs.collectAsLazyPagingItems()
+    val openNote by viewModel.openNote.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     TrackFocusTime(FocusActivityType.READING_BOOK, book?.targetLanguage)
 
-    var mode by remember { mutableStateOf(ReadMode.TARGET) }
+    // One selection across the whole book, so a drag can run from one paragraph into the next.
+    val selection = rememberReadingSelectionSpan()
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showToc by remember { mutableStateOf(false) }
+    var showSavedWords by remember { mutableStateOf(false) }
+    val savedWords by viewModel.savedWords.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val direction = book?.direction ?: BookDirection.FORWARD
 
     // Restore the saved reading position once rows exist. The pager's initialKey already loaded
-    // around it; this jump makes it exact. Gated so the persistence effect can't zero it first.
-    var scrollRestored by remember { mutableStateOf(false) }
-    LaunchedEffect(savedScroll, paragraphs.itemCount) {
-        if (scrollRestored || paragraphs.itemCount == 0) return@LaunchedEffect
-        savedScroll?.let { (ord, offset) ->
-            if (ord > 0 || offset > 0) {
-                listState.scrollToItem((ord + HEADER_ITEMS).coerceAtMost(paragraphs.itemCount), offset)
-            }
-        } ?: return@LaunchedEffect
-        scrollRestored = true
-    }
-    // After restoring, keep the stored position in step (and drive read-ahead) as the user reads.
-    LaunchedEffect(scrollRestored) {
-        if (!scrollRestored) return@LaunchedEffect
-        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-            .distinctUntilChanged()
-            .collect { (index, offset) ->
-                viewModel.onFirstVisible((index - HEADER_ITEMS).coerceAtLeast(0), offset)
-            }
-    }
+    // around it; this jump makes it exact. The same hook then drives read-ahead as the reader moves.
+    val scrollRestore = rememberScrollRestore(
+        listState = listState,
+        saved = savedScroll,
+        itemCount = paragraphs.itemCount,
+        toListIndex = { (it + HEADER_ITEMS).coerceAtMost(paragraphs.itemCount) },
+        onPosition = { index, offset -> viewModel.onFirstVisible((index - HEADER_ITEMS).coerceAtLeast(0), offset) },
+    )
+    // A book finishes itself on its very last page: when the last *paragraph* is on screen, after
+    // the saved position has been restored. Asked of the paragraph row rather than of "the last
+    // list item", because before the paragraphs arrive the list is just its header and footer and
+    // the last item is trivially visible — which marked a book finished the instant it was opened,
+    // however far in the reader actually was. (Anything short of the last page is the reader's call:
+    // the Library row's "Mark read".)
     val reachedEnd by remember {
         derivedStateOf {
             val info = listState.layoutInfo
-            info.totalItemsCount > 0 &&
-                info.visibleItemsInfo.lastOrNull()?.index == info.totalItemsCount - 1
+            val lastParagraph = info.totalItemsCount - 1 - FOOTER_ITEMS
+            scrollRestore.restored &&
+                lastParagraph >= HEADER_ITEMS &&
+                info.visibleItemsInfo.any { it.index == lastParagraph }
         }
     }
     LaunchedEffect(reachedEnd, status) {
         if (reachedEnd && status is BookStatus.Ready) viewModel.markFinishedReading()
     }
-    LaunchedEffect(savedNotice) {
-        if (savedNotice) {
-            delay(1800)
-            viewModel.consumeSavedNotice()
-        }
-    }
-
-    // Correspondence tints: on a mode switch, capture the ords within ±1 viewport and fade them
-    // out. One shared Animatable; only rows inside [tintRange] read it, so the rest never
-    // recompose for it. Both mode keeps its tints, so there the range covers the whole book.
-    var tintRange by remember { mutableStateOf(IntRange.EMPTY) }
-    var tintEpoch by remember { mutableIntStateOf(0) }
-    val tintAlpha = remember { Animatable(0f) }
-    LaunchedEffect(tintEpoch) {
-        if (tintEpoch == 0) return@LaunchedEffect
-        // Eased in rather than snapped on: colour arriving is as noticeable as colour leaving.
-        tintAlpha.animateTo(1f, tween(TINT_RISE_MS, easing = FastOutSlowInEasing))
-        // In Both mode the tint is the only thing pairing the two languages — it stays until the
-        // reader leaves the mode, which restarts this effect and lets it fade.
-        if (mode == ReadMode.BOTH) return@LaunchedEffect
-        delay(TINT_HOLD_MS - TINT_RISE_MS)
-        // Linear, so the colour ebbs evenly. The default ease-out holds near full and then drops
-        // away at the end, which reads as the tint vanishing rather than fading.
-        tintAlpha.animateTo(0f, tween(TINT_FADE_MS, easing = LinearEasing))
-    }
-    val onSelectMode: (ReadMode) -> Unit = { next ->
-        if (next != mode) {
-            viewModel.dismissTranslate()
-            tintRange = if (next == ReadMode.BOTH) {
-                // The tint persists here, so scrolling must not outrun the captured window.
-                0..Int.MAX_VALUE
-            } else {
-                val visible = listState.layoutInfo.visibleItemsInfo
-                val first = (visible.firstOrNull()?.index ?: 0) - HEADER_ITEMS
-                val last = (visible.lastOrNull()?.index ?: 0) - HEADER_ITEMS
-                val extent = (last - first + 1).coerceAtLeast(1)
-                (first - extent).coerceAtLeast(0)..(last + extent)
-            }
-            mode = next
-            tintEpoch += 1
-        }
-    }
+    val readMode = rememberReadModeState(savedMode, listState, HEADER_ITEMS, onSwitch = { next ->
+        // The popover is anchored to a position in the version being left behind.
+        reading.dismissTranslate()
+        viewModel.saveReadMode(next)
+    })
+    val mode = readMode.mode
+    val tint = readMode.tint
+    val onSelectMode = readMode.select
 
     val savedColor = MaterialTheme.colorScheme.primary
     val colorizer = remember(highlightTargets, savedColor) { WordColorizer(highlightTargets, savedColor) }
-    val tints = LocalAppSkin.current.palette.tints
-    val savedText = stringResource(R.string.saved)
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -221,7 +202,13 @@ fun BookReadingScreen(
                 onOpenToc = { showToc = true },
                 onToggleStar = viewModel::toggleStar,
                 onContinueTranslating = viewModel::continueTranslating,
-                onToggleAutoTranslate = { viewModel.setAutoTranslate(!(book?.autoTranslate ?: false)) },
+                onOpenDownloadMode = viewModel::openDownloadDialog,
+                onGenerateAudio = viewModel::requestAudio,
+                onExport = viewModel::openExportDialog,
+                highlightWords = highlightWords,
+                onToggleHighlightWords = viewModel::toggleHighlightWords,
+                savedWordCount = savedWords.size,
+                onOpenSavedWords = { showSavedWords = true },
                 onDelete = { showDeleteConfirm = true },
             )
 
@@ -238,7 +225,14 @@ fun BookReadingScreen(
 
             LazyColumn(
                 state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                // Swiping the page is the same act as tapping the toggle, so it goes through the
+                // same handler — the correspondence tint and the dismissed popover are what make a
+                // mode switch legible, and a swipe that skipped them would be a second, worse way
+                // to change mode.
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .readingModeSwipe(canStep = mode::canStep) { onSelectMode(mode.stepped(it)) },
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -252,37 +246,41 @@ fun BookReadingScreen(
                         // Placeholder while the page loads in; fixed height keeps scrolling smooth.
                         Spacer(modifier = Modifier.fillMaxWidth().height(56.dp))
                     } else {
-                        Box(
-                            // The correspondence tint is painted in the draw phase, not composed:
-                            // reading the animation inside drawBehind redraws without recomposing
-                            // the paragraph's text on every frame of the fade. Padding is
-                            // unconditional so a tinted row never shifts the text.
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .drawBehind {
-                                    val alpha = tintAlpha.value
-                                    if (alpha <= 0.004f || row.ord !in tintRange) return@drawBehind
-                                    drawRoundRect(
-                                        color = tints[row.ord.mod(tints.size)].copy(alpha = alpha),
-                                        cornerRadius = CornerRadius(6.dp.toPx()),
-                                    )
-                                }
-                                .padding(horizontal = 6.dp, vertical = 3.dp),
-                        ) {
-                            ParagraphRow(
-                                target = row.targetText(direction),
-                                native = row.nativeText(direction),
-                                mode = mode,
-                                colorizer = colorizer,
-                                isActive = translate != null,
-                                onSelected = { text, y, source -> viewModel.onSelectionTranslate(text, y, source) },
-                                onCleared = viewModel::dismissTranslate,
-                            )
+                        Box(modifier = Modifier.fillMaxWidth().correspondenceTint(tint, row.ord)) {
+                            if (row.kind == BookParagraphEntity.KIND_IMAGE) {
+                                // Still exactly one list item even when the file is missing (an
+                                // image past the import budget), because the item index is the ord.
+                                AsyncFileImage(
+                                    file = book?.id?.let { id ->
+                                        imageKeyOf(row.originalText)
+                                            ?.let { BookMedia.imageFile(context, id, it) }
+                                    },
+                                )
+                            } else {
+                                BilingualBlockRow(
+                                    target = row.targetText(direction),
+                                    native = row.nativeText(direction),
+                                    mode = mode,
+                                    colorizer = colorizer,
+                                    isActive = translate != null,
+                                    selection = selection,
+                                    // Strided so a table's cells get keys of their own between this
+                                    // row and the next; see BilingualTableRow.
+                                    block = row.ord * BLOCK_STRIDE,
+                                    onSelected = reading::onSelectionTranslate,
+                                    onCleared = reading::dismissTranslate,
+                                    kind = row.kind,
+                                    onFootnote = { label -> viewModel.onFootnote(row.chapterIndex, label) },
+                                )
+                            }
                         }
                     }
                 }
                 item(key = "footerSpace") { Spacer(modifier = Modifier.height(24.dp)) }
             }
+
+            // How far through the book, immediately below the text it measures.
+            ReadingProgressRule(fraction = { listState.readFraction() })
 
             // The version switch lives at the bottom, within thumb reach while reading.
             Surface(tonalElevation = 2.dp) {
@@ -303,45 +301,27 @@ fun BookReadingScreen(
         }
 
         translate?.let { t ->
-            TranslationCard(
-                original = t.original,
-                translation = t.translation,
-                translationOf = t.translationOf,
-                loading = t.loading,
-                definition = t.definition,
-                canExplain = false,
-                anchorYPx = t.anchorY,
-                savedCard = t.savedCard,
-                lemmaSuggestion = t.saveLemma,
-                savePos = t.savePos,
-                onSave = { viewModel.saveCurrentTranslation(it) },
-                onSelectEntry = viewModel::selectSaveEntry,
-                onExplain = {},
-                onDownloadDictionary = viewModel::downloadDictionary,
-                onOpenSaved = { t.savedCard?.let { c -> onOpenVocab(c.id) } },
-                onDismiss = viewModel::dismissTranslate,
-            )
+            ReaderTranslationCard(state = t, selection = reading, onOpenVocab = onOpenVocab)
         }
 
-        AnimatedVisibility(
-            visible = savedNotice,
-            enter = slideInVertically { -it } + fadeIn(),
-            exit = slideOutVertically { -it } + fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp),
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                shadowElevation = 6.dp,
-            ) {
-                Text(
-                    savedText,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
-        }
+        SavedNotice(visible = savedNotice, onConsume = reading::consumeSavedNotice)
+    }
+
+    openNote?.let { note ->
+        BookFootnoteSheet(
+            note = note,
+            direction = direction,
+            mode = mode,
+            onDismiss = viewModel::dismissNote,
+        )
+    }
+
+    if (showSavedWords) {
+        SavedWordsSheet(
+            words = savedWords,
+            onOpen = { id -> showSavedWords = false; onOpenVocab(id) },
+            onDismiss = { showSavedWords = false },
+        )
     }
 
     if (showToc) {
@@ -353,7 +333,7 @@ fun BookReadingScreen(
                 // Claim the restore gate before jumping. The savedScroll effect is inhibited only by
                 // scrollRestored, so opening the TOC before restore has run would otherwise leave it
                 // free to yank the reader back to the old position a frame later.
-                scrollRestored = true
+                scrollRestore.markRestored()
                 scope.launch { listState.scrollToItem(ord + HEADER_ITEMS, 0) }
             },
             onContinueTranslating = viewModel::continueTranslating,
@@ -361,124 +341,27 @@ fun BookReadingScreen(
         )
     }
 
+    BookActionDialogs(viewModel.actions)
+
+    if (needsTtsDownload) {
+        TtsDownloadPrompt(
+            onConfirm = viewModel::confirmTtsDownload,
+            onDismiss = viewModel::dismissTtsDownload,
+        )
+    }
+
     if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDeleteConfirm = false
-                    viewModel.delete()
-                    onBack()
-                }) { Text(stringResource(R.string.action_delete)) }
+        ConfirmDeleteDialog(
+            title = R.string.book_delete_title,
+            message = R.string.book_delete_confirm,
+            onConfirm = {
+                showDeleteConfirm = false
+                viewModel.delete()
+                onBack()
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text(stringResource(R.string.action_cancel)) }
-            },
-            title = { Text(stringResource(R.string.book_delete_title)) },
-            text = { Text(stringResource(R.string.book_delete_confirm)) },
+            onDismiss = { showDeleteConfirm = false },
         )
     }
-}
-
-/** Which language a paragraph shows. The ordinal is the segment index in the bottom control. */
-private enum class ReadMode { TARGET, NATIVE, BOTH }
-
-/**
- * One paragraph, rendered in either language — or, in [ReadMode.BOTH], in both at once, target
- * first with the native gloss beneath it. Which stored column supplies which language depends on
- * the book's direction and is resolved by the caller, so this only ever thinks in target/native.
- *
- * The target side gets the full tap-to-translate machinery, in both directions — it is the language
- * being learned, so it is the one worth looking words up in. Either side can be absent (a forward
- * book past the frontier, a reverse book with no gloss, or a rare alignment miss).
- *
- * A missing *target* is called out rather than papered over: showing the source text muted in the
- * translation's place reads as a translation that happens to be identical, which is exactly the
- * confusion a reader hits on a freshly opened book. In Both mode the native gloss still shows
- * beneath the notice, since that side is legitimately part of the view. A missing *native* in
- * Native mode still falls back to the target — there is nothing pending there to wait for.
- *
- * Both texts stay inside this one list item: index == ord + HEADER_ITEMS is what scroll restore,
- * read-ahead, the TOC jump and the tint range all rely on, and a second item per paragraph would
- * break it.
- */
-@Composable
-private fun ParagraphRow(
-    target: String?,
-    native: String?,
-    mode: ReadMode,
-    colorizer: WordColorizer,
-    isActive: Boolean,
-    onSelected: (text: String, anchorY: Float, sourceText: String) -> Unit,
-    onCleared: () -> Unit,
-) {
-    when {
-        mode == ReadMode.NATIVE -> if (native.isNullOrBlank()) {
-            // Nothing pending — a reverse book simply has no gloss here. Show what there is, muted.
-            SubordinateGloss(target.orEmpty())
-        } else {
-            SelectionContainer { MarkdownText(native) }
-        }
-        // No translation for this paragraph yet. Say so instead of showing the source in its place.
-        target.isNullOrBlank() ->
-            if (mode == ReadMode.BOTH && !native.isNullOrBlank()) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    PendingTranslationNotice()
-                    SubordinateGloss(native)
-                }
-            } else {
-                PendingTranslationNotice()
-            }
-        mode == ReadMode.BOTH && !native.isNullOrBlank() ->
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                // A tight gap against the list's 12.dp spacing is what makes the pair read as one
-                // block; the correspondence tint wraps both and reinforces it.
-                SelectableMessage(
-                    content = target,
-                    colorizer = colorizer,
-                    isActive = isActive,
-                    onSelected = { text, y -> onSelected(text, y, target) },
-                    onCleared = onCleared,
-                )
-                SubordinateGloss(native)
-            }
-        else -> SelectableMessage(
-            content = target,
-            colorizer = colorizer,
-            isActive = isActive,
-            onSelected = { text, y -> onSelected(text, y, target) },
-            onCleared = onCleared,
-        )
-    }
-}
-
-/**
- * The subordinate language as a gloss: muted and a touch smaller, so in Both mode the eye stays on
- * the target language and drops to this only to check itself. Also how an untranslated paragraph
- * renders. MarkdownText needs no parameters for it — it already honours both of these locals.
- */
-@Composable
-private fun SubordinateGloss(text: String) {
-    val reading = LocalReadingStyle.current
-    CompositionLocalProvider(
-        LocalReadingStyle provides reading.copy(scale = reading.scale * GLOSS_SCALE),
-        LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant,
-    ) {
-        SelectionContainer { MarkdownText(text) }
-    }
-}
-
-/**
- * Stands in for a paragraph whose translation has not arrived yet — quiet, italic, and clearly not
- * prose, so it reads as a status rather than as text to be read.
- */
-@Composable
-private fun PendingTranslationNotice() {
-    Text(
-        stringResource(R.string.book_paragraph_pending),
-        style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }
 
 /**
@@ -515,7 +398,13 @@ private fun BookTopBar(
     onOpenToc: () -> Unit,
     onToggleStar: () -> Unit,
     onContinueTranslating: () -> Unit,
-    onToggleAutoTranslate: () -> Unit,
+    onOpenDownloadMode: () -> Unit,
+    onGenerateAudio: () -> Unit,
+    onExport: () -> Unit,
+    highlightWords: Boolean,
+    onToggleHighlightWords: () -> Unit,
+    savedWordCount: Int,
+    onOpenSavedWords: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var overflowOpen by remember { mutableStateOf(false) }
@@ -591,18 +480,39 @@ private fun BookTopBar(
                         onClick = { onContinueTranslating(); overflowOpen = false },
                     )
                 }
-                // On a reverse book this is also the gloss opt-in — the one switch that turns an
-                // LLM-free book into one that gets a native translation.
+                // How much this book translates on its own, and with which model. On a reverse book
+                // it is also the gloss opt-in — the one control that turns an LLM-free book into one
+                // that gets a native translation.
                 DropdownMenuItem(
-                    text = { Text(stringResource(R.string.book_translate_background)) },
-                    leadingIcon = {
-                        if (book?.autoTranslate == true) {
-                            Icon(Icons.Filled.Check, contentDescription = null)
-                        } else {
-                            Spacer(modifier = Modifier.size(24.dp))
-                        }
-                    },
-                    onClick = { onToggleAutoTranslate(); overflowOpen = false },
+                    text = { Text(stringResource(R.string.book_download_menu)) },
+                    leadingIcon = { Icon(Icons.Filled.Download, contentDescription = null) },
+                    onClick = { onOpenDownloadMode(); overflowOpen = false },
+                )
+                // Offered from the first translated chapter: the dialog reports how much is ready,
+                // and the rest is added as translation catches up.
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.action_generate_audio)) },
+                    leadingIcon = { Icon(Icons.Filled.VolumeUp, contentDescription = null) },
+                    onClick = { onGenerateAudio(); overflowOpen = false },
+                )
+                // Only once the book reads end to end: a half-translated dump would be a file that
+                // trails off into the other language partway through.
+                if (book != null && book.fullyReadable) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.book_export_menu)) },
+                        leadingIcon = { Icon(Icons.Filled.FileDownload, contentDescription = null) },
+                        onClick = { onExport(); overflowOpen = false },
+                    )
+                }
+                HighlightWordsMenuItem(
+                    checked = highlightWords,
+                    onToggle = onToggleHighlightWords,
+                    onDismiss = { overflowOpen = false },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.saved_words_menu, savedWordCount)) },
+                    leadingIcon = { Icon(Icons.Filled.Bookmarks, contentDescription = null) },
+                    onClick = { onOpenSavedWords(); overflowOpen = false },
                 )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.action_delete)) },
@@ -687,7 +597,13 @@ private fun BookStatusBar(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             ) {
                 Text(
-                    status.error?.let { llmErrorText(it) } ?: stringResource(R.string.text_partial_error),
+                    stringResource(
+                        R.string.book_failed_progress,
+                        status.done,
+                        status.total,
+                        status.error?.let { llmErrorText(it) }
+                            ?: stringResource(R.string.text_partial_error),
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f),
@@ -701,12 +617,5 @@ private fun BookStatusBar(
 /** The list's non-paragraph items before the rows (the cover/title header). */
 private const val HEADER_ITEMS = 1
 
-/** How much smaller the source gloss reads than the target text it sits under. */
-private const val GLOSS_SCALE = 0.9f
-
-// Tint timing: eased in, at full strength until eight seconds after the switch, then ebbing away
-// over the next few. The colours themselves come from the theme's reading palette
-// (CountryPalette.tints), which is where their subtlety lives — this animates them 0..1.
-private const val TINT_RISE_MS = 300
-private const val TINT_HOLD_MS = 8_000L
-private const val TINT_FADE_MS = 2_800
+/** The spacer after the last paragraph; with [HEADER_ITEMS], what the list holds before any text. */
+private const val FOOTER_ITEMS = 1

@@ -25,4 +25,10 @@ enum class FocusActivityType {
 
     /** Standalone conjugation drill sessions. */
     CONJUGATION,
+
+    /** Standalone cloze-bank sessions (fill the blank from your own sentences). */
+    CLOZE,
+
+    /** Standalone listen-and-rebuild sessions (hear a sentence, tap its words into order). */
+    LISTEN_REBUILD,
 }

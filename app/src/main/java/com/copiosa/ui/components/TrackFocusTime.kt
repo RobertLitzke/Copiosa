@@ -3,7 +3,6 @@ package com.copiosa.ui.components
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -12,6 +11,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.copiosa.data.settings.SettingsRepository
 import com.copiosa.data.stats.FocusTimeTracker
@@ -46,7 +46,7 @@ fun TrackFocusTime(
     enabled: Boolean = true,
 ) {
     val viewModel: FocusTimerViewModel = hiltViewModel()
-    val activeTag by viewModel.activeTag.collectAsState()
+    val activeTag by viewModel.activeTag.collectAsStateWithLifecycle()
     val tag = langTag ?: activeTag
     val tracker = viewModel.tracker
     val owner = remember { Any() }

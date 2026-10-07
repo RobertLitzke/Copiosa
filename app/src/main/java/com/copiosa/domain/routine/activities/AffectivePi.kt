@@ -1,5 +1,6 @@
 package com.copiosa.domain.routine.activities
 
+import com.copiosa.domain.language.LanguageFeature
 import com.copiosa.domain.prompt.RoutineContentParser
 import com.copiosa.domain.routine.ActivityBuildContext
 import com.copiosa.domain.routine.ActivityContent
@@ -19,7 +20,8 @@ object AffectivePi : ActivityDescriptor {
         type = ActivityType.AFFECTIVE_PI,
         eligibleBands = setOf(ArousalBand.DRIFT),
         arousalWeight = 0.15, estMinutes = 1.5,
-        supportedLanguages = setOf("es"), needsLlm = true,
+        supportedLanguages = null, needsLlm = true,
+        requires = setOf(LanguageFeature.GRAMMAR),
         arousalLevel = ArousalLevel.LOW,
     )
 

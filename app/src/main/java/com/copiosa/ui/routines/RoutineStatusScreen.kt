@@ -18,7 +18,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,6 +26,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.copiosa.R
 import com.copiosa.domain.routine.AppearFrequency
 import com.copiosa.domain.routine.ComfortBand
@@ -37,7 +37,7 @@ import java.util.Date
 
 /**
  * Routine "status" sub-screen: shows the comfort level the adaptation engine has established for each
- * Spanish-only scored drill — per contrast-cloze category and referential PI — plus a note that the
+ * scored drill the target language supports — per contrast-cloze category and referential PI — plus a note that the
  * unscored affective PI just follows the chosen input level. Read-only; data is live via the VM.
  */
 @Composable
@@ -45,7 +45,7 @@ fun RoutineStatusScreen(
     onBack: () -> Unit,
     viewModel: RoutineStatusViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(title = stringResource(R.string.routine_status_title), onBack = onBack)
         Column(
@@ -72,9 +72,9 @@ fun RoutineStatusScreen(
                 }
             }
 
-            if (!state.isSpanish) {
+            if (!state.hasGrammarProfile) {
                 Text(
-                    stringResource(R.string.routine_status_spanish_only),
+                    stringResource(R.string.routine_status_no_grammar_profile),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -1,9 +1,11 @@
 package com.copiosa.data.quiz
 
 import android.util.Log
+import com.copiosa.data.remote.JsonShape
 import com.copiosa.data.remote.LlmMessage
 import com.copiosa.data.remote.LlmRequest
 import com.copiosa.data.remote.ProviderRegistry
+import com.copiosa.data.remote.tryLlm
 import com.copiosa.data.settings.SettingsRepository
 import com.copiosa.domain.model.Role
 import com.copiosa.domain.quiz.CueGenerators
@@ -16,7 +18,7 @@ import com.copiosa.domain.quiz.PhraseOptions
 import com.copiosa.domain.quiz.PhraseScenario
 import com.copiosa.domain.quiz.PhraseScenarios
 import com.copiosa.domain.quiz.QuizPoolConfig
-import kotlinx.coroutines.CancellationException
+import com.copiosa.domain.usage.LlmFeature
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -83,9 +85,9 @@ class QuizPoolSeeder @Inject constructor(
         for ((type, group) in needLlm.groupBy { it.first }) {
             for (batch in group.chunked(BATCH_SIZE)) {
                 val byKey = batch.associate { (_, value) -> value.key() to value }
-                val spoken = runCatching { requestPhrasings(type, languageName, byKey.keys, settings.activeModel) }
-                    .onFailure { if (it is CancellationException) throw it else Log.w(TAG, "Phrasing batch failed", it) }
-                    .getOrDefault(emptyMap())
+                val spoken = tryLlm({ Log.w(TAG, "Phrasing batch failed", it) }) {
+                    requestPhrasings(type, languageName, byKey.keys, settings.activeModel)
+                } ?: emptyMap()
                 val generator = CueGenerators.forType(type)
                 for ((key, value) in byKey) {
                     val text = spoken[key]?.takeIf { valid(it) }
@@ -108,7 +110,9 @@ class QuizPoolSeeder @Inject constructor(
                 systemPrompt = systemPrompt(type, languageName),
                 messages = listOf(LlmMessage(Role.USER, "${type.label}: ${keys.joinToString(", ")}")),
                 model = model,
+                feature = LlmFeature.QUIZ_POOL,
                 maxTokens = BATCH_MAX_TOKENS,
+                json = JsonShape.OBJECT,
             ),
         ).text
         return PhrasingParser.parse(raw)
@@ -168,9 +172,9 @@ class QuizPoolSeeder @Inject constructor(
         while (cues.size < config.poolSize && calls < PHRASE_MAX_CALLS) {
             calls++
             val avoid = cues.takeLast(PHRASE_AVOID_SAMPLE).map { it.spokenText }
-            val batch = runCatching { requestPhrases(system, avoid, PHRASE_BATCH_SIZE, settings.activeModel) }
-                .onFailure { if (it is CancellationException) throw it else Log.w(TAG, "Phrase batch failed", it) }
-                .getOrDefault(emptyList())
+            val batch = tryLlm({ Log.w(TAG, "Phrase batch failed", it) }) {
+                requestPhrases(system, avoid, PHRASE_BATCH_SIZE, settings.activeModel)
+            } ?: emptyList()
             // A page that yields nothing new (parse failure, or the model only echoed avoided phrases)
             // ends the run rather than spinning out the remaining call budget on empty responses.
             var addedThisCall = 0
@@ -215,7 +219,9 @@ class QuizPoolSeeder @Inject constructor(
                 systemPrompt = system,
                 messages = listOf(LlmMessage(Role.USER, user)),
                 model = model,
+                feature = LlmFeature.QUIZ_POOL,
                 maxTokens = PHRASE_MAX_TOKENS,
+                json = JsonShape.OBJECT,
             ),
         ).text
         return PhraseBatchParser.parse(raw)

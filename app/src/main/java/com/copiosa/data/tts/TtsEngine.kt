@@ -1,11 +1,13 @@
 package com.copiosa.data.tts
 
+import com.copiosa.domain.text.Sentences
 import com.k2fsa.sherpa.onnx.GenerationConfig
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsSupertonicModelConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -52,15 +54,15 @@ class TtsEngine @Inject constructor(
         val tts = engine()
         val lang = normalizeLang(langCode)
         val sampleRate = tts.sampleRate()
-        // Synthesize sentence by sentence with our own gap between, so periods land as full stops even
-        // when the model under-pauses on them (notably pt); see synthesizeArticle for the same treatment.
-        val parts = ArrayList<FloatArray>()
-        for ((idx, sentence) in splitForSpeech(text).withIndex()) {
-            if (idx > 0) parts += silence(sampleRate, SENTENCE_GAP_SEC)
-            parts += tts.generateWithConfig(sentence, genConfig(sid, lang, speed)).samples
+        encodeTo(outFile, sampleRate) { encoder ->
+            // Synthesize sentence by sentence with our own gap between, so periods land as full stops
+            // even when the model under-pauses on them (notably pt); synthesizeArticle does the same.
+            for ((idx, sentence) in Sentences.split(text).withIndex()) {
+                ensureActive()
+                if (idx > 0) encoder.write(silence(sampleRate, SENTENCE_GAP_SEC))
+                encoder.write(tts.generateWithConfig(sentence, genConfig(sid, lang, speed)).samples)
+            }
         }
-        outFile.parentFile?.mkdirs()
-        M4aWriter.write(outFile, parts, sampleRate)
     }
 
     /**
@@ -68,6 +70,10 @@ class TtsEngine @Inject constructor(
      * it stands out), then the [body], then a soft chime to mark the end of the item. Returns the
      * total duration in ms. The title is skipped when [body] already opens with it (e.g. a short
      * highlighted selection), so a word isn't spoken twice.
+     *
+     * Each sentence is encoded as soon as it is synthesized, so a body of any length costs one
+     * sentence of PCM at a time — this is what lets a whole book chapter be rendered in one item.
+     * [onProgress] reports the fraction of sentences done, for those long renders.
      */
     suspend fun synthesizeArticle(
         title: String,
@@ -76,33 +82,57 @@ class TtsEngine @Inject constructor(
         sid: Int,
         outFile: File,
         speed: Float = 1.0f,
+        onProgress: ((Float) -> Unit)? = null,
     ): Long = withContext(Dispatchers.Default) {
         val tts = engine()
         val lang = normalizeLang(langCode)
         val sampleRate = tts.sampleRate()
-        val parts = ArrayList<FloatArray>()
 
         val t = title.trim()
         val b = body.trim().ifBlank { t }
-        if (t.isNotEmpty() && !b.startsWith(t, ignoreCase = true)) {
-            // The title stays slightly slower than the body to set it apart, scaled by the user's speed.
-            val titleAudio = tts.generateWithConfig(t, genConfig(sid, lang, speed * TITLE_SPEED))
-            parts += amplify(titleAudio.samples, TITLE_GAIN)
-            parts += silence(sampleRate, TITLE_GAP_SEC)
-        }
+        val sentences = Sentences.split(b)
 
-        // Speak the body one sentence at a time, inserting our own pause between them. The Supertonic
-        // phonemizer under-weights sentence-final periods on some languages (Portuguese especially, where
-        // periods can be rushed while commas are respected), so relying on it glues sentences together.
-        for ((idx, sentence) in splitForSpeech(b).withIndex()) {
-            if (idx > 0) parts += silence(sampleRate, SENTENCE_GAP_SEC)
-            parts += tts.generateWithConfig(sentence, genConfig(sid, lang, speed)).samples
-        }
-        parts += silence(sampleRate, CHIME_GAP_SEC)
-        parts += chime(sampleRate)
+        encodeTo(outFile, sampleRate) { encoder ->
+            if (t.isNotEmpty() && !b.startsWith(t, ignoreCase = true)) {
+                // The title stays slightly slower than the body to set it apart, scaled by the user's speed.
+                val titleAudio = tts.generateWithConfig(t, genConfig(sid, lang, speed * TITLE_SPEED))
+                encoder.write(amplify(titleAudio.samples, TITLE_GAIN))
+                encoder.write(silence(sampleRate, TITLE_GAP_SEC))
+            }
 
+            // Speak the body one sentence at a time, inserting our own pause between them. The Supertonic
+            // phonemizer under-weights sentence-final periods on some languages (Portuguese especially, where
+            // periods can be rushed while commas are respected), so relying on it glues sentences together.
+            for ((idx, sentence) in sentences.withIndex()) {
+                // A chapter is thousands of sentences; without this a cancelled render runs to the end.
+                ensureActive()
+                if (idx > 0) encoder.write(silence(sampleRate, SENTENCE_GAP_SEC))
+                encoder.write(tts.generateWithConfig(sentence, genConfig(sid, lang, speed)).samples)
+                onProgress?.invoke((idx + 1).toFloat() / sentences.size)
+            }
+            encoder.write(silence(sampleRate, CHIME_GAP_SEC))
+            encoder.write(chime(sampleRate))
+        }
+    }
+
+    /**
+     * Runs [body] against a fresh encoder for [outFile], returning the finished duration.
+     *
+     * On any failure — including cancellation partway through a long chapter — the partial file is
+     * deleted. A truncated .m4a is worse than none: the container header is written incrementally,
+     * so Media3 would happily play whatever prefix survived and the row would look rendered.
+     */
+    private inline fun encodeTo(outFile: File, sampleRate: Int, body: (M4aEncoder) -> Unit): Long {
         outFile.parentFile?.mkdirs()
-        M4aWriter.write(outFile, parts, sampleRate)
+        var ok = false
+        try {
+            return M4aEncoder(outFile, sampleRate).use { encoder ->
+                body(encoder)
+                encoder.finish()
+            }.also { ok = true }
+        } finally {
+            if (!ok) outFile.delete()
+        }
     }
 
     /** Number of voice styles the loaded model exposes (selectable as sid 0 until this). */
@@ -165,55 +195,6 @@ class TtsEngine @Inject constructor(
     private fun normalizeLang(code: String): String =
         code.substringBefore('-').substringBefore('_').trim().lowercase().ifBlank { "na" }
 
-    /**
-     * Splits [text] into speakable segments at sentence-final punctuation and line breaks, so the caller
-     * can insert its own pause between them. Deliberately biased toward over-splitting: a spurious split
-     * only adds a short gap, whereas a missed split reproduces the run-on pacing this exists to fix. A
-     * period is not treated as a boundary unless followed by whitespace/end (so decimals like "3.5" stay
-     * intact) nor after a few common pt/es abbreviations ("Sr.", "Dr.", "etc."). Returns trimmed,
-     * non-blank segments, or a single-element list when [text] holds no interior sentence boundary.
-     */
-    private fun splitForSpeech(text: String): List<String> {
-        val segments = ArrayList<String>()
-        for (rawLine in text.split('\n')) {
-            val line = rawLine.trim()
-            if (line.isEmpty()) continue
-            var start = 0
-            var i = 0
-            while (i < line.length) {
-                if (line[i] == '.' || line[i] in TERMINATORS) {
-                    // Extend across a run of terminators like "?!" or "..." so we split once, after it.
-                    var end = i
-                    while (end + 1 < line.length && (line[end + 1] == '.' || line[end + 1] in TERMINATORS)) end++
-                    val next = line.getOrNull(end + 1)
-                    val atBoundary = next == null || next.isWhitespace()
-                    val abbrev = line[i] == '.' && end == i && endsWithAbbrev(line, start, i)
-                    if (atBoundary && !abbrev) {
-                        segments += line.substring(start, end + 1).trim()
-                        var k = end + 1
-                        while (k < line.length && line[k].isWhitespace()) k++
-                        start = k
-                        i = k
-                        continue
-                    }
-                    i = end + 1
-                } else {
-                    i++
-                }
-            }
-            if (start < line.length) segments += line.substring(start).trim()
-        }
-        val cleaned = segments.filter { it.isNotEmpty() }
-        return if (cleaned.size <= 1) listOfNotNull(text.trim().ifBlank { null }) else cleaned
-    }
-
-    /** True when the token ending at the period [dotIndex] (back to the last space or [start]) is a known abbreviation. */
-    private fun endsWithAbbrev(line: String, start: Int, dotIndex: Int): Boolean {
-        var b = dotIndex - 1
-        while (b >= start && !line[b].isWhitespace()) b--
-        return line.substring(b + 1, dotIndex + 1).lowercase() in ABBREVIATIONS
-    }
-
     companion object {
         /** Fallback voice count before the model is queried; the real count comes from numSpeakers(). */
         const val VOICE_COUNT = 7
@@ -226,15 +207,6 @@ class TtsEngine @Inject constructor(
 
         /** Silence between sentences so periods land as full stops; the model under-pauses on some langs (e.g. pt). */
         private const val SENTENCE_GAP_SEC = 0.32
-
-        /** Sentence-final punctuation other than '.', which needs the decimal/abbreviation guards. */
-        private const val TERMINATORS = "!?…。"
-
-        /** Lowercased pt/es abbreviations (with trailing dot) whose period must not end a sentence. */
-        private val ABBREVIATIONS = setOf(
-            "sr.", "sra.", "srs.", "dr.", "dra.", "prof.", "profa.",
-            "etc.", "ex.", "p.ex.", "sto.", "sta.", "av.", "pág.", "núm.", "no.", "vs.",
-        )
 
         // Soft end-of-article chime.
         private const val CHIME_SECONDS = 0.7

@@ -13,18 +13,25 @@ import com.copiosa.data.settings.SettingsRepository
 import com.copiosa.data.tts.SupertonicModelStore
 import com.copiosa.data.tts.TtsEngine
 import com.copiosa.data.tts.TtsModelState
+import com.copiosa.data.usage.LlmUsageRepository
+import com.copiosa.domain.model.BookDownloadMode
 import com.copiosa.domain.model.ProviderId
 import com.copiosa.domain.srs.SpacedRepetitionScheduler
+import com.copiosa.domain.usage.UsageWindow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
+import java.time.YearMonth
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
@@ -47,6 +54,7 @@ class SettingsViewModel @Inject constructor(
     private val ttsEngine: TtsEngine,
     private val scheduler: SpacedRepetitionScheduler,
     private val backupService: BackupService,
+    private val usageRepo: LlmUsageRepository,
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings> =
@@ -136,6 +144,11 @@ class SettingsViewModel @Inject constructor(
      * Persists this language's target recall. Applies to cards as they're next graded — already
      * scheduled due dates are not rewritten, so the new curve phases in over a review cycle.
      */
+    /** The daily ceiling on never-studied cards; see [NewCardLimit]. Takes effect at once. */
+    fun setNewCardsPerDay(perDay: Int) {
+        viewModelScope.launch { repo.update { it.copy(newCardsPerDay = perDay) } }
+    }
+
     fun setDesiredRetention(retention: Double) {
         val clamped = retention.coerceIn(
             SpacedRepetitionScheduler.MIN_RETENTION,
@@ -162,9 +175,21 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { repo.update { it.copy(backgroundLlmTasks = on) } }
     }
 
-    /** Whether the book reader auto-translates ahead of the reading position. */
-    fun setBookAutoReadAhead(on: Boolean) {
-        viewModelScope.launch { repo.update { it.copy(bookAutoReadAhead = on) } }
+    /** Sets the background model for the provider in use; blank follows the main model. */
+    fun setBackgroundModel(model: String) {
+        viewModelScope.launch {
+            repo.update {
+                when (it.provider) {
+                    ProviderId.GEMINI -> it.copy(geminiBackgroundModel = model)
+                    ProviderId.OPENROUTER -> it.copy(openRouterBackgroundModel = model)
+                }
+            }
+        }
+    }
+
+    /** The download mode newly imported books start in; existing books keep their own. */
+    fun setBookDefaultDownloadMode(mode: BookDownloadMode) {
+        viewModelScope.launch { repo.update { it.copy(bookDefaultDownloadMode = mode) } }
     }
 
     /** Synthesizes a short sample in the target language with [sid] and plays it, so voices can be auditioned. */
@@ -238,6 +263,30 @@ class SettingsViewModel @Inject constructor(
                 .onFailure { _backup.value = BackupStatus.ERROR }
         }
     }
+
+    /**
+     * Month-to-date model usage, with last month for scale. The months are worked out when the flow
+     * starts rather than when the ViewModel does, so Settings left open across the first of the
+     * month shows the new one the next time it is looked at.
+     */
+    val usage: StateFlow<UsageOverview> = flow {
+        val month = YearMonth.now()
+        emitAll(
+            combine(
+                usageRepo.observe(UsageWindow.month(month)),
+                usageRepo.observe(UsageWindow.month(month.minusMonths(1))),
+                usageRepo.observeCountingSince(),
+            ) { current, previous, since ->
+                UsageOverview(
+                    thisMonth = current,
+                    lastMonth = previous.total,
+                    // Only worth saying while it cuts into a month on show: once the meter has been
+                    // running since before last month began, both figures are whole.
+                    countingSince = since?.takeIf { it > month.minusMonths(1).atDay(1) },
+                )
+            },
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UsageOverview())
 
     private val _keys = MutableStateFlow(currentKeyPresence())
     val keys: StateFlow<KeyPresence> = _keys.asStateFlow()

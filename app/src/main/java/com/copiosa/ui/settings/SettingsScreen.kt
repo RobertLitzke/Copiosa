@@ -16,7 +16,6 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.copiosa.R
 import com.copiosa.ui.components.LabeledDropdown
 import com.copiosa.ui.components.ScreenHeader
@@ -52,13 +52,14 @@ fun SettingsScreen(
     onBack: (() -> Unit)? = null,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val settings by viewModel.settings.collectAsState()
-    val keys by viewModel.keys.collectAsState()
-    val ttsState by viewModel.ttsModelState.collectAsState()
-    val previewing by viewModel.previewing.collectAsState()
-    val voiceCount by viewModel.ttsVoiceCount.collectAsState()
-    val profiles by viewModel.profiles.collectAsState()
-    val activeProfile by viewModel.activeProfile.collectAsState()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val keys by viewModel.keys.collectAsStateWithLifecycle()
+    val usage by viewModel.usage.collectAsStateWithLifecycle()
+    val ttsState by viewModel.ttsModelState.collectAsStateWithLifecycle()
+    val previewing by viewModel.previewing.collectAsStateWithLifecycle()
+    val voiceCount by viewModel.ttsVoiceCount.collectAsStateWithLifecycle()
+    val profiles by viewModel.profiles.collectAsStateWithLifecycle()
+    val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
 
     var tab by remember { mutableStateOf(initialTab) }
     var showAddLanguage by remember { mutableStateOf(false) }
@@ -109,7 +110,7 @@ fun SettingsScreen(
         ) {
             when (tab) {
                 SettingsTab.LANGUAGE -> LanguageTab(settings, viewModel)
-                SettingsTab.MODELS -> ModelsTab(settings, keys, ttsState, voiceCount, previewing, viewModel)
+                SettingsTab.MODELS -> ModelsTab(settings, keys, usage, ttsState, voiceCount, previewing, viewModel)
                 SettingsTab.APPEARANCE -> AppearanceTab(settings, viewModel)
             }
         }

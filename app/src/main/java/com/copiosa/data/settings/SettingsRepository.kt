@@ -15,7 +15,9 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.copiosa.domain.model.BookDownloadMode
 import com.copiosa.domain.model.Cefr
+import com.copiosa.domain.model.OpenRouterModels
 import com.copiosa.domain.model.Persona
 import com.copiosa.domain.model.ProviderId
 import com.copiosa.domain.model.ReadingFont
@@ -55,6 +57,11 @@ class SettingsRepository @Inject constructor(
         fun provider(tag: String) = stringPreferencesKey("p.$tag.provider")
         fun geminiModel(tag: String) = stringPreferencesKey("p.$tag.gemini_model")
         fun openRouterModel(tag: String) = stringPreferencesKey("p.$tag.openrouter_model")
+
+        /** The configured OpenRouter roster, JSON-encoded; absent on a profile that predates it. */
+        fun openRouterModels(tag: String) = stringPreferencesKey("p.$tag.openrouter_models")
+        fun geminiBackgroundModel(tag: String) = stringPreferencesKey("p.$tag.gemini_background_model")
+        fun openRouterBackgroundModel(tag: String) = stringPreferencesKey("p.$tag.openrouter_background_model")
         fun nativeLang(tag: String) = stringPreferencesKey("p.$tag.native_lang")
         fun defaultLevel(tag: String) = stringPreferencesKey("p.$tag.default_level")
         fun defaultCountry(tag: String) = stringPreferencesKey("p.$tag.default_country")
@@ -71,9 +78,14 @@ class SettingsRepository @Inject constructor(
         fun autoDeletePlayedAfterDays(tag: String) = intPreferencesKey("p.$tag.auto_delete_played_days")
         fun backgroundLlmTasks(tag: String) = booleanPreferencesKey("p.$tag.background_llm_tasks")
         fun reviewReminders(tag: String) = booleanPreferencesKey("p.$tag.review_reminders")
+        fun highlightSavedWords(tag: String) = booleanPreferencesKey("p.$tag.highlight_saved_words")
+        fun bookDefaultDownloadMode(tag: String) = stringPreferencesKey("p.$tag.book_default_download_mode")
+
+        /** Retired in favour of [bookDefaultDownloadMode]; still read once, to carry the intent over. */
         fun bookAutoReadAhead(tag: String) = booleanPreferencesKey("p.$tag.book_auto_read_ahead")
         fun bookFrontierHintDismissed(tag: String) = booleanPreferencesKey("p.$tag.book_frontier_hint_dismissed")
         fun desiredRetention(tag: String) = doublePreferencesKey("p.$tag.desired_retention")
+        fun newCardsPerDay(tag: String) = intPreferencesKey("p.$tag.new_cards_per_day")
         fun dailyGoalMinutes(tag: String) = intPreferencesKey("p.$tag.daily_goal_minutes")
         fun conjugationDrill(tag: String) = stringPreferencesKey("p.$tag.conjugation_drill")
     }
@@ -140,7 +152,13 @@ class SettingsRepository @Inject constructor(
                 (prefs[Keys.ACTIVE_PROFILE] ?: DEFAULT_PROFILE)
             if (tag !in known) {
                 val current = readProfile(prefs, prefs[Keys.ACTIVE_PROFILE] ?: DEFAULT_PROFILE)
-                prefs.writeProfile(tag, current.copy(targetLanguage = tag))
+                // Everything else is worth inheriting (provider, model, prompts, level), but the
+                // country is not: a Portuguese profile seeded from a Spanish one would otherwise
+                // start out teaching Portuguese as spoken in Mexico.
+                prefs.writeProfile(
+                    tag,
+                    current.copy(targetLanguage = tag, defaultCountry = defaultCountryFor(tag)),
+                )
             }
             prefs[Keys.PROFILES] = known + tag
             prefs[Keys.ACTIVE_PROFILE] = tag
@@ -149,11 +167,28 @@ class SettingsRepository @Inject constructor(
 
     private fun readProfile(p: Preferences, tag: String): AppSettings {
         val d = AppSettings()
+        // A profile written before the roster existed has only the single model key; it becomes that
+        // profile's one-entry roster. normalize() also guarantees the active model is in the list,
+        // so nothing downstream can be pointed at a model the pickers don't offer.
+        val activeOpenRouter = p[Keys.openRouterModel(tag)] ?: d.openRouterModel
+        val openRouterRoster = OpenRouterModels.normalize(
+            OpenRouterModels.decode(p[Keys.openRouterModels(tag)]) ?: emptyList(),
+            activeOpenRouter,
+        )
         return AppSettings(
             provider = p[Keys.provider(tag)]?.let { runCatching { ProviderId.valueOf(it) }.getOrNull() }
                 ?: d.provider,
             geminiModel = p[Keys.geminiModel(tag)] ?: d.geminiModel,
-            openRouterModel = p[Keys.openRouterModel(tag)] ?: d.openRouterModel,
+            openRouterModel = activeOpenRouter,
+            openRouterModels = openRouterRoster,
+            // A slot naming a model that has since left its list falls back to "same as main"
+            // rather than sending background work to an id nothing offers any more.
+            geminiBackgroundModel = p[Keys.geminiBackgroundModel(tag)]
+                ?.takeIf { it in AppSettings.GEMINI_MODELS }
+                ?: d.geminiBackgroundModel,
+            openRouterBackgroundModel = p[Keys.openRouterBackgroundModel(tag)]
+                ?.takeIf { id -> openRouterRoster.any { it.id == id } }
+                ?: d.openRouterBackgroundModel,
             nativeLanguage = p[Keys.nativeLang(tag)] ?: d.nativeLanguage,
             targetLanguage = tag,
             defaultLevel = p[Keys.defaultLevel(tag)]?.let { runCatching { Cefr.valueOf(it) }.getOrNull() }
@@ -178,11 +213,19 @@ class SettingsRepository @Inject constructor(
             autoDeletePlayedAfterDays = p[Keys.autoDeletePlayedAfterDays(tag)] ?: d.autoDeletePlayedAfterDays,
             backgroundLlmTasks = p[Keys.backgroundLlmTasks(tag)] ?: d.backgroundLlmTasks,
             reviewReminders = p[Keys.reviewReminders(tag)] ?: d.reviewReminders,
-            bookAutoReadAhead = p[Keys.bookAutoReadAhead(tag)] ?: d.bookAutoReadAhead,
+            highlightSavedWords = p[Keys.highlightSavedWords(tag)] ?: d.highlightSavedWords,
+            // Falls back to the boolean this replaced, so a profile that had read-ahead switched
+            // off keeps importing books that translate nothing until asked.
+            bookDefaultDownloadMode = p[Keys.bookDefaultDownloadMode(tag)]
+                ?.let { runCatching { BookDownloadMode.valueOf(it) }.getOrNull() }
+                ?: p[Keys.bookAutoReadAhead(tag)]
+                    ?.let { if (it) BookDownloadMode.WHILE_READING else BookDownloadMode.OFF }
+                ?: d.bookDefaultDownloadMode,
             bookFrontierHintDismissed =
                 p[Keys.bookFrontierHintDismissed(tag)] ?: d.bookFrontierHintDismissed,
             desiredRetention = (p[Keys.desiredRetention(tag)] ?: d.desiredRetention)
                 .coerceIn(SpacedRepetitionScheduler.MIN_RETENTION, SpacedRepetitionScheduler.MAX_RETENTION),
+            newCardsPerDay = p[Keys.newCardsPerDay(tag)] ?: d.newCardsPerDay,
             dailyGoalMinutes = (p[Keys.dailyGoalMinutes(tag)] ?: d.dailyGoalMinutes)
                 .coerceIn(AppSettings.DAILY_GOAL_MIN, AppSettings.DAILY_GOAL_MAX),
         )
@@ -192,6 +235,10 @@ class SettingsRepository @Inject constructor(
         this[Keys.provider(tag)] = s.provider.name
         this[Keys.geminiModel(tag)] = s.geminiModel
         this[Keys.openRouterModel(tag)] = s.openRouterModel
+        this[Keys.openRouterModels(tag)] =
+            OpenRouterModels.encode(OpenRouterModels.normalize(s.openRouterModels, s.openRouterModel))
+        this[Keys.geminiBackgroundModel(tag)] = s.geminiBackgroundModel
+        this[Keys.openRouterBackgroundModel(tag)] = s.openRouterBackgroundModel
         this[Keys.nativeLang(tag)] = s.nativeLanguage
         // No target-language key: the tag itself is the profile identity.
         this[Keys.defaultLevel(tag)] = s.defaultLevel.name
@@ -210,10 +257,12 @@ class SettingsRepository @Inject constructor(
         this[Keys.autoDeletePlayedAfterDays(tag)] = s.autoDeletePlayedAfterDays
         this[Keys.backgroundLlmTasks(tag)] = s.backgroundLlmTasks
         this[Keys.reviewReminders(tag)] = s.reviewReminders
-        this[Keys.bookAutoReadAhead(tag)] = s.bookAutoReadAhead
+        this[Keys.highlightSavedWords(tag)] = s.highlightSavedWords
+        this[Keys.bookDefaultDownloadMode(tag)] = s.bookDefaultDownloadMode.name
         this[Keys.bookFrontierHintDismissed(tag)] = s.bookFrontierHintDismissed
         this[Keys.desiredRetention(tag)] =
             s.desiredRetention.coerceIn(SpacedRepetitionScheduler.MIN_RETENTION, SpacedRepetitionScheduler.MAX_RETENTION)
+        this[Keys.newCardsPerDay(tag)] = s.newCardsPerDay
         this[Keys.dailyGoalMinutes(tag)] =
             s.dailyGoalMinutes.coerceIn(AppSettings.DAILY_GOAL_MIN, AppSettings.DAILY_GOAL_MAX)
     }
@@ -243,6 +292,21 @@ class SettingsRepository @Inject constructor(
 
     companion object {
         const val DEFAULT_PROFILE = "es"
+
+        /**
+         * Where a new profile's teacher is from, before the learner changes it. Only a starting
+         * point — every one of these languages is spoken in several countries, and the setting is a
+         * dropdown for exactly that reason.
+         */
+        fun defaultCountryFor(tag: String): String = when (tag.substringBefore('-').lowercase()) {
+            "es" -> "Mexico"
+            "pt" -> "Portugal"
+            "fr" -> "France"
+            "de" -> "Germany"
+            "it" -> "Italy"
+            "en" -> "the United Kingdom"
+            else -> AppSettings().defaultCountry
+        }
     }
 }
 

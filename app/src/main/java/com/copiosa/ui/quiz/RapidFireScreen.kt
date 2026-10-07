@@ -22,7 +22,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.copiosa.R
 import com.copiosa.domain.quiz.CueType
 import com.copiosa.domain.quiz.SessionStats
@@ -52,16 +52,18 @@ fun RapidFireScreen(
     onOpenPool: () -> Unit,
     viewModel: RapidFireViewModel = hiltViewModel(),
 ) {
-    val home by viewModel.home.collectAsState()
-    val session by viewModel.session.collectAsState()
-    val questionCount by viewModel.questionCount.collectAsState()
-    val playbackSpeed by viewModel.playbackSpeed.collectAsState()
+    val home by viewModel.home.collectAsStateWithLifecycle()
+    val session by viewModel.session.collectAsStateWithLifecycle()
+    val questionCount by viewModel.questionCount.collectAsStateWithLifecycle()
+    val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
+    val nothingToPlay by viewModel.nothingToPlay.collectAsStateWithLifecycle()
 
     val active = session
     // Only a running session counts as focus time — not the setup or results screens.
     TrackFocusTime(FocusActivityType.QUIZ, enabled = active != null && !active.finished)
     when {
-        active == null -> RapidFireHome(home, focusType, questionCount, playbackSpeed, viewModel, onBack, onOpenPool)
+        active == null ->
+            RapidFireHome(home, focusType, questionCount, playbackSpeed, nothingToPlay, viewModel, onBack, onOpenPool)
         active.finished -> ResultsScreen(
             stats = active.stats,
             topicSplit = active.topicSplit,
@@ -88,6 +90,7 @@ private fun RapidFireHome(
     focusType: CueType,
     questionCount: Int,
     playbackSpeed: Float,
+    nothingToPlay: Boolean,
     viewModel: RapidFireViewModel,
     onBack: () -> Unit,
     onOpenPool: () -> Unit,
@@ -163,6 +166,7 @@ private fun RapidFireHome(
                         label = cueLabel(focusType),
                         ready = home.readyCount,
                         canStart = home.canStart(),
+                        nothingToPlay = nothingToPlay,
                         onStart = { viewModel.startSession() },
                     )
                 }
@@ -221,7 +225,13 @@ private fun speedText(speed: Float): String =
 
 /** One top-level exercise (Numbers, Times, …): its readiness and a start button. */
 @Composable
-private fun ExerciseCard(label: String, ready: Int, canStart: Boolean, onStart: () -> Unit) {
+private fun ExerciseCard(
+    label: String,
+    ready: Int,
+    canStart: Boolean,
+    nothingToPlay: Boolean,
+    onStart: () -> Unit,
+) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -232,6 +242,14 @@ private fun ExerciseCard(label: String, ready: Int, canStart: Boolean, onStart: 
             )
             Button(onClick = onStart, enabled = canStart, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.quiz_start))
+            }
+            // Start that found nothing to ask must not look like a button that did nothing.
+            if (nothingToPlay) {
+                Text(
+                    stringResource(R.string.quiz_nothing_to_play),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
     }

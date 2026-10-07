@@ -3,6 +3,7 @@ package com.copiosa.data.routine
 import com.copiosa.data.local.TopicDao
 import com.copiosa.data.local.TopicEntity
 import com.copiosa.domain.routine.CalmHeuristic
+import com.copiosa.domain.routine.RoutineType
 import com.copiosa.domain.routine.TopicSource
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
@@ -63,9 +64,18 @@ class TopicRepository @Inject constructor(
         }
     }
 
-    /** Best bedtime seeds first (calmest, then most recently/often touched). */
-    suspend fun suggestions(targetLanguage: String, limit: Int = 8): List<TopicEntity> =
-        dao.suggestions(targetLanguage, limit)
+    /**
+     * Best seeds for [routineType] first. The bedtime wind-down wants the calmest themes; the daytime
+     * activation has no calm preference, so it orders on recency/frequency alone.
+     */
+    suspend fun suggestions(
+        targetLanguage: String,
+        routineType: RoutineType = RoutineType.BEDTIME,
+        limit: Int = 8,
+    ): List<TopicEntity> = when (routineType) {
+        RoutineType.BEDTIME -> dao.suggestions(targetLanguage, limit)
+        RoutineType.DAYTIME -> dao.recentSuggestions(targetLanguage, limit)
+    }
 
     fun observe(targetLanguage: String): Flow<List<TopicEntity>> = dao.observeForLanguage(targetLanguage)
 

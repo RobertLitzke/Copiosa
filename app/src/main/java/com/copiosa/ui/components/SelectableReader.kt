@@ -11,33 +11,27 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.copiosa.domain.highlight.HighlightTarget
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.copiosa.ui.theme.SerifTitle
 
 /**
- * The shared selectable reading view: target-language [blocks] rendered with saved-word highlighting,
- * tap/drag to translate + define a selection, and a floating [TranslationCard] to save it to
- * vocabulary. Used by the Texts reader and a routine's reading step alike — the caller supplies the
- * selection callbacks (backed by a [ReadingSelectionController]) and may append a [footer] (e.g. the
- * Texts reader's translation-progress / partial-error row, which lives inside the same scroll list).
+ * The shared *monolingual* selectable reading view: target-language [blocks] rendered with
+ * saved-word highlighting, tap/drag to translate + define a selection, and a floating
+ * [TranslationCard] to save it to vocabulary. The caller supplies the selection callbacks (backed by
+ * a [ReadingSelectionController]) and may append a [footer] inside the same scroll list.
+ *
+ * This is for surfaces that only ever show one language — a routine's reading step. The texts and
+ * books readers show a paragraph in either language or both, and are built on `BilingualBlockRow`
+ * instead; they drive the same [ReadingSelectionController] underneath.
  */
 @Composable
 fun SelectableReader(
     blocks: List<String>,
-    highlightTargets: List<HighlightTarget>,
-    translate: TranslateState?,
-    onSelectionTranslate: (text: String, anchorY: Float, sourceText: String) -> Unit,
-    onDismissSelection: () -> Unit,
-    onSave: (headword: String) -> Unit,
-    onSelectSaveEntry: (lemma: String, pos: String?) -> Unit,
-    onDownloadDictionary: () -> Unit,
+    reading: ReadingSelectionController,
     modifier: Modifier = Modifier,
     title: String? = null,
     listState: LazyListState = rememberLazyListState(),
@@ -46,11 +40,12 @@ fun SelectableReader(
     onSendSelectionToAudio: ((String) -> Unit)? = null,
     footer: (LazyListScope.() -> Unit)? = null,
 ) {
+    val highlightTargets by reading.highlightTargets.collectAsStateWithLifecycle()
+    val translate by reading.translate.collectAsStateWithLifecycle()
     val savedColor = MaterialTheme.colorScheme.primary
     val colorizer = remember(highlightTargets, savedColor) { WordColorizer(highlightTargets, savedColor) }
-    // Which block currently owns the highlight, so only the tapped paragraph shows the selection span.
-    var selectedBlock by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(translate) { if (translate == null) selectedBlock = null }
+    // One selection across the whole passage, so a drag can run from one paragraph into the next.
+    val selection = rememberReadingSelectionSpan()
 
     LazyColumn(
         state = listState,
@@ -63,32 +58,21 @@ fun SelectableReader(
             SelectableMessage(
                 content = block,
                 colorizer = colorizer,
-                isActive = translate != null && selectedBlock == i,
-                onSelected = { text, y -> selectedBlock = i; onSelectionTranslate(text, y, block) },
-                onCleared = onDismissSelection,
+                isActive = translate != null,
+                onSelected = { text, y -> reading.onSelectionTranslate(text, y, block) },
+                onCleared = reading::dismissTranslate,
+                selection = selection,
+                block = i,
             )
         }
         footer?.invoke(this)
     }
 
     translate?.let { t ->
-        TranslationCard(
-            original = t.original,
-            translation = t.translation,
-            translationOf = t.translationOf,
-            loading = t.loading,
-            definition = t.definition,
-            canExplain = false,
-            anchorYPx = t.anchorY,
-            savedCard = t.savedCard,
-            lemmaSuggestion = t.saveLemma,
-            savePos = t.savePos,
-            onSave = onSave,
-            onSelectEntry = onSelectSaveEntry,
-            onExplain = {},
-            onDownloadDictionary = onDownloadDictionary,
-            onOpenSaved = { t.savedCard?.let { c -> onOpenSaved?.invoke(c.id) } },
-            onDismiss = onDismissSelection,
+        ReaderTranslationCard(
+            state = t,
+            selection = reading,
+            onOpenVocab = { id -> onOpenSaved?.invoke(id) },
             onSendToAudio = onSendSelectionToAudio?.let { send -> { send(t.original) } },
         )
     }

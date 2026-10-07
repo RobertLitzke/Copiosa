@@ -5,6 +5,7 @@ import com.copiosa.data.local.BookParagraphEntity
 import com.copiosa.data.local.ChapterHeading
 import com.copiosa.data.local.ChapterSpan
 import com.copiosa.domain.model.BookDirection
+import com.copiosa.domain.model.BookDownloadMode
 
 /**
  * The reader's two languages, read off a paragraph row. Which stored column holds which language
@@ -25,11 +26,35 @@ fun BookParagraphEntity.nativeText(direction: BookDirection): String? =
  * Whether this book should be having sections translated at all.
  *
  * A forward book always should — untranslated means unreadable. A reverse book is readable the
- * moment it is imported, so its gloss pass is opt-in and `autoTranslate` (the same flag the
- * overflow menu and the background trickle task already use) is the opt-in.
+ * moment it is imported, so its gloss pass is opt-in, and any download mode above OFF is that
+ * opt-in (a reverse book is imported at OFF for exactly this reason).
  */
 val BookEntity.wantsTranslation: Boolean
-    get() = direction == BookDirection.FORWARD || autoTranslate
+    get() = direction == BookDirection.FORWARD || downloadMode != BookDownloadMode.OFF
+
+/**
+ * Whether the book reads end to end in the target language, and so is worth exporting as an EPUB.
+ *
+ * Not simply `translatedSections >= totalSections`: a reverse book that never opted into a gloss
+ * *is* its own target text and is complete from the moment it is imported, so it would otherwise be
+ * locked out of an export it needs nothing for.
+ *
+ * Taken in the loose form because the two menu homes have different data to hand — the reader has a
+ * [BookEntity], the library row has its own projection — and a gating rule that exists twice is one
+ * that drifts.
+ */
+fun bookFullyReadable(wantsTranslation: Boolean, translatedSections: Int, totalSections: Int): Boolean =
+    !wantsTranslation || translatedSections >= totalSections
+
+/** Both languages present end to end — the precondition for the bilingual export variant. */
+fun bookFullyBilingual(wantsTranslation: Boolean, translatedSections: Int, totalSections: Int): Boolean =
+    wantsTranslation && translatedSections >= totalSections
+
+val BookEntity.fullyReadable: Boolean
+    get() = bookFullyReadable(wantsTranslation, translatedSections, totalSections)
+
+val BookEntity.fullyBilingual: Boolean
+    get() = bookFullyBilingual(wantsTranslation, translatedSections, totalSections)
 
 /** How much of a chapter the reader can actually read. */
 enum class ChapterProgress {

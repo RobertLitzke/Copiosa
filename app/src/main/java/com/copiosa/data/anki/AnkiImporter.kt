@@ -3,6 +3,7 @@ package com.copiosa.data.anki
 import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.data.local.ReviewLogEntity
 import com.copiosa.domain.model.CardKind
+import com.copiosa.domain.model.Cloze
 import com.copiosa.domain.model.FlashcardState
 import com.copiosa.domain.model.ReviewDirection
 import com.copiosa.domain.model.ReviewRating
@@ -67,8 +68,13 @@ class AnkiImporter(
             // Keep the translation clean: peel a crammed usage note out of the gloss side only (a
             // reverse card's back is the target headword, which must never be split).
             val (back, usageNote) = if (frontIsTarget) BackNoteSplitter.split(projBack) else primary to null
+            // An explicit `la:kind:` tag wins; otherwise cloze markup classifies the card itself.
+            // Without that fallback an imported Anki cloze note lands as VOCAB and leaks into the
+            // conversation vocab pool and the gender/image passes, all of which filter on
+            // `cardKind IN ('VOCAB','PHRASE')` — which is exactly what MIGRATION_16_17 had to
+            // retro-fix for cards imported before it.
             val cardKind = la["kind"]?.let { runCatching { CardKind.valueOf(it.uppercase()) }.getOrNull() }
-                ?: CardKind.VOCAB
+                ?: if (Cloze.hasCloze(front) || Cloze.hasCloze(back)) CardKind.CLOZE else CardKind.VOCAB
 
             val image = firstMatch(note.fields, IMG_FILE_RE)
             val audio = firstMatch(note.fields, SOUND_FILE_RE)
@@ -93,6 +99,9 @@ class AnkiImporter(
                 // reverse cards from the native side (i.e. their front, which is shown first).
                 reviewDirection = if (frontIsTarget) ReviewDirection.TARGET_FIRST else ReviewDirection.NATIVE_FIRST,
                 partOfSpeech = la["pos"],
+                // Provenance survives a round trip, so a re-imported deck can still be cleaned up
+                // by generator. A deck that never left Copiosa simply has no `la:auto` tag.
+                autoSource = la["auto"],
                 targetLanguage = targetLanguage,
                 nativeLanguage = nativeLanguage,
                 createdAt = now,

@@ -1,20 +1,35 @@
 package com.copiosa.ui.library
 
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.copiosa.data.article.ArticleExtractor
+import com.copiosa.data.epub.BookEpubExportService
+import com.copiosa.data.epub.BookExportRun
+import com.copiosa.data.epub.BookExportState
+import com.copiosa.data.epub.EpubExportVariant
 import com.copiosa.data.generation.AudioGenerationManager
+import com.copiosa.data.generation.BookAudioManager
+import com.copiosa.data.generation.BookAudioPlan
+import com.copiosa.data.generation.BookAudioScheduler
+import com.copiosa.data.generation.BookDownloadChoice
+import com.copiosa.data.generation.BookDownloadController
+import com.copiosa.data.generation.BookDownloadState
 import com.copiosa.data.generation.BookTranslationManager
 import com.copiosa.data.generation.GenPhase
 import com.copiosa.data.generation.GenerationManager
 import com.copiosa.data.local.ConversationEntity
+import com.copiosa.data.remote.LlmError
+import com.copiosa.data.remote.llmErrorOfCode
 import com.copiosa.data.repository.BookRepository
 import com.copiosa.data.repository.ConversationRepository
 import com.copiosa.data.settings.SettingsRepository
 import com.copiosa.data.tts.SupertonicModelStore
 import com.copiosa.domain.book.wantsTranslation
 import com.copiosa.domain.model.Role
+import com.copiosa.domain.reading.BilingualBlocks
+import com.copiosa.ui.books.BookActions
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -62,6 +77,11 @@ data class TextItem(
     val starred: Boolean = false,
     /** True once the reader has scrolled to the end; drives the list's read-status coloring. */
     val finishedReading: Boolean = false,
+    /**
+     * How far through the text the reader is, 0..1 — or null for a text short enough that "where
+     * was I" is answered by opening it, which gets no progress rule at all.
+     */
+    val progress: Float? = null,
 )
 
 /** An imported EPUB book row. */
@@ -82,13 +102,18 @@ data class BookItem(
     val totalSections: Int,
     /** True while the manager is actively translating this book. */
     val translating: Boolean,
-    /** True when the last translation attempt surfaced an error. */
-    val failed: Boolean,
+    /**
+     * Why the last translation attempt failed, or null. Read from Room as well as the manager, so a
+     * book that stalled in the background days ago still says what stopped it — the row is the only
+     * place that stall is visible without opening the book.
+     */
+    val failure: LlmError?,
     val readingMinutes: Int,
     val updatedAt: Long,
     val starred: Boolean = false,
-    val autoTranslate: Boolean = false,
     val finishedReading: Boolean = false,
+    /** How far through the book the reader is, 0..1, by paragraph. */
+    val progress: Float = 0f,
 )
 
 /**
@@ -96,7 +121,7 @@ data class BookItem(
  * [LibraryFilter.AUDIO] is a segment rather than a filter — it swaps the list for the audio queue,
  * which has its own screen state, so it never produces [LibraryEntry] rows.
  */
-enum class LibraryFilter { ALL, CHATS, TRANSLATIONS, BOOKS, AUDIO }
+enum class LibraryFilter { ALL, CHATS, TEXTS, BOOKS, AUDIO }
 
 /** A row in the unified Library list — a chat, a translated text, or an imported book. */
 sealed interface LibraryEntry {
@@ -115,7 +140,7 @@ sealed interface LibraryEntry {
         override val listKey get() = "c$id"
     }
 
-    data class Translation(val item: TextItem) : LibraryEntry {
+    data class Text(val item: TextItem) : LibraryEntry {
         override val id get() = item.id
         override val updatedAt get() = item.updatedAt
         override val listKey get() = "t$id"
@@ -136,7 +161,11 @@ class LibraryViewModel @Inject constructor(
     private val bookRepo: BookRepository,
     private val generation: GenerationManager,
     private val books: BookTranslationManager,
+    private val downloads: BookDownloadController,
+    private val epubExport: BookEpubExportService,
     private val audioGeneration: AudioGenerationManager,
+    private val bookAudio: BookAudioManager,
+    private val bookAudioScheduler: BookAudioScheduler,
     private val ttsModelStore: SupertonicModelStore,
     settingsRepo: SettingsRepository,
 ) : ViewModel() {
@@ -180,12 +209,12 @@ class LibraryViewModel @Inject constructor(
                                 translatedSections = progress[b.id]?.first ?: b.translatedSections,
                                 totalSections = b.totalSections,
                                 translating = active[b.id] != null,
-                                failed = errors[b.id] != null,
+                                failure = errors[b.id] ?: b.lastError?.let(::llmErrorOfCode),
                                 readingMinutes = (b.wordCount / WORDS_PER_MINUTE).coerceAtLeast(1),
                                 updatedAt = b.updatedAt,
                                 starred = b.starred,
-                                autoTranslate = b.autoTranslate,
                                 finishedReading = b.finishedReading,
+                                progress = readProgress(b.posParagraph, b.totalParagraphs, b.finishedReading),
                             ),
                         )
                     }
@@ -231,17 +260,19 @@ class LibraryViewModel @Inject constructor(
                         complete -> null
                         else -> TextStatus.Failed
                     }
-                    LibraryEntry.Translation(
+                    val words = wordCount(c.originalText)
+                    LibraryEntry.Text(
                         TextItem(
                             id = c.id,
                             title = c.title,
                             source = c.sourceUrl?.let { ArticleExtractor.hostOf(it) },
                             level = c.level.name,
-                            readingMinutes = readingMinutes(c.originalText),
+                            readingMinutes = if (words > 0) (words / WORDS_PER_MINUTE).coerceAtLeast(1) else 0,
                             updatedAt = c.updatedAt,
                             status = status,
                             starred = c.starred,
                             finishedReading = c.finishedReading,
+                            progress = if (words >= LONG_TEXT_WORDS) textProgress(c) else null,
                         ),
                     )
                 }
@@ -263,7 +294,7 @@ class LibraryViewModel @Inject constructor(
             when (filter) {
                 LibraryFilter.ALL -> all
                 LibraryFilter.CHATS -> all.filterIsInstance<LibraryEntry.Chat>()
-                LibraryFilter.TRANSLATIONS -> all.filterIsInstance<LibraryEntry.Translation>()
+                LibraryFilter.TEXTS -> all.filterIsInstance<LibraryEntry.Text>()
                 LibraryFilter.BOOKS -> all.filterIsInstance<LibraryEntry.Book>()
                 LibraryFilter.AUDIO -> emptyList()
             }
@@ -326,16 +357,16 @@ class LibraryViewModel @Inject constructor(
     }
 
     /**
-     * Flips a book's background slow-translate flag. Turning it on translates one section right away so
-     * the toggle visibly does something, leaving the rest to BookTranslateTask's trickle; turning it off
-     * cancels the run in flight.
+     * Flip a book's "read to the end" flag by hand, the same way a text can be. The reader sets it
+     * on its own when you reach the last paragraph, but nothing else could ever clear it — a book
+     * marked finished stayed finished, and so stayed out of Home's "continue reading".
      */
-    fun setBookAutoTranslate(id: Long, on: Boolean) {
-        viewModelScope.launch {
-            bookRepo.setAutoTranslate(id, on)
-            if (on) books.translateToEnd(id, maxSections = 1) else books.cancel(id)
-        }
+    fun setBookRead(id: Long, read: Boolean) {
+        viewModelScope.launch { bookRepo.setFinishedReading(id, read) }
     }
+
+    /** Download-mode, EPUB-export and audio actions for whichever book row was tapped; see [BookActions]. */
+    val bookActions = BookActions(viewModelScope, downloads, epubExport, bookAudio, bookAudioScheduler)
 
     fun deleteBook(id: Long) {
         books.cancel(id)
@@ -348,55 +379,89 @@ class LibraryViewModel @Inject constructor(
     /** Starts the (opt-in) voice download — called from the "Generate audio" download prompt. */
     fun startTtsDownload() = ttsModelStore.download()
 
-    /** Queues a chat's assistant turns for on-device TTS as a single audio item (renders when ready). */
-    fun sendChatToAudio(id: Long) {
+    /**
+     * Queues a chat's assistant turns for on-device TTS as a single audio item (renders when ready).
+     * [onResult] hears whether anything was queued — a chat still waiting on its first reply has
+     * nothing to read — so the list can say which happened.
+     */
+    fun sendChatToAudio(id: Long, onResult: (queued: Boolean) -> Unit) {
         viewModelScope.launch {
-            val conv = repo.getConversation(id) ?: return@launch
+            val conv = repo.getConversation(id)
             val body = repo.observeMessages(id).first()
                 .filter { it.role == Role.ASSISTANT && it.content.isNotBlank() }
                 .joinToString("\n\n") { it.content.trim() }
                 .trim()
-            if (body.isBlank()) return@launch
-            // Match the list: use the target-language title, not the native-language subject.
-            val title = conv.title
+            if (conv == null || body.isBlank()) return@launch onResult(false)
             audioGeneration.enqueue(
                 text = body,
-                title = title,
+                // Match the list: use the target-language title, not the native-language subject.
+                title = conv.title,
                 langCode = conv.targetLanguage,
                 sourceConversationId = id,
             )
+            onResult(true)
         }
     }
 
-    /** Queues a translation's translated body for on-device TTS (renders once the voice is ready). */
-    fun sendTextToAudio(id: Long) {
+    /**
+     * Queues a translation's translated body for on-device TTS (renders once the voice is ready).
+     * [onResult] as in [sendChatToAudio]: a text whose translation has not arrived queues nothing.
+     */
+    fun sendTextToAudio(id: Long, onResult: (queued: Boolean) -> Unit) {
         viewModelScope.launch {
-            val conv = repo.getConversation(id) ?: return@launch
+            val conv = repo.getConversation(id)
             // The translated body is stored as the text's first assistant message.
             val body = repo.observeMessages(id).first()
                 .firstOrNull { it.role == Role.ASSISTANT }?.content?.trim().orEmpty()
-            if (body.isBlank()) return@launch
-            // Match the list: use the target-language title, not the source-language originalTitle.
-            val title = conv.title
+            if (conv == null || body.isBlank()) return@launch onResult(false)
             audioGeneration.enqueue(
                 text = body,
-                title = title,
+                // Match the list: use the target-language title, not the source-language originalTitle.
+                title = conv.title,
                 langCode = conv.targetLanguage,
                 sourceConversationId = id,
             )
+            onResult(true)
         }
     }
 
-    private fun readingMinutes(text: String?): Int {
-        if (text.isNullOrBlank()) return 0
-        val words = text.trim().split(Regex("\\s+")).size
-        return (words / WORDS_PER_MINUTE).coerceAtLeast(1)
+    private fun wordCount(text: String?): Int =
+        if (text.isNullOrBlank()) 0 else text.trim().split(WHITESPACE).size
+
+    /**
+     * A text's progress from its saved scroll position. The reader's list is one row per source
+     * block (see [BilingualBlocks.align], which anchors rows on the original) behind a title item,
+     * so the stored first-visible index over that count is how far in the reader is — the same
+     * item-granular measure the open reader's rule uses.
+     */
+    private fun textProgress(c: ConversationEntity): Float {
+        val items = BilingualBlocks.split(c.originalText.orEmpty()).size + 1
+        return readProgress(c.scrollIndex, items, c.finishedReading)
     }
 
     private companion object {
         const val WORDS_PER_MINUTE = 200
 
+        /**
+         * Where a text becomes long enough to lose your place in: about four phone screens at the
+         * reading size. Below it the row carries no progress rule.
+         */
+        const val LONG_TEXT_WORDS = 600
+
+        val WHITESPACE = Regex("\\s+")
+
         /** Rows shown per "page" of the Library list. */
         const val PAGE_SIZE = 50
     }
+}
+
+/**
+ * How far through [total] items a saved position of [position] is, 0..1. A finished item reads as
+ * full whatever its position says: the saved index is the *first* visible row, which on the last
+ * screen of a text is still short of the end.
+ */
+internal fun readProgress(position: Int, total: Int, finished: Boolean): Float = when {
+    finished -> 1f
+    total <= 0 -> 0f
+    else -> (position.toFloat() / total).coerceIn(0f, 1f)
 }

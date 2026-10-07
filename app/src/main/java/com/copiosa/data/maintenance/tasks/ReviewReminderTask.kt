@@ -1,10 +1,10 @@
 package com.copiosa.data.maintenance.tasks
 
-import com.copiosa.data.local.FlashcardDao
 import com.copiosa.data.maintenance.MaintenanceTask
 import com.copiosa.data.maintenance.ReviewReminderNotifier
 import com.copiosa.data.maintenance.TaskContext
 import com.copiosa.data.maintenance.TaskScope
+import com.copiosa.data.repository.FlashcardRepository
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,7 +16,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class ReviewReminderTask @Inject constructor(
-    private val flashcardDao: FlashcardDao,
+    private val flashcards: FlashcardRepository,
     private val notifier: ReviewReminderNotifier,
 ) : MaintenanceTask {
 
@@ -27,7 +27,9 @@ class ReviewReminderTask @Inject constructor(
 
     override suspend fun run(ctx: TaskContext) {
         if (!ctx.settings.reviewReminders) return
-        val due = flashcardDao.countDue(ctx.profileTag, ctx.now)
+        // Today's reviews, not everything that has come due: a reminder that counts cards the
+        // daily limit is holding back would announce work the app will not actually hand over.
+        val due = flashcards.dueToday(ctx.profileTag, ctx.now).total
         // A couple of due cards isn't worth an interruption; the backlog threshold keeps the
         // reminder meaningful.
         if (due >= MIN_DUE_TO_NOTIFY) notifier.notifyDue(ctx.profileTag, due)

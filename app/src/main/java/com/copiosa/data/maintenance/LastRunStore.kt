@@ -12,7 +12,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Per-(task, profile) cadence bookkeeping, plus a scratch space for small task outputs.
+ * Per-(task, profile) cadence bookkeeping.
  *
  * An interface so [MaintenanceRunner] is testable without DataStore. The data is bounded and
  * scalar — a handful of tasks times a handful of profiles — so it lives in preferences rather
@@ -21,10 +21,6 @@ import javax.inject.Singleton
 interface LastRunStore {
     suspend fun get(taskId: String, tag: String): Long
     suspend fun set(taskId: String, tag: String, at: Long)
-
-    /** Scratch values keyed by the caller (e.g. a precomputed due count). */
-    suspend fun getLong(key: String): Long?
-    suspend fun putLong(key: String, value: Long)
 }
 
 private val Context.maintenanceStore: DataStore<Preferences> by
@@ -44,13 +40,6 @@ class DataStoreLastRunStore @Inject constructor(
 
     override suspend fun set(taskId: String, tag: String, at: Long) {
         context.maintenanceStore.edit { it[lastRunKey(taskId, tag)] = at }
-    }
-
-    override suspend fun getLong(key: String): Long? =
-        context.maintenanceStore.data.first()[longPreferencesKey(key)]
-
-    override suspend fun putLong(key: String, value: Long) {
-        context.maintenanceStore.edit { it[longPreferencesKey(key)] = value }
     }
 
     private fun lastRunKey(taskId: String, tag: String) =

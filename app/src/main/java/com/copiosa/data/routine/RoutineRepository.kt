@@ -10,9 +10,11 @@ import com.copiosa.data.local.StoryThreadDao
 import com.copiosa.data.local.StoryThreadEntity
 import com.copiosa.domain.model.Cefr
 import com.copiosa.domain.routine.ActivityType
+import com.copiosa.domain.routine.RoutinePlanCodec
 import com.copiosa.domain.routine.RoutineRunStatus
 import com.copiosa.domain.routine.RoutineType
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -68,8 +70,6 @@ class RoutineRepository @Inject constructor(
 
     fun observeRun(id: Long): Flow<RoutineRunEntity?> = runDao.observe(id)
 
-    suspend fun updateRun(run: RoutineRunEntity) = runDao.update(run)
-
     /** Stores the synthesized plan and flips the run to [RoutineRunStatus.READY]. */
     suspend fun savePlan(id: Long, planJson: String) {
         val run = runDao.getById(id) ?: return
@@ -92,6 +92,23 @@ class RoutineRepository @Inject constructor(
     }
 
     suspend fun setCurrentIndex(id: Long, index: Int) = runDao.setCurrentIndex(id, index)
+
+    /**
+     * The run in [lang] worth offering to return to, if there is one: the newest unfinished run
+     * younger than [RESUME_WINDOW_MS]. Past that a wind-down has stopped being tonight's, and its
+     * row just waits to be cleared by the next run that starts (see [unfinishedIds]).
+     */
+    fun observeResumable(lang: String, now: Long = System.currentTimeMillis()): Flow<ResumableRoutine?> =
+        runDao.observeLatestInProgress(lang, now - RESUME_WINDOW_MS).map { it?.let(::resumableOf) }
+
+    /** Runs in [lang] that never finished — what starting a new one clears away. */
+    suspend fun unfinishedIds(lang: String): List<Long> = runDao.unfinishedIds(lang)
+
+    /**
+     * Removes a run that is being abandoned. Its attempt log stays: `activity_attempts` only
+     * indexes the run id, and what the learner answered before giving up still happened.
+     */
+    suspend fun deleteRun(id: Long) = runDao.delete(id)
 
     suspend fun lastCompleted(type: RoutineType, lang: String): RoutineRunEntity? =
         runDao.lastCompleted(type, lang)
@@ -136,4 +153,37 @@ class RoutineRepository @Inject constructor(
         val existing = proficiencyDao.get(row.bucketKey, row.targetLanguage)
         if (existing == null) proficiencyDao.insert(row) else proficiencyDao.update(row.copy(id = existing.id))
     }
+
+    companion object {
+        /** How long an unfinished run stays on offer. A day: last night's wind-down, not last week's. */
+        const val RESUME_WINDOW_MS = 24L * 60 * 60 * 1000
+    }
+}
+
+/**
+ * An unfinished run as the "continue" cards show it. [total] is 0 while the run is still being
+ * prepared — there is no plan to count yet — and [step] is the 1-based step it would open on.
+ */
+data class ResumableRoutine(
+    val runId: Long,
+    val type: RoutineType,
+    val preparing: Boolean,
+    val step: Int,
+    val total: Int,
+) {
+    /** Prepared but never opened, as against left part-way through. */
+    val notStarted: Boolean get() = !preparing && step == 1
+}
+
+/**
+ * [run] as something to return to, or null when it can't be: a plan that no longer decodes, or one
+ * whose resume point is already past its last step, would open on nothing.
+ */
+internal fun resumableOf(run: RoutineRunEntity): ResumableRoutine? {
+    if (run.status == RoutineRunStatus.SYNTHESIZING) {
+        return ResumableRoutine(run.id, run.routineType, preparing = true, step = 1, total = 0)
+    }
+    val total = RoutinePlanCodec.decode(run.planJson)?.activities?.size ?: return null
+    if (run.currentIndex !in 0 until total) return null
+    return ResumableRoutine(run.id, run.routineType, preparing = false, step = run.currentIndex + 1, total = total)
 }

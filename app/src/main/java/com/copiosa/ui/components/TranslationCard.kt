@@ -27,10 +27,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,19 +40,27 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.ParagraphStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextIndent
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.copiosa.R
 import com.copiosa.data.local.FlashcardEntity
+import com.copiosa.data.translate.DictionaryDownload
 import com.copiosa.data.translate.DictionaryEntry
-import com.copiosa.ui.flashcards.PosChip
+import com.copiosa.ui.vocab.PosChip
 import com.copiosa.ui.theme.SerifTitle
 
 /** State of the offline-dictionary section of the translation card. */
@@ -58,7 +68,19 @@ sealed interface DefinitionView {
     /** Not shown (multi-word selection, or no dictionary configured). */
     data object Hidden : DefinitionView
     /** Single word, but the language pack hasn't been downloaded yet — offer to fetch it. */
-    data object NeedsDownload : DefinitionView
+    /** [approxMb] is the pack's download size when known, so the button can say what it will cost. */
+    data class NeedsDownload(val approxMb: Int? = null) : DefinitionView
+
+    /**
+     * The fetch failed. [reason] is what to tell the reader — a pack that isn't published and a
+     * dropped connection want different responses, and a button that silently redraws itself tells
+     * them apart for neither.
+     */
+    data class DownloadFailed(
+        val reason: DictionaryDownload,
+        val approxMb: Int? = null,
+    ) : DefinitionView
+
     data object Downloading : DefinitionView
     data object Loading : DefinitionView
     data class Ready(val entries: List<DictionaryEntry>) : DefinitionView
@@ -90,6 +112,8 @@ fun TranslationCard(
     lemmaSuggestion: String?,
     /** Part of speech of the currently picked entry, to mark it among same-lemma alternatives. */
     savePos: String?,
+    /** True once a save has been asked for on an ambiguous word — see [DefinitionSection]. */
+    picking: Boolean,
     onSave: (headword: String) -> Unit,
     /** Picks which dictionary entry a save uses; the lemma may be [original] to save it as written. */
     onSelectEntry: (lemma: String, pos: String?) -> Unit,
@@ -140,7 +164,23 @@ fun TranslationCard(
                 modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(original, style = SerifTitle)
+                // A selection can be several paragraphs long (it is also how text is copied out of a
+                // reader); the passage itself is highlighted in the text behind the card, so a few
+                // lines here are enough to confirm what was picked without burying the actions.
+                Text(original, style = SerifTitle, maxLines = 4, overflow = TextOverflow.Ellipsis)
+
+                // Whether the dictionary entries below carry the English, in which case the machine
+                // translation above them would only repeat it. The dictionary's meanings belong to this
+                // headword and were written by people; the on-device translator is guessing at the same
+                // thing from the bare word, and stays for what the pack can't answer — phrases, unknown
+                // words, a pack not downloaded. [dictionaryOwnsEnglish] also covers the lookup still
+                // being in flight: it is a local query that lands in a moment, and a line that appears
+                // only to be replaced reads as a glitch. Not while the *pack* is downloading, which is
+                // minutes rather than milliseconds — and not for [savable], which must not enable a
+                // button on a meaning that may never arrive.
+                val hasEnglishEntry = (definition as? DefinitionView.Ready)
+                    ?.entries.orEmpty().any { it.englishDefinitions.isNotEmpty() } == true
+                val dictionaryOwnsEnglish = definition is DefinitionView.Loading || hasEnglishEntry
 
                 // The body scrolls, capped so the actions stay visible.
                 Column(
@@ -154,6 +194,7 @@ fun TranslationCard(
                     } else {
                         when {
                             loading -> LoadingRow(stringResource(R.string.translating))
+                            dictionaryOwnsEnglish -> Unit
                             translation != null -> Surface(
                                 color = MaterialTheme.colorScheme.surfaceVariant,
                                 shape = MaterialTheme.shapes.medium,
@@ -186,7 +227,7 @@ fun TranslationCard(
                         definition = definition,
                         original = original,
                         // A saved word shows its stored entry; there is nothing left to pick.
-                        pickable = savedCard == null,
+                        picking = picking && savedCard == null,
                         selectedLemma = lemmaSuggestion ?: original,
                         selectedPos = savePos,
                         onSelectEntry = onSelectEntry,
@@ -203,7 +244,14 @@ fun TranslationCard(
                     } else {
                         // Default to the lemma (e.g. infinitive) when the selection is an inflection.
                         val saveTerm = lemmaSuggestion ?: original
-                        Button(onClick = { onSave(saveTerm) }, enabled = translation != null) {
+                        // A selection spanning paragraphs is a passage being read or copied, never a
+                        // vocabulary item — saving it would put a wall of text on a flashcard.
+                        // Either source of meaning is enough for a back: the on-device translator
+                        // is unavailable on some devices and language pairs, and a headword the
+                        // dictionary can define is still worth saving there.
+                        val savable = (translation != null || hasEnglishEntry) &&
+                            !original.contains("\n\n")
+                        Button(onClick = { onSave(saveTerm) }, enabled = savable) {
                             Icon(Icons.Filled.BookmarkBorder, contentDescription = null, modifier = Modifier.size(18.dp))
                             Text(
                                 if (lemmaSuggestion != null) {
@@ -219,11 +267,11 @@ fun TranslationCard(
                         Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                         Text(stringResource(R.string.action_explain), modifier = Modifier.padding(start = 6.dp))
                     }
-                    val copyText = translation ?: savedCard?.back
-                    if (copyText != null) {
-                        IconButton(onClick = { clipboard.setText(AnnotatedString(copyText)) }) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.action_copy))
-                        }
+                    // Copies the *selection*, not its meaning: the card is the only way to lift text
+                    // out of a reader, and what the reader picked out is what they meant to take —
+                    // the meaning is already on screen to be read.
+                    IconButton(onClick = { clipboard.setText(AnnotatedString(original)) }) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.action_copy))
                     }
                     if (onSendToAudio != null) {
                         IconButton(onClick = onSendToAudio) {
@@ -272,7 +320,7 @@ private fun SavedEntry(card: FlashcardEntity) {
         card.contextSentence?.takeIf { it.isNotBlank() }?.let { sentence ->
             SectionLabel(stringResource(R.string.vocab_example_label))
             Text(
-                sentence,
+                inlineMarkup(sentence, italicBase = true),
                 style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -282,15 +330,19 @@ private fun SavedEntry(card: FlashcardEntity) {
 
 /**
  * The offline-dictionary block. A word often resolves to several headwords — "placas" is a form of both
- * the noun *placa* and the verb *placar* — so when there's more than one candidate the entries become a
- * radio group and the tapped one is what the Save button saves. The selection itself gets a row too
- * (it isn't always a headword), which is how you save a plural or a conjugation as written.
+ * the noun *placa* and the verb *placar* — so the entries can become a radio group whose tapped row is
+ * what the Save button saves. The selection itself gets a row too (it isn't always a headword), which is
+ * how you save a plural or a conjugation as written.
+ *
+ * That group only appears once [picking] is set, i.e. after a first tap on Save. Most lookups are just
+ * reading, and radio buttons beside every sense turn a definition into a form to fill in; deferring them
+ * keeps the common case to plain text and asks the question only when the answer is about to be used.
  */
 @Composable
 private fun DefinitionSection(
     definition: DefinitionView,
     original: String,
-    pickable: Boolean,
+    picking: Boolean,
     selectedLemma: String,
     selectedPos: String?,
     onSelectEntry: (lemma: String, pos: String?) -> Unit,
@@ -298,19 +350,38 @@ private fun DefinitionSection(
 ) {
     when (definition) {
         DefinitionView.Hidden, DefinitionView.NotFound -> Unit
-        DefinitionView.NeedsDownload -> OutlinedButton(onClick = onDownloadDictionary) {
+        is DefinitionView.NeedsDownload -> OutlinedButton(onClick = onDownloadDictionary) {
             Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(stringResource(R.string.dict_download), modifier = Modifier.padding(start = 6.dp))
+            Text(
+                definition.approxMb
+                    ?.let { stringResource(R.string.dict_download_sized, it) }
+                    ?: stringResource(R.string.dict_download),
+                modifier = Modifier.padding(start = 6.dp),
+            )
+        }
+        is DefinitionView.DownloadFailed -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                dictionaryErrorText(definition.reason),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            OutlinedButton(onClick = onDownloadDictionary) {
+                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text(
+                    definition.approxMb
+                        ?.let { stringResource(R.string.dict_download_sized, it) }
+                        ?: stringResource(R.string.dict_download),
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
         }
         DefinitionView.Downloading -> LoadingRow(stringResource(R.string.dict_downloading))
         DefinitionView.Loading -> LoadingRow(stringResource(R.string.dict_loading))
         is DefinitionView.Ready -> {
             val entries = definition.entries
             // The selection needs its own row only when it isn't itself one of the headwords listed.
-            val asWritten = pickable &&
+            val asWritten = picking &&
                 entries.none { it.lemma.equals(original.trim(), ignoreCase = true) }
-            // One candidate and nothing else to offer → no radio group, just the definition.
-            val picking = pickable && entries.size + (if (asWritten) 1 else 0) > 1
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 HorizontalDivider()
                 if (picking) {
@@ -327,10 +398,14 @@ private fun DefinitionSection(
                         // While picking, keep each candidate short enough that the whole choice fits on
                         // screen — a headword with five senses each pushes the other options out of
                         // view, so you can't see what you're choosing between (or what's selected).
-                        EntryView(entry, maxDefinitions = if (picking) PICKING_DEFINITIONS else ALL_DEFINITIONS)
+                        EntryView(
+                            entry,
+                            maxDefinitions = if (picking) PICKING_DEFINITIONS else ALL_DEFINITIONS,
+                            compact = picking,
+                        )
                     }
                 }
-                if (picking && asWritten) {
+                if (asWritten) {
                     ChoiceRow(
                         selected = selectedLemma.equals(original.trim(), ignoreCase = true),
                         enabled = true,
@@ -367,18 +442,38 @@ private fun ChoiceRow(
         // Top, not centre: an entry is several lines tall, and a centred radio floats halfway down its
         // definitions instead of sitting beside the headword it selects.
         verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
             .fillMaxWidth()
             .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect),
     ) {
-        RadioButton(selected = selected, onClick = null)
-        Column(modifier = Modifier.weight(1f).padding(top = 12.dp)) { content() }
+        // Stripped of the 48dp touch target Material puts around the dot, which would otherwise centre
+        // it 24dp down and leave the headword to be padded down to meet it — a fixed nudge that drifts
+        // as soon as the font scale moves. The whole row is the tap target, so nothing is lost.
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+            RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(top = 2.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) { content() }
     }
 }
 
+/**
+ * One headword: its English meanings, then its senses in the language being learned.
+ *
+ * English first and unbulleted, because it is the answer to "what does this word mean" and the rest
+ * is elaboration. The two editions of the dictionary number their senses differently, so these are
+ * the meanings of the *headword* — joined into one line rather than laid out beside the target-language
+ * senses, which would imply a sense-for-sense correspondence that isn't there.
+ *
+ * [compact] drops the per-sense examples: while the entries are a pick-one list, every extra line
+ * pushes the other options off screen (see [ChoiceRow]).
+ */
 @Composable
-private fun EntryView(entry: DictionaryEntry, maxDefinitions: Int = ALL_DEFINITIONS) {
+private fun EntryView(
+    entry: DictionaryEntry,
+    maxDefinitions: Int = ALL_DEFINITIONS,
+    compact: Boolean = false,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(entry.lemma, style = MaterialTheme.typography.titleSmall)
@@ -393,11 +488,61 @@ private fun EntryView(entry: DictionaryEntry, maxDefinitions: Int = ALL_DEFINITI
         entry.inflectionOf?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        entry.definitions.take(maxDefinitions).forEach { def ->
-            Text("•  $def", style = MaterialTheme.typography.bodyMedium)
+        if (entry.englishDefinitions.isNotEmpty()) {
+            Text(
+                entry.englishDefinitions.take(maxDefinitions).joinToString(SENSE_SEPARATOR),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(bottom = 2.dp),
+            )
+        }
+        entry.definitions.take(maxDefinitions).forEach { sense ->
+            Text(
+                bulleted(sense.gloss),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            sense.labels?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = SENSE_INDENT),
+                )
+            }
+            if (!compact) {
+                sense.example?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = SENSE_INDENT),
+                    )
+                }
+            }
         }
     }
 }
+
+/** Between English meanings of one headword — a middot, so they don't read as one run-on gloss. */
+private const val SENSE_SEPARATOR = " · "
+
+/** Lines subordinate to a sense (its labels, its example) line up with the sense, not its bullet. */
+private val SENSE_INDENT = 14.dp
+
+/**
+ * A sense as a bullet whose wrapped lines hang under the text rather than falling back under the
+ * bullet — glosses routinely run to two lines, and without this the second one reads as a new item.
+ */
+private fun bulleted(text: String): AnnotatedString = buildAnnotatedString {
+    withStyle(ParagraphStyle(textIndent = TextIndent(restLine = BULLET_HANG))) {
+        // An en space, not two spaces: a fixed width that doesn't stretch with the font.
+        append("•\u2002")
+        append(text)
+    }
+}
+
+/** Width of "•" plus its en space, so the hanging indent lands on the first line's first character. */
+private val BULLET_HANG = 12.sp
 
 /** Senses listed per dictionary entry: fewer while the entries are a pick-one list (see [ChoiceRow]). */
 private const val ALL_DEFINITIONS = 5

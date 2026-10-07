@@ -3,24 +3,48 @@ package com.copiosa.domain.conjugation
 import kotlinx.serialization.Serializable
 
 /**
- * A tense/mood paradigm the drill covers. The [slug] is persisted inside drill item keys and inside
- * serialized routine plans, so it is **frozen** — same rule `RoutinePlan.kt` states for its
- * `@SerialName`s.
+ * The mood a paradigm belongs to.
  *
- * Only simple (non-compound) forms are modelled. [IMPERFECT_SUBJUNCTIVE] is special: it is derived
- * from the (possibly irregular) third-person-plural preterite rather than from the infinitive, so it
- * inherits preterite irregularity for free and is never stored in the lexicon — see
- * [RegularConjugator.imperfectSubjunctive].
+ * Nothing is persisted by mood and no drill scopes itself to one, so this is not frozen. It exists
+ * because a learner's mental model of the paradigms is mood-first — "the subjunctive" is one thing
+ * they are learning, not three — and a reference that lists nine tenses flat hides that.
+ */
+enum class Mood {
+    INDICATIVE,
+    SUBJUNCTIVE,
+
+    /** Carries person but no tense of its own: Portuguese's personal infinitive. */
+    NON_FINITE,
+}
+
+/**
+ * A tense/mood paradigm a drill may cover — the union across every language, not one language's set.
+ * Which of these are actually in play is [ConjugationSpec.tenses]; iterate that, never [entries], or
+ * a Portuguese-only paradigm leaks into a Spanish drill.
+ *
+ * The [slug] is persisted inside drill item keys and inside serialized routine plans, and the
+ * constant **name** is persisted too (`ConjugationDrillConfig` serializes `Set<Tense>` by name into
+ * settings), so both are **frozen** — same rule `RoutinePlan.kt` states for its `@SerialName`s. New
+ * constants may be appended freely.
+ *
+ * Only simple (non-compound) forms are modelled. Several of these are *derived* rather than stored:
+ * built from another cell, so they inherit its irregularity for free — see [DerivedTense].
  */
 @Serializable
-enum class Tense(val slug: String) {
+enum class Tense(val slug: String, val mood: Mood = Mood.INDICATIVE) {
     PRESENT("pres"),
     PRETERITE("pret"),
     IMPERFECT("imp"),
     FUTURE("fut"),
     CONDITIONAL("cond"),
-    PRESENT_SUBJUNCTIVE("sub_pres"),
-    IMPERFECT_SUBJUNCTIVE("sub_imp"),
+    PRESENT_SUBJUNCTIVE("sub_pres", Mood.SUBJUNCTIVE),
+    IMPERFECT_SUBJUNCTIVE("sub_imp", Mood.SUBJUNCTIVE),
+
+    /** Portuguese: *se fizer*. Off the third-plural preterite, like the imperfect subjunctive. */
+    FUTURE_SUBJUNCTIVE("sub_fut", Mood.SUBJUNCTIVE),
+
+    /** Portuguese: *para fazermos*. Off the infinitive, so it stays regular where the future subjunctive doesn't. */
+    PERSONAL_INFINITIVE("inf_pess", Mood.NON_FINITE),
     ;
 
     companion object {
@@ -28,7 +52,13 @@ enum class Tense(val slug: String) {
     }
 }
 
-/** Grammatical person + number. [slug] is persisted in item keys — frozen. */
+/**
+ * Grammatical person + number. [slug] is persisted in item keys — frozen.
+ *
+ * The constant names are Spanish for historical reasons; the slugs are not, and they are what any
+ * other language reuses. The pronoun a learner actually reads comes from
+ * [ConjugationSpec.pronouns] — "nosotros" for Spanish, "nós" for Portuguese — never from the name.
+ */
 @Serializable
 enum class Person(val slug: String) {
     YO("1s"),
@@ -69,7 +99,10 @@ enum class DrillDirection(val slug: String) {
     }
 }
 
-/** The three Spanish conjugation classes, keyed by infinitive ending. */
+/**
+ * The three Romance conjugation classes, keyed by infinitive ending. Spanish and Portuguese share
+ * them; the actual endings a class accepts come from [ConjugationSpec.classEndings].
+ */
 enum class VerbClass(val ending: String) {
     AR("ar"),
     ER("er"),

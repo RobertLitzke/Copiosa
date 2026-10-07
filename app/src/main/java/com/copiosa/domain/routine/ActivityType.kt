@@ -1,11 +1,31 @@
 package com.copiosa.domain.routine
 
 /**
- * Where an activity sits in a routine's arousal arc. A bedtime routine moves monotonically
- * [ENGAGE] -> [SETTLE] -> [DRIFT]; the planner draws each phase's activities from a band of arousal
- * weights so the curve is guaranteed while the picks vary night to night.
+ * An arousal tier an activity can fill. The *sequence* of bands is the routine's arc and belongs to the
+ * routine type ([RoutineType.bandOrder]), not to this enum: the bedtime wind-down plays them
+ * [ENGAGE] -> [SETTLE] -> [DRIFT], the daytime activation plays the mirror image. The planner draws
+ * each phase's activities from a band of arousal weights so the curve is guaranteed while the picks
+ * vary run to run.
+ *
+ * Declaration order is therefore *not* the arc, and must stay stable regardless: the band is serialized
+ * by name into [ActivityInstance.band].
  */
 enum class ArousalBand { ENGAGE, SETTLE, DRIFT }
+
+/**
+ * Which flavour of [ActivityType.SHORT_TEXT] a slot renders — the one prose activity reshapes itself
+ * rather than the library carrying three near-identical types. Serialized by name into the plan JSON.
+ */
+enum class TextFlavor {
+    /** A short, soothing standalone story: the bedtime routine's closer, and chapter zero of a thread. */
+    BEDTIME_STORY,
+
+    /** One chapter of the story that continues night to night, from the persisted running summary. */
+    SERIAL_CHAPTER,
+
+    /** A brief second-person dispatch framing a daytime session and priming the vocab it will drill. */
+    DAYTIME_MOTIVATION,
+}
 
 /**
  * How activating an activity is — a hard tier (not the continuous [ActivityDefinition.arousalWeight],
@@ -18,9 +38,10 @@ enum class ArousalLevel { LOW, MEDIUM, HIGH }
 
 /**
  * One kind of practice unit in the activity library. Cross-language activities (e.g. [GUESS_THEN_FLIP],
- * [NARROW_READING]) apply to any target language; the Spanish-specific ones ([REFERENTIAL_PI],
- * [CONTRAST_CLOZE], [AFFECTIVE_PI]) are gated by [ActivityDefinition.supportedLanguages]. Persisted as
- * its [name] in attempt logs, so order/renames must stay backward-compatible.
+ * [NARROW_READING]) apply to any target language; the ones needing grammar data ([REFERENTIAL_PI],
+ * [CONTRAST_CLOZE], [AFFECTIVE_PI], …) are gated by [ActivityDefinition.requires] against the target
+ * language's `LanguageProfile`. Persisted as its [name] in attempt logs, so order/renames must stay
+ * backward-compatible.
  */
 enum class ActivityType {
     /** Engage: reuse the flashcard tool, recall direction (L1->L2), with the fail-state stripped. */
@@ -38,8 +59,8 @@ enum class ActivityType {
     /** Drift: "true for me" — pick which pre-conjugated statement fits you. No right answer, no score. */
     AFFECTIVE_PI,
 
-    /** Drift closer: passive TTS micro-story from today's vocab; screen dims, taps disabled. */
-    BEDTIME_STORY,
+    /** Drift: a short generated prose read whose shape follows the routine — see [TextFlavor]. */
+    SHORT_TEXT,
 
     /** Settle: gentle reverse of guess-then-flip — see the target word, tap to reveal its meaning. */
     RECOGNITION_CARDS,
@@ -53,12 +74,43 @@ enum class ActivityType {
     /** Drift: tap the true cognates and flag the false friends in a small set. */
     COGNATE_HUNT,
 
-    /** Drift: read a chapter of a story that continues night to night. */
-    SERIAL_STORY,
-
     /** Engage: hear a short cue (a number/time) and tap the matching digits fast — sound -> meaning. */
     RAPID_FIRE_LISTENING,
 
     /** Engage: conjugate in your head, reveal, self-grade. The library's first [ArousalLevel.HIGH]. */
     CONJUGATION_DRILL,
+
+    /** Engage: real review, narrowed to the words the frequency list says are worth knowing first. */
+    FREQUENT_WORD_DRILL,
+
+    /**
+     * Settle: fill the blank from the learner's own banked sentences — material they have already
+     * read, with a word from their own deck missing. Unlike [MULTIPLE_CHOICE_CLOZE] it needs no
+     * generation at all, which makes it the library's cheapest settle-band activity.
+     */
+    CLOZE_BANK,
+
+    /**
+     * Settle: hear a banked sentence spoken, then tap its shuffled words back into order. The
+     * library's first activity that trains listening itself rather than playing audio alongside a
+     * task — the sentence is never shown until it has been rebuilt. No LLM; needs the voice model.
+     */
+    LISTEN_REBUILD,
+    ;
+
+    companion object {
+        /**
+         * Type names that no longer exist, mapped to what replaced them. The name is persisted in saved
+         * plans and attempt logs, so retiring one without an entry here fails the *whole* plan on decode
+         * (see [RoutinePlanCodec]) and strands any run left unfinished across the upgrade.
+         */
+        private val RETIRED: Map<String, ActivityType> = mapOf(
+            "BEDTIME_STORY" to SHORT_TEXT,
+            "SERIAL_STORY" to SHORT_TEXT,
+        )
+
+        /** [valueOf], but resolving retired names instead of throwing; null for genuinely unknown ones. */
+        fun fromNameOrNull(name: String): ActivityType? =
+            entries.firstOrNull { it.name == name } ?: RETIRED[name]
+    }
 }

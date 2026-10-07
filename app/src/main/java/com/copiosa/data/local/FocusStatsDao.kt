@@ -44,17 +44,6 @@ interface FocusStatsDao {
     )
     fun observeDayTotals(lang: String, fromDay: Long): Flow<List<DayTotal>>
 
-    /** Overall variant: all profiles together. */
-    @Query(
-        "SELECT epochDay, SUM(ms) AS totalMs FROM (" +
-            "SELECT epochDay, totalDurationMs AS ms FROM focus_daily_stats WHERE epochDay >= :fromDay " +
-            "UNION ALL " +
-            "SELECT epochDay, durationMs AS ms FROM focus_sessions " +
-            "WHERE epochDay >= :fromDay AND rolledUp = 0" +
-            ") GROUP BY epochDay ORDER BY epochDay ASC",
-    )
-    fun observeDayTotalsAll(fromDay: Long): Flow<List<DayTotal>>
-
     /** Distinct days with any focus time, newest first — the streak source. */
     @Query(
         "SELECT DISTINCT epochDay FROM (" +
@@ -65,15 +54,6 @@ interface FocusStatsDao {
             ") ORDER BY epochDay DESC",
     )
     fun observeActiveDays(lang: String, fromDay: Long): Flow<List<Long>>
-
-    @Query(
-        "SELECT DISTINCT epochDay FROM (" +
-            "SELECT epochDay FROM focus_daily_stats WHERE epochDay >= :fromDay " +
-            "UNION ALL " +
-            "SELECT epochDay FROM focus_sessions WHERE epochDay >= :fromDay AND rolledUp = 0" +
-            ") ORDER BY epochDay DESC",
-    )
-    fun observeActiveDaysAll(fromDay: Long): Flow<List<Long>>
 
     // --- stats screen: all-time, cross-language-optional aggregates ---
     // A null [lang] means "every profile combined"; otherwise the query is scoped to that profile.

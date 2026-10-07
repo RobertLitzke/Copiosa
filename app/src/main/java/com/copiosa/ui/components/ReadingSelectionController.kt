@@ -3,6 +3,7 @@ package com.copiosa.ui.components
 import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.data.repository.ConversationRepository
 import com.copiosa.data.repository.FlashcardRepository
+import com.copiosa.data.translate.DictionaryDownload
 import com.copiosa.data.translate.DictionaryResult
 import com.copiosa.data.translate.LocalTranslateResult
 import com.copiosa.domain.highlight.HighlightTarget
@@ -10,6 +11,7 @@ import com.copiosa.domain.highlight.HighlightTargetProvider
 import com.copiosa.domain.highlight.targetTerm
 import com.copiosa.domain.model.CardKind
 import com.copiosa.domain.srs.ReviewWindows
+import com.copiosa.domain.vocab.WordSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +46,12 @@ data class TranslateState(
     val saveLemma: String? = null,
     /** Part of speech from the dictionary lookup, stored on the saved card. */
     val savePos: String? = null,
+    /**
+     * True once a Save has been asked for on a word that resolves to several headwords: the card
+     * turns its entries into a picker and waits for a second Save to commit the one chosen. Reading a
+     * word is the common case, so the radio buttons stay out of the way until a save is actually meant.
+     */
+    val picking: Boolean = false,
 )
 
 /**
@@ -52,10 +60,11 @@ data class TranslateState(
  * transient translation-card state ([translate]), exposes saved words as [highlightTargets] for
  * tinting, and passively reviews saved words that turn up in the body being read.
  *
- * Constructed by the owning ViewModel with its [scope]; [sourceConversationId] is stamped on saved
- * cards (a provider, not a value, because a chat's id changes when a draft becomes real; null when
- * there's no conversation, e.g. a routine's generated paragraphs), and [readingText] is the body
- * scanned for passive review.
+ * Constructed by the owning ViewModel with its [scope]; [source] is stamped on saved cards (a
+ * provider, not a value, because a chat's id changes when a draft becomes real), [readingText] is
+ * the body scanned for passive review, and [highlightEnabled] is whether due vocabulary is tinted
+ * here at all — [highlightTargets] comes out empty when it is not, so every consumer of a colorizer
+ * (the tint, a persona's decoration) goes quiet together instead of each gating at the call site.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReadingSelectionController(
@@ -63,8 +72,9 @@ class ReadingSelectionController(
     private val conversationRepo: ConversationRepository,
     private val flashcardRepo: FlashcardRepository,
     private val highlightProvider: HighlightTargetProvider,
-    private val sourceConversationId: () -> Long?,
+    private val source: () -> WordSource,
     readingText: Flow<String>,
+    highlightEnabled: Flow<Boolean>,
 ) {
     private val allCards = flashcardRepo.observeAll()
         .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -77,7 +87,9 @@ class ReadingSelectionController(
      * word at once, instead of waiting for the Room re-emit + rebuild.
      */
     private val _highlightTargets = MutableStateFlow<List<HighlightTarget>>(emptyList())
-    val highlightTargets: StateFlow<List<HighlightTarget>> = _highlightTargets.asStateFlow()
+    val highlightTargets: StateFlow<List<HighlightTarget>> =
+        combine(_highlightTargets, highlightEnabled) { targets, on -> if (on) targets else emptyList() }
+            .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _translate = MutableStateFlow<TranslateState?>(null)
     val translate: StateFlow<TranslateState?> = _translate.asStateFlow()
@@ -160,7 +172,8 @@ class ReadingSelectionController(
         if (word.isNotEmpty() && word.none { it.isWhitespace() } && conversationRepo.dictionaryConfigured()) {
             scope.launch {
                 if (!conversationRepo.dictionaryDownloaded()) {
-                    update(text) { it.copy(definition = DefinitionView.NeedsDownload) }
+                    val size = conversationRepo.dictionarySizeMb()
+                    update(text) { it.copy(definition = DefinitionView.NeedsDownload(size)) }
                     return@launch
                 }
                 update(text) { it.copy(definition = DefinitionView.Loading) }
@@ -240,12 +253,43 @@ class ReadingSelectionController(
         return lemma to (inflection?.pos ?: entries.firstOrNull()?.pos)
     }
 
+    /**
+     * The picked entry's English meanings as a card back, or null when there are none.
+     *
+     * Capped: a back is a prompt to recall, and four comma-separated meanings is a paragraph to
+     * memorise. The rest stay in the dictionary, where they can be looked up again.
+     */
+    private fun dictionaryBack(t: TranslateState): String? {
+        val entries = (t.definition as? DefinitionView.Ready)?.entries ?: return null
+        val lemma = t.saveLemma ?: t.original
+        val entry = entries.firstOrNull { it.lemma.equals(lemma, ignoreCase = true) && it.pos == t.savePos }
+            ?: entries.firstOrNull { it.lemma.equals(lemma, ignoreCase = true) }
+            ?: return null
+        return entry.englishDefinitions.take(MAX_SAVED_MEANINGS)
+            .joinToString("; ")
+            .ifBlank { null }
+    }
+
+    /**
+     * How many headwords a save could mean: the dictionary's entries, plus the selection itself when
+     * it isn't one of them (which is how a plural or a conjugation gets saved as written). Mirrors the
+     * rows [com.copiosa.ui.components.TranslationCard] lays out, so the picker never opens on a single
+     * choice and never stays shut on a real one.
+     */
+    private fun candidateCount(t: TranslateState): Int {
+        val entries = (t.definition as? DefinitionView.Ready)?.entries ?: return 1
+        val asWritten = entries.none { it.lemma.equals(t.original.trim(), ignoreCase = true) }
+        return entries.size + if (asWritten) 1 else 0
+    }
+
     fun downloadDictionary() {
         val word = _translate.value?.original ?: return
         update(word) { it.copy(definition = DefinitionView.Downloading) }
         scope.launch {
-            if (!conversationRepo.downloadDictionary()) {
-                update(word) { it.copy(definition = DefinitionView.NeedsDownload) }
+            val outcome = conversationRepo.downloadDictionary()
+            if (outcome != DictionaryDownload.Ready) {
+                val size = conversationRepo.dictionarySizeMb()
+                update(word) { it.copy(definition = DefinitionView.DownloadFailed(outcome, size)) }
                 return@launch
             }
             update(word) { it.copy(definition = DefinitionView.Loading) }
@@ -258,7 +302,17 @@ class ReadingSelectionController(
 
     fun saveCurrentTranslation(headword: String? = null) {
         val t = _translate.value ?: return
-        val back = t.translation ?: return
+        // The dictionary's English, when it has any, beats machine-translating the bare word: it is
+        // the meanings of *this* headword and part of speech, written by people, and it is what the
+        // card was showing. Fall back to the on-device translation for everything else — phrases,
+        // words the pack doesn't carry, and a pack that isn't downloaded.
+        val back = dictionaryBack(t) ?: t.translation ?: return
+        // Ambiguous word, first Save: reveal the picker instead of committing a guess. The second Save
+        // (with [TranslateState.picking] set) saves whichever headword was tapped.
+        if (!t.picking && candidateCount(t) > 1) {
+            _translate.value = t.copy(picking = true)
+            return
+        }
         val term = headword?.takeIf { it.isNotBlank() } ?: t.original
         val kind = if (term.trim().any { it.isWhitespace() }) CardKind.PHRASE else CardKind.VOCAB
         val pos = t.savePos
@@ -269,11 +323,14 @@ class ReadingSelectionController(
         _translate.value = null
         _savedNotice.value = true
         scope.launch {
+            val from = source()
             val newId = flashcardRepo.add(
                 front = term,
                 back = back,
                 contextSentence = sentence,
-                sourceConversationId = sourceConversationId(),
+                sourceConversationId = from.conversationId,
+                sourceBookId = from.bookId,
+                sourceRoutineRunId = from.routineRunId,
                 partOfSpeech = pos,
                 cardKind = kind,
             )
@@ -293,7 +350,7 @@ class ReadingSelectionController(
     private fun DictionaryResult.toView(): DefinitionView = when (this) {
         is DictionaryResult.Found -> DefinitionView.Ready(entries)
         DictionaryResult.NotFound -> DefinitionView.NotFound
-        DictionaryResult.Unavailable -> DefinitionView.NeedsDownload
+        DictionaryResult.Unavailable -> DefinitionView.NeedsDownload()
     }
 
     /** Best-effort: the sentence in [content] containing [phrase], trimmed; null when not found. */
@@ -311,5 +368,8 @@ class ReadingSelectionController(
 
     private companion object {
         val WORD_REGEX = Regex("[\\p{L}\\p{N}]+")
+
+        /** English meanings kept on a saved card's back; the rest are a lookup, not a thing to recall. */
+        const val MAX_SAVED_MEANINGS = 3
     }
 }

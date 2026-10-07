@@ -1,5 +1,6 @@
 package com.copiosa.domain.routine.activities
 
+import com.copiosa.domain.language.LanguageFeature
 import com.copiosa.domain.prompt.RoutineContentParser
 import com.copiosa.domain.prompt.RoutineContentPrompt
 import com.copiosa.domain.routine.ActivityBuildContext
@@ -21,13 +22,15 @@ object CognateHunt : ActivityDescriptor {
         type = ActivityType.COGNATE_HUNT,
         eligibleBands = setOf(ArousalBand.DRIFT),
         arousalWeight = 0.15, estMinutes = 1.5,
-        supportedLanguages = setOf("es"), needsLlm = true,
+        supportedLanguages = null, needsLlm = true,
+        requires = setOf(LanguageFeature.GRAMMAR),
         arousalLevel = ArousalLevel.LOW,
     )
 
     override fun systemRule(ctx: PromptContext): String =
         "cognate_hunt: a \"words\" list — mostly true ${ctx.nativeName} cognates the learner will recognize, " +
-            "plus 1–2 real false friends (e.g. embarazada, éxito). Each entry: \"form\" (one ${ctx.targetName} word), " +
+            "plus 1–2 real false friends (e.g. ${ctx.profile?.falseFriendExamples.orEmpty().joinToString(", ")}). " +
+            "Each entry: \"form\" (one ${ctx.targetName} word), " +
             "\"falseFriend\" (boolean), and a ${ctx.nativeName} \"gloss\" of its real meaning (essential for false friends)."
 
     override fun requestLine(id: Int, slot: ActivitySlot, ctx: RequestContext): String =

@@ -13,6 +13,7 @@ import com.copiosa.playback.PlaybackUiState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -27,6 +28,11 @@ class AudioViewModel @Inject constructor(
 
     val items: StateFlow<List<AudioItemEntity>> =
         repo.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The same queue with tagged items collapsed into folders — what the list actually renders. */
+    val entries: StateFlow<List<AudioListEntry>> = items
+        .map(::groupByTag)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val modelState: StateFlow<TtsModelState> = modelStore.state
 
@@ -45,6 +51,13 @@ class AudioViewModel @Inject constructor(
 
     fun play(id: Long) = playback.play(readyItems(), id)
 
+    /**
+     * The loose queue only: a folder's tracks play from the folder screen, in their own order.
+     * Playing a whole book from a tap on a chat reply would be a surprising amount of audio.
+     */
+    private fun readyItems(): List<AudioItemEntity> =
+        items.value.filter { it.status == AudioStatus.READY && it.tag == null }
+
     fun next() = playback.next()
 
     fun previous() = playback.previous()
@@ -62,7 +75,4 @@ class AudioViewModel @Inject constructor(
     /** Persists the dragged order of the unplayed group. */
     fun persistOrder(orderedUnplayedIds: List<Long>) =
         viewModelScope.launch { repo.persistUnplayedOrder(orderedUnplayedIds) }
-
-    private fun readyItems(): List<AudioItemEntity> =
-        items.value.filter { it.status == AudioStatus.READY }
 }

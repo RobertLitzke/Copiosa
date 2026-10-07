@@ -3,6 +3,7 @@ package com.copiosa.ui.routines.activities
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import com.copiosa.domain.conjugation.ConjugationSpecs
 import com.copiosa.domain.conjugation.DrillItemCodec
 import com.copiosa.domain.routine.ConjugationDrillContent
 import com.copiosa.ui.conjugation.ConjugationDrillActivity
@@ -25,16 +26,20 @@ internal fun RoutineConjugationStep(
     activity: com.copiosa.domain.routine.ActivityInstance,
     onComplete: () -> Unit,
 ) {
-    // Items whose verb the lexicon can no longer place are dropped, so an older saved plan degrades
-    // to a shorter block rather than crashing.
-    val items = remember(content) { DrillItemCodec.decodeAll(content.items) }
-    if (items.isEmpty()) {
+    // Items whose verb the lexicon can no longer place — or whose language has no paradigm data —
+    // are dropped, so an older saved plan degrades to a shorter block rather than crashing.
+    val spec = remember(content) { ConjugationSpecs.forTag(content.language) }
+    val items = remember(content, spec) {
+        spec?.let { DrillItemCodec.decodeAll(content.items, it) }.orEmpty()
+    }
+    if (spec == null || items.isEmpty()) {
         LaunchedEffect(content) { onComplete() }
         return
     }
 
     ConjugationDrillActivity(
         items = items,
+        spec = spec,
         onGrade = { item, form, grade, latencyMs ->
             viewModel.recordConjugation(item, form, grade, latencyMs)
             viewModel.recordAttempt(

@@ -1,13 +1,15 @@
 package com.copiosa.data.maintenance
 
 import com.copiosa.data.maintenance.tasks.AudioPurgeTask
+import com.copiosa.data.maintenance.tasks.BookAudioTask
 import com.copiosa.data.maintenance.tasks.BookTranslateTask
 import com.copiosa.data.maintenance.tasks.ChatRetryTask
+import com.copiosa.data.maintenance.tasks.ClozeGenerateTask
+import com.copiosa.data.maintenance.tasks.ClozeMineTask
+import com.copiosa.data.maintenance.tasks.ClozeTranslateTask
 import com.copiosa.data.maintenance.tasks.EnrichVocabTask
 import com.copiosa.data.maintenance.tasks.FocusStatsRollupTask
 import com.copiosa.data.maintenance.tasks.ReviewReminderTask
-import com.copiosa.data.maintenance.tasks.TopicSuggestionTask
-import com.copiosa.data.maintenance.tasks.VocabDueSnapshotTask
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,22 +28,30 @@ class MaintenanceTasks private constructor(
     constructor(
         focusStatsRollup: FocusStatsRollupTask,
         audioPurge: AudioPurgeTask,
-        vocabDueSnapshot: VocabDueSnapshotTask,
         reviewReminder: ReviewReminderTask,
         chatRetry: ChatRetryTask,
-        topicSuggestions: TopicSuggestionTask,
+        clozeMine: ClozeMineTask,
         enrichVocab: EnrichVocabTask,
+        clozeGenerate: ClozeGenerateTask,
+        clozeTranslate: ClozeTranslateTask,
         bookTranslate: BookTranslateTask,
+        bookAudio: BookAudioTask,
     ) : this(
         listOf(
             focusStatsRollup,
             audioPurge,
-            vocabDueSnapshot,
             reviewReminder,
             chatRetry,
-            topicSuggestions,
+            // Local-only, so it belongs with the cheap upkeep above the LLM-spending tasks.
+            clozeMine,
             enrichVocab,
+            clozeGenerate,
+            // After clozeGenerate: a sentence that exists but is unexplained can wait behind a word
+            // that has no sentence at all.
+            clozeTranslate,
             bookTranslate,
+            // After bookTranslate: a frontier that just moved is a chapter this can queue right away.
+            bookAudio,
         ),
     )
 

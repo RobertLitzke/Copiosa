@@ -1,17 +1,19 @@
 package com.copiosa.domain.routine
 
 import com.copiosa.domain.routine.activities.AffectivePi
-import com.copiosa.domain.routine.activities.BedtimeStory
+import com.copiosa.domain.routine.activities.ClozeBank
 import com.copiosa.domain.routine.activities.CognateHunt
 import com.copiosa.domain.routine.activities.ConjugationDrill
 import com.copiosa.domain.routine.activities.ContrastCloze
+import com.copiosa.domain.routine.activities.FrequentWordDrill
 import com.copiosa.domain.routine.activities.GuessThenFlip
+import com.copiosa.domain.routine.activities.ListenAndRebuild
 import com.copiosa.domain.routine.activities.MultipleChoiceCloze
 import com.copiosa.domain.routine.activities.NarrowReading
 import com.copiosa.domain.routine.activities.RapidFireListening
 import com.copiosa.domain.routine.activities.RecognitionCards
 import com.copiosa.domain.routine.activities.ReferentialPi
-import com.copiosa.domain.routine.activities.SerialStory
+import com.copiosa.domain.routine.activities.ShortText
 import com.copiosa.domain.routine.activities.SwipeSort
 
 /**
@@ -28,14 +30,16 @@ object ActivityRegistry {
         ContrastCloze,
         NarrowReading,
         AffectivePi,
-        BedtimeStory,
+        ShortText,
         RecognitionCards,
         MultipleChoiceCloze,
+        ClozeBank,
+        ListenAndRebuild,
         SwipeSort,
         CognateHunt,
-        SerialStory,
         RapidFireListening,
         ConjugationDrill,
+        FrequentWordDrill,
     )
 
     val byType: Map<ActivityType, ActivityDescriptor> = all.associateBy { it.type }

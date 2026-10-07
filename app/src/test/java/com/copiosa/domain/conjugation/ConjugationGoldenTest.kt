@@ -9,12 +9,14 @@ import org.junit.Test
  * Replays every cell the generator produced through the Kotlin engine.
  *
  * This is the load-bearing test of the whole feature. `tools/build_conjugations.py` reimplements
- * [RegularConjugator] in Python to work out which cells deviate; if the two implementations ever
+ * [Conjugator] in Python to work out which cells deviate; if the two implementations ever
  * disagree — an ending table typo, a different accent rule, a changed suppression heuristic — the
  * lexicon would silently encode the wrong thing and the drill would teach it. Comparing all 8,400
  * cells makes that impossible to miss.
  */
 class ConjugationGoldenTest {
+
+    private val SPANISH = ConjugationSpecs.SPANISH
 
     private data class Row(
         val infinitive: String, val tense: Tense, val person: Person,
@@ -46,12 +48,12 @@ class ConjugationGoldenTest {
     @Test
     fun theEngineReproducesEveryGeneratedCell() {
         assertEquals("golden set should cover every verb x tense x person",
-            VerbLexicon.verbs.size * Tense.entries.size * Person.entries.size, rows.size)
+            SPANISH.lexicon.verbs.size * SPANISH.tenses.size * SPANISH.persons.size, rows.size)
 
         rows.forEach { row ->
-            val verb = checkNotNull(VerbLexicon.byInfinitive(row.infinitive)) { "missing ${row.infinitive}" }
+            val verb = checkNotNull(SPANISH.lexicon.byInfinitive(row.infinitive)) { "missing ${row.infinitive}" }
             val where = "${row.infinitive} ${row.tense.slug}.${row.person.slug}"
-            val actual = ConjugationEngine.conjugate(verb, row.tense, row.person)
+            val actual = SPANISH.engine.conjugate(verb, row.tense, row.person)
             assertNotNull(where, actual)
             assertEquals("$where form", row.form, actual!!.form)
             assertEquals("$where naive", row.naive, actual.naiveForm)
@@ -65,8 +67,8 @@ class ConjugationGoldenTest {
     @Test
     fun everyIrregularCellHighlightsSomething() {
         rows.filter { it.classes.isNotEmpty() }.forEach { row ->
-            val verb = VerbLexicon.byInfinitive(row.infinitive)!!
-            val segments = ConjugationEngine.conjugate(verb, row.tense, row.person)!!.segments
+            val verb = SPANISH.lexicon.byInfinitive(row.infinitive)!!
+            val segments = SPANISH.engine.conjugate(verb, row.tense, row.person)!!.segments
             assertTrue(
                 "${row.infinitive} ${row.tense.slug}.${row.person.slug} highlighted nothing",
                 segments.any { it.role == SegmentRole.IRREGULAR && it.text.isNotEmpty() },
@@ -76,7 +78,7 @@ class ConjugationGoldenTest {
 
     @Test
     fun theLexiconIsWellFormed() {
-        val verbs = VerbLexicon.verbs
+        val verbs = SPANISH.lexicon.verbs
         assertEquals(EXPECTED_VERBS, verbs.size)
         assertEquals("ranks must be 1..n and unique",
             (1..EXPECTED_VERBS).toList(), verbs.map { it.rank }.sorted())
@@ -84,7 +86,7 @@ class ConjugationGoldenTest {
         verbs.forEach {
             assertTrue("${it.infinitive} has no gloss", it.gloss.isNotBlank())
             assertTrue("${it.infinitive} has no frequency", it.frequency > 0)
-            assertEquals("${it.infinitive} verb class", RegularConjugator.classOf(it.infinitive), it.verbClass)
+            assertEquals("${it.infinitive} verb class", SPANISH.conjugator.classOf(it.infinitive), it.verbClass)
         }
         // Ranking must follow frequency, since the selector's weighting reads one and the reference
         // list is ordered by the other.
@@ -95,7 +97,7 @@ class ConjugationGoldenTest {
 
     @Test
     fun theLexiconCarriesEnoughIrregularityToDrill() {
-        val irregular = VerbLexicon.verbs.filter { !it.isRegular }
+        val irregular = SPANISH.lexicon.verbs.filter { !it.isRegular }
         assertTrue("only ${irregular.size} irregular verbs", irregular.size >= MIN_IRREGULAR_VERBS)
         // Every family except "regular" must actually be represented, or a proficiency bucket and a
         // reference table would ship permanently empty.
@@ -103,22 +105,22 @@ class ConjugationGoldenTest {
         (IrregularityFamily.entries - IrregularityFamily.REGULAR).forEach {
             assertTrue("no verb exhibits $it", it in families)
         }
-        assertTrue("too few generalizable classes", VerbLexicon.generalizableClasses.size >= 8)
+        assertTrue("too few generalizable classes", SPANISH.lexicon.generalizableClasses.size >= 8)
     }
 
     @Test
     fun theImperfectSubjunctiveIsNeverStored() {
         // It is derived from the third-plural preterite at runtime; storing it would let the two
         // drift apart.
-        VerbLexicon.verbs.forEach {
+        SPANISH.lexicon.verbs.forEach {
             assertTrue(
                 "${it.infinitive} stores an imperfect subjunctive override",
                 Tense.IMPERFECT_SUBJUNCTIVE !in it.overrides,
             )
         }
         // ...and it still comes out irregular wherever the preterite is.
-        val saber = VerbLexicon.byInfinitive("saber")!!
-        val supiera = ConjugationEngine.conjugate(saber, Tense.IMPERFECT_SUBJUNCTIVE, Person.YO)!!
+        val saber = SPANISH.lexicon.byInfinitive("saber")!!
+        val supiera = SPANISH.engine.conjugate(saber, Tense.IMPERFECT_SUBJUNCTIVE, Person.YO)!!
         assertEquals("supiera", supiera.form)
         assertTrue(supiera.isIrregular)
     }

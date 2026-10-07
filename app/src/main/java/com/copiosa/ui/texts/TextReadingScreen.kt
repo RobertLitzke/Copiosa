@@ -14,19 +14,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Headphones
@@ -47,7 +45,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,23 +57,55 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.copiosa.ui.components.ConfirmDeleteDialog
+import com.copiosa.ui.components.Prompt
+import com.copiosa.ui.components.ReaderTranslationCard
+import com.copiosa.ui.components.SavedNotice
+import com.copiosa.ui.components.SavedWordsSheet
+import com.copiosa.ui.components.rememberAudioRequestGate
+import com.copiosa.ui.components.rememberReadModeState
+import com.copiosa.ui.components.rememberScrollRestore
 import kotlinx.coroutines.flow.distinctUntilChanged
 import com.copiosa.R
 import com.copiosa.data.article.ArticleExtractor
 import com.copiosa.data.local.ConversationEntity
-import com.copiosa.domain.highlight.HighlightTarget
+import com.copiosa.domain.reading.BilingualBlocks
+import com.copiosa.domain.reading.ReadMode
+import com.copiosa.domain.reading.canStep
+import com.copiosa.domain.reading.stepped
 import com.copiosa.domain.stats.FocusActivityType
 import com.copiosa.ui.audio.TtsDownloadPrompt
+import com.copiosa.ui.components.BilingualBlockRow
 import com.copiosa.ui.components.CefrBadge
-import com.copiosa.ui.components.TrackFocusTime
-import com.copiosa.ui.components.MarkdownText
+import com.copiosa.ui.components.HighlightWordsMenuItem
+import com.copiosa.ui.components.ReadingProgressRule
 import com.copiosa.ui.components.SegmentedToggle
-import com.copiosa.ui.components.SelectableReader
+import com.copiosa.ui.components.SubordinateGloss
+import com.copiosa.ui.components.TrackFocusTime
+import com.copiosa.ui.components.TranslationCard
+import com.copiosa.ui.components.WordColorizer
+import com.copiosa.ui.components.correspondenceTint
 import com.copiosa.ui.components.llmErrorText
-import com.copiosa.ui.components.TranslateState
+import com.copiosa.ui.components.readFraction
+import com.copiosa.ui.components.readingModeSwipe
+import com.copiosa.ui.components.rememberCorrespondenceTint
+import com.copiosa.ui.components.rememberReadingSelectionSpan
 import com.copiosa.ui.theme.SerifTitle
 import kotlinx.coroutines.delay
 
+/**
+ * The article reader, built on the same bilingual row model as the book reader: one LazyColumn over
+ * paragraph rows that each carry both languages, so a Translation/Original/Both switch swaps text on
+ * the *same* items and the paragraph being read keeps its place. Rows are anchored on the source
+ * paragraphs (see [BilingualBlocks.align]) — that side is complete from import, so the list doesn't
+ * shift under the reader as translation chunks land, and the untranslated tail reads as pending
+ * rather than as an article that stops early.
+ *
+ * On a switch, rows near the viewport pick up the correspondence tint, cycled by row index, so the
+ * matching paragraph is easy to find in the other language; in Both mode it stays lit, since there
+ * it is what pairs the two.
+ */
 @Composable
 fun TextReadingScreen(
     onBack: () -> Unit,
@@ -84,97 +113,83 @@ fun TextReadingScreen(
     onOpenVocab: (Long) -> Unit,
     viewModel: TextReadingViewModel = hiltViewModel(),
 ) {
-    val conversation by viewModel.conversation.collectAsState()
-    val translation by viewModel.translation.collectAsState()
-    val state by viewModel.state.collectAsState()
-    val highlightTargets by viewModel.highlightTargets.collectAsState()
-    val translate by viewModel.translate.collectAsState()
-    val savedNotice by viewModel.savedNotice.collectAsState()
-    val starred by viewModel.starred.collectAsState()
-    val savedScroll by viewModel.savedScroll.collectAsState()
+    val conversation by viewModel.conversation.collectAsStateWithLifecycle()
+    val translation by viewModel.translation.collectAsStateWithLifecycle()
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val reading = viewModel.readingSelection
+    val highlightTargets by reading.highlightTargets.collectAsStateWithLifecycle()
+    val translate by reading.translate.collectAsStateWithLifecycle()
+    val savedNotice by reading.savedNotice.collectAsStateWithLifecycle()
+    val starred by viewModel.starred.collectAsStateWithLifecycle()
+    val highlightWords by viewModel.highlightWords.collectAsStateWithLifecycle()
+    val savedScroll by viewModel.savedScroll.collectAsStateWithLifecycle()
+    val savedMode by viewModel.savedMode.collectAsStateWithLifecycle()
+    val savedWords by viewModel.savedWords.collectAsStateWithLifecycle()
 
     TrackFocusTime(FocusActivityType.READING, conversation?.targetLanguage)
 
-    var showOriginal by remember { mutableStateOf(false) }
+    // One selection across the whole article, so a drag can run from one paragraph into the next.
+    val selection = rememberReadingSelectionSpan()
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    var showTtsPrompt by remember { mutableStateOf(false) }
-    var pendingAudioAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var showSavedWords by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val addedToAudio = stringResource(R.string.audio_added)
-    val notifyAdded: () -> Unit = { Toast.makeText(context, addedToAudio, Toast.LENGTH_SHORT).show() }
-    // Runs [enqueue] now if the voice is installed, otherwise prompts to download it first and defers.
-    val requestAudio: (() -> Unit) -> Unit = { enqueue ->
-        if (viewModel.isTtsReady()) enqueue() else { pendingAudioAction = enqueue; showTtsPrompt = true }
+    val nothingToAdd = stringResource(R.string.audio_nothing_to_add)
+    // Says what happened rather than what was asked for: nothing is queued before the translation lands.
+    val notifyAudio: (queued: Boolean) -> Unit = { queued ->
+        Toast.makeText(context, if (queued) addedToAudio else nothingToAdd, Toast.LENGTH_SHORT).show()
     }
-    val savedText = stringResource(R.string.saved)
+    val audioGate = rememberAudioRequestGate(viewModel::isTtsReady, viewModel::startTtsDownload)
 
-    // Both versions are split into paragraph/heading blocks so each is an addressable anchor: that's
-    // what lets the translation and original stay aligned when the reader flips between them.
+    val complete = state is ReadingState.Ready
     val original = conversation?.originalText.orEmpty()
-    val translationBlocks = remember(translation) { splitBlocks(translation) }
-    val originalBlocks = remember(original) { splitBlocks(original) }
-
-    val translationListState = rememberLazyListState()
-    val originalListState = rememberLazyListState()
-
-    // Restore the saved reading position once the translation has content to scroll into. Gated by
-    // [scrollRestored] so the persistence effect below doesn't overwrite the stored offset with 0
-    // before we've had a chance to jump there.
-    var scrollRestored by remember { mutableStateOf(false) }
-    LaunchedEffect(savedScroll, translationBlocks.size) {
-        if (scrollRestored || translationBlocks.isEmpty()) return@LaunchedEffect
-        savedScroll?.let { (index, offset) ->
-            if (index > 0 || offset > 0) translationListState.scrollToItem(index, offset)
-        }
-        scrollRestored = true
+    val translationBlocks = remember(translation) { BilingualBlocks.split(translation) }
+    val originalBlocks = remember(original) { BilingualBlocks.split(original) }
+    val rows = remember(originalBlocks, translationBlocks, complete) {
+        BilingualBlocks.align(originalBlocks, translationBlocks, complete)
     }
-    // After restoring, keep the stored position in step with the reader so backing out resumes here.
-    LaunchedEffect(scrollRestored, translationListState) {
-        if (!scrollRestored) return@LaunchedEffect
-        snapshotFlow {
-            translationListState.firstVisibleItemIndex to translationListState.firstVisibleItemScrollOffset
-        }
-            .distinctUntilChanged()
-            .collect { (index, offset) -> viewModel.saveScroll(index, offset) }
-    }
-    // Mark the text finished once the last block is visible (only when fully translated), which fades
+
+    // The article's own title, in whichever language(s) the current mode calls for. It is the list's
+    // one header item, so the tint window and the stored scroll index both have to account for it.
+    val targetTitle = conversation?.title.orEmpty()
+    val nativeTitle = conversation?.originalTitle.orEmpty()
+    val headerItems = if (targetTitle.isNotBlank() || nativeTitle.isNotBlank()) 1 else 0
+
+    val listState = rememberLazyListState()
+    val readMode = rememberReadModeState(savedMode, listState, headerItems, onSwitch = { next ->
+        // The popover is anchored to a position in the version being left behind.
+        reading.dismissTranslate()
+        viewModel.saveReadMode(next)
+    })
+    val mode = readMode.mode
+    val tint = readMode.tint
+    val onSelectMode = readMode.select
+    val savedColor = MaterialTheme.colorScheme.primary
+    val colorizer = remember(highlightTargets, savedColor) { WordColorizer(highlightTargets, savedColor) }
+
+    // Restore the saved reading position once there are rows to scroll into, then keep the stored
+    // position in step with the reader so backing out resumes here.
+    val scrollRestore = rememberScrollRestore(
+        listState = listState,
+        saved = savedScroll,
+        itemCount = rows.size,
+        toListIndex = { it.coerceAtMost(rows.size + headerItems - 1) },
+        onPosition = viewModel::saveScroll,
+    )
+    // Mark the text finished once the last row is visible (only when fully translated), which fades
     // its accent styling in the Texts list to the muted "read" look.
     val reachedEnd by remember {
         derivedStateOf {
-            val info = translationListState.layoutInfo
-            info.totalItemsCount > 0 &&
+            val info = listState.layoutInfo
+            // Not before the rows are in and the position restored — a header-only list would
+            // otherwise report the last item as visible and finish the text on open.
+            scrollRestore.restored &&
+                info.totalItemsCount > headerItems &&
                 info.visibleItemsInfo.lastOrNull()?.index == info.totalItemsCount - 1
         }
     }
     LaunchedEffect(reachedEnd, state) {
         if (reachedEnd && state is ReadingState.Ready) viewModel.markFinishedReading()
-    }
-
-    LaunchedEffect(savedNotice) {
-        if (savedNotice) {
-            delay(1800)
-            viewModel.consumeSavedNotice()
-        }
-    }
-
-    // On flip, scroll the newly shown version to the block that corresponds (proportionally) to where
-    // the other version was, so the reader lands at the same place in the text. The first run is
-    // skipped so it doesn't reset the translation list to the top before the saved position restores.
-    var flipPrimed by remember { mutableStateOf(false) }
-    LaunchedEffect(showOriginal) {
-        if (!flipPrimed) {
-            flipPrimed = true
-            return@LaunchedEffect
-        }
-        if (showOriginal) {
-            originalListState.scrollToItem(
-                mapBlockIndex(translationListState.firstVisibleItemIndex, translationBlocks.size, originalBlocks.size),
-            )
-        } else {
-            translationListState.scrollToItem(
-                mapBlockIndex(originalListState.firstVisibleItemIndex, originalBlocks.size, translationBlocks.size),
-            )
-        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -184,186 +199,147 @@ fun TextReadingScreen(
                 starred = starred,
                 onBack = onBack,
                 onToggleStar = viewModel::toggleStar,
-                onSendToAudio = { requestAudio { viewModel.sendToAudio(); notifyAdded() } },
+                onSendToAudio = { audioGate.request { notifyAudio(viewModel.sendToAudio()) } },
+                highlightWords = highlightWords,
+                onToggleHighlightWords = viewModel::toggleHighlightWords,
+                savedWordCount = savedWords.size,
+                onOpenSavedWords = { showSavedWords = true },
                 onDelete = { showDeleteConfirm = true },
             )
 
-            SegmentedToggle(
-                selected = if (showOriginal) 1 else 0,
-                labels = listOf(
-                    stringResource(R.string.text_view_translation),
-                    stringResource(R.string.text_view_original),
-                ),
-                onSelect = { index ->
-                    val wantOriginal = index == 1
-                    if (wantOriginal != showOriginal) viewModel.dismissTranslate()
-                    showOriginal = wantOriginal
-                },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                if (showOriginal) {
-                    OriginalList(conversation = conversation, blocks = originalBlocks, listState = originalListState)
-                } else {
-                    TranslationList(
-                        state = state,
-                        title = conversation?.title.orEmpty(),
-                        blocks = translationBlocks,
-                        listState = translationListState,
-                        highlightTargets = highlightTargets,
-                        translate = translate,
-                        onSelectionTranslate = viewModel::onSelectionTranslate,
-                        onDismissSelection = viewModel::dismissTranslate,
+            when {
+                // Nothing to lay out yet: the import hasn't produced the source text.
+                rows.isEmpty() && state is ReadingState.Importing ->
+                    Box(Modifier.weight(1f)) { CenteredStatus(stringResource(R.string.text_importing)) }
+                rows.isEmpty() -> Box(Modifier.weight(1f)) {
+                    CenteredError(
+                        message = (state as? ReadingState.Failed)?.error?.let { llmErrorText(it) },
                         onRetry = viewModel::retry,
-                        onSave = { viewModel.saveCurrentTranslation(it) },
-                        onSelectSaveEntry = viewModel::selectSaveEntry,
-                        onDownloadDictionary = viewModel::downloadDictionary,
-                        onOpenSaved = onOpenVocab,
-                        onSendSelectionToAudio = { text ->
-                            requestAudio { viewModel.sendSelectionToAudio(text); notifyAdded() }
-                        },
                     )
                 }
+                else -> LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .readingModeSwipe(canStep = mode::canStep) { onSelectMode(mode.stepped(it)) },
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (headerItems > 0) {
+                        item(key = "title") { ArticleTitle(targetTitle, nativeTitle, mode) }
+                    }
+                    itemsIndexed(rows, key = { i, _ -> "b$i" }) { i, row ->
+                        Box(modifier = Modifier.fillMaxWidth().correspondenceTint(tint, i)) {
+                            BilingualBlockRow(
+                                target = row.target,
+                                native = row.native,
+                                mode = mode,
+                                colorizer = colorizer,
+                                isActive = translate != null,
+                                selection = selection,
+                                block = i,
+                                onSelected = reading::onSelectionTranslate,
+                                onCleared = reading::dismissTranslate,
+                            )
+                        }
+                    }
+                    // Progress and partial failures ride inside the same scroll list, after the text.
+                    when (val current = state) {
+                        is ReadingState.Translating ->
+                            item(key = "progress") { ProgressRow(current.done, current.total) }
+                        is ReadingState.Failed -> item(key = "partial") {
+                            PartialErrorRow(
+                                reason = current.error?.let { llmErrorText(it) },
+                                onContinue = viewModel::retry,
+                            )
+                        }
+                        else -> Unit
+                    }
+                }
             }
 
+            // How far through the article, immediately below the text it measures.
+            ReadingProgressRule(fraction = { listState.readFraction() })
+
+            // Version switch and "Discuss" share the bottom bar, within thumb reach while reading.
             Surface(tonalElevation = 2.dp) {
-                Button(
-                    onClick = onDiscuss,
-                    enabled = state is ReadingState.Ready,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                ) {
-                    Icon(Icons.Filled.ChatBubbleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(stringResource(R.string.text_discuss), modifier = Modifier.padding(start = 8.dp))
+                Column {
+                    SegmentedToggle(
+                        selected = mode.ordinal,
+                        labels = listOf(
+                            stringResource(R.string.text_view_translation),
+                            stringResource(R.string.text_view_original),
+                            stringResource(R.string.text_view_both),
+                        ),
+                        onSelect = { onSelectMode(ReadMode.entries[it]) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    Button(
+                        onClick = onDiscuss,
+                        enabled = state is ReadingState.Ready,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(bottom = 12.dp),
+                    ) {
+                        Icon(Icons.Filled.ChatBubbleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text(stringResource(R.string.text_discuss), modifier = Modifier.padding(start = 8.dp))
+                    }
                 }
             }
         }
 
-        AnimatedVisibility(
-            visible = savedNotice,
-            enter = slideInVertically { -it } + fadeIn(),
-            exit = slideOutVertically { -it } + fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp),
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                shadowElevation = 6.dp,
-            ) {
-                Text(savedText, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp), style = MaterialTheme.typography.labelLarge)
-            }
+        translate?.let { t ->
+            ReaderTranslationCard(
+                state = t,
+                selection = reading,
+                onOpenVocab = onOpenVocab,
+                onSendToAudio = { audioGate.request { notifyAudio(viewModel.sendSelectionToAudio(t.original)) } },
+            )
         }
+
+        SavedNotice(visible = savedNotice, onConsume = reading::consumeSavedNotice)
+    }
+
+    if (showSavedWords) {
+        SavedWordsSheet(
+            words = savedWords,
+            onOpen = { id -> showSavedWords = false; onOpenVocab(id) },
+            onDismiss = { showSavedWords = false },
+        )
     }
 
     if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDeleteConfirm = false
-                    viewModel.delete()
-                    onBack()
-                }) { Text(stringResource(R.string.action_delete)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text(stringResource(R.string.action_cancel)) }
-            },
-            title = { Text(stringResource(R.string.delete_text_title)) },
-            text = { Text(stringResource(R.string.delete_text_confirm)) },
-        )
-    }
-
-    if (showTtsPrompt) {
-        TtsDownloadPrompt(
+        ConfirmDeleteDialog(
+            title = R.string.delete_text_title,
+            message = R.string.delete_text_confirm,
             onConfirm = {
-                showTtsPrompt = false
-                viewModel.startTtsDownload()
-                pendingAudioAction?.invoke()
-                pendingAudioAction = null
+                showDeleteConfirm = false
+                viewModel.delete()
+                onBack()
             },
-            onDismiss = { showTtsPrompt = false; pendingAudioAction = null },
+            onDismiss = { showDeleteConfirm = false },
         )
     }
 
+    audioGate.Prompt()
 }
 
 /**
- * The translation reading pane: delegates to the shared [SelectableReader] (highlighting, tap-to-define,
- * save-to-vocab) and appends this importer's own progress / partial-error rows inside the same scroll
- * list. The import-spinner and hard-failure (no text yet) states are shown in place of the reader.
+ * The article's title, following the reading mode like the rows below it do — the translated title
+ * in Translation and Both (with the source title as a gloss beneath), the source title in Original.
+ * A missing side falls back to the other rather than leaving the article looking untitled.
  */
 @Composable
-private fun TranslationList(
-    state: ReadingState,
-    title: String,
-    blocks: List<String>,
-    listState: androidx.compose.foundation.lazy.LazyListState,
-    highlightTargets: List<HighlightTarget>,
-    translate: TranslateState?,
-    onSelectionTranslate: (text: String, anchorY: Float, sourceText: String) -> Unit,
-    onDismissSelection: () -> Unit,
-    onRetry: () -> Unit,
-    onSave: (String) -> Unit,
-    onSelectSaveEntry: (lemma: String, pos: String?) -> Unit,
-    onDownloadDictionary: () -> Unit,
-    onOpenSaved: (Long) -> Unit,
-    onSendSelectionToAudio: (String) -> Unit,
-) {
-    when {
-        state is ReadingState.Importing -> CenteredStatus(stringResource(R.string.text_importing))
-        state is ReadingState.Failed && blocks.isEmpty() ->
-            CenteredError(message = state.error?.let { llmErrorText(it) }, onRetry = onRetry)
-        else -> SelectableReader(
-            blocks = blocks,
-            highlightTargets = highlightTargets,
-            translate = translate,
-            onSelectionTranslate = onSelectionTranslate,
-            onDismissSelection = onDismissSelection,
-            onSave = onSave,
-            onSelectSaveEntry = onSelectSaveEntry,
-            onDownloadDictionary = onDownloadDictionary,
-            title = title.ifBlank { null },
-            listState = listState,
-            onOpenSaved = onOpenSaved,
-            onSendSelectionToAudio = onSendSelectionToAudio,
-            footer = {
-                when (state) {
-                    is ReadingState.Translating -> item(key = "progress") { ProgressRow(state.done, state.total) }
-                    is ReadingState.Failed -> item(key = "partial") {
-                        PartialErrorRow(reason = state.error?.let { llmErrorText(it) }, onContinue = onRetry)
-                    }
-                    else -> {}
-                }
-            },
-        )
+private fun ArticleTitle(target: String, native: String, mode: ReadMode) {
+    val primary = when {
+        mode == ReadMode.NATIVE -> native.ifBlank { target }
+        else -> target.ifBlank { native }
     }
-}
-
-@Composable
-private fun OriginalList(
-    conversation: ConversationEntity?,
-    blocks: List<String>,
-    listState: androidx.compose.foundation.lazy.LazyListState,
-) {
-    if (blocks.isEmpty()) {
-        CenteredStatus(stringResource(R.string.text_importing))
-        return
-    }
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        conversation?.originalTitle?.takeIf { it.isNotBlank() }?.let { title ->
-            item(key = "otitle") { Text(title, style = SerifTitle) }
-        }
-        itemsIndexed(blocks, key = { i, _ -> "o$i" }) { _, block ->
-            SelectionContainer { MarkdownText(block) }
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (primary.isNotBlank()) Text(primary, style = SerifTitle)
+        if (mode == ReadMode.BOTH && native.isNotBlank() && native != primary) SubordinateGloss(native)
     }
 }
 
@@ -374,6 +350,10 @@ private fun ReadingTopBar(
     onBack: () -> Unit,
     onToggleStar: () -> Unit,
     onSendToAudio: () -> Unit,
+    highlightWords: Boolean,
+    onToggleHighlightWords: () -> Unit,
+    savedWordCount: Int,
+    onOpenSavedWords: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -431,6 +411,16 @@ private fun ReadingTopBar(
                     text = { Text(stringResource(R.string.audio_send_to)) },
                     leadingIcon = { Icon(Icons.Filled.Headphones, contentDescription = null) },
                     onClick = { onSendToAudio(); overflowOpen = false },
+                )
+                HighlightWordsMenuItem(
+                    checked = highlightWords,
+                    onToggle = onToggleHighlightWords,
+                    onDismiss = { overflowOpen = false },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.saved_words_menu, savedWordCount)) },
+                    leadingIcon = { Icon(Icons.Filled.Bookmarks, contentDescription = null) },
+                    onClick = { onOpenSavedWords(); overflowOpen = false },
                 )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.action_delete)) },
@@ -498,14 +488,4 @@ private fun CenteredError(message: String?, onRetry: () -> Unit) {
             Button(onClick = onRetry) { Text(stringResource(R.string.action_retry)) }
         }
     }
-}
-
-/** Splits Markdown text into paragraph/heading blocks (separated by a blank line). */
-private fun splitBlocks(text: String): List<String> =
-    text.split(Regex("\\n\\s*\\n")).map { it.trim() }.filter { it.isNotEmpty() }
-
-/** Maps a block index in one version to the proportionally-corresponding index in the other. */
-private fun mapBlockIndex(index: Int, fromCount: Int, toCount: Int): Int {
-    if (fromCount <= 1 || toCount <= 1) return 0
-    return ((index.toLong() * (toCount - 1)) / (fromCount - 1)).toInt().coerceIn(0, toCount - 1)
 }

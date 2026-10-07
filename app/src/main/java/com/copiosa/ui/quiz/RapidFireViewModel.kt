@@ -103,6 +103,10 @@ class RapidFireViewModel @Inject constructor(
     private val _playbackSpeed = MutableStateFlow(1.0f)
     val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
 
+    /** The last Start came back with no questions, so the home screen can say so beside the button. */
+    private val _nothingToPlay = MutableStateFlow(false)
+    val nothingToPlay: StateFlow<Boolean> = _nothingToPlay.asStateFlow()
+
     private var questions: Map<Long, QuizQuestion> = emptyMap()
     private val answers = mutableListOf<QuizAnswer>()
 
@@ -121,14 +125,8 @@ class RapidFireViewModel @Inject constructor(
 
     fun startSession(count: Int = _questionCount.value) {
         viewModelScope.launch {
-            val lang = settingsRepo.activeProfileTag.first()
-            val pool = poolRepo.poolFor(lang, focusType) ?: return@launch
-            val config = QuizPoolConfig.decode(pool.configJson) ?: return@launch
-            val cues = poolRepo.readyCues(lang, focusType).mapNotNull { it.toReadyCue() }
-            if (cues.isEmpty()) return@launch
-            val difficulty = routineRepo.getProficiency(focusType.slug, lang)?.difficultyLevel ?: 0
-            val built = QuizSessionBuilder()
-                .build(cues, config, count, difficultyFor = { difficulty })
+            val built = buildSession(count)
+            _nothingToPlay.value = built.isEmpty()
             if (built.isEmpty()) return@launch
             questions = built.associateBy { it.cueId }
             answers.clear()
@@ -136,6 +134,20 @@ class RapidFireViewModel @Inject constructor(
                 items = built.map { RapidFireItem(it.cueId, it.audioPath, it.displayAnswer, it.options, it.answerIndex) },
             )
         }
+    }
+
+    /**
+     * The questions for a session of [count], or none when one can't be put together: the pool or
+     * its settings are gone, the ready clips don't hold up, or the builder finds no usable question.
+     */
+    private suspend fun buildSession(count: Int): List<QuizQuestion> {
+        val lang = settingsRepo.activeProfileTag.first()
+        val pool = poolRepo.poolFor(lang, focusType) ?: return emptyList()
+        val config = QuizPoolConfig.decode(pool.configJson) ?: return emptyList()
+        val cues = poolRepo.readyCues(lang, focusType).mapNotNull { it.toReadyCue() }
+        if (cues.isEmpty()) return emptyList()
+        val difficulty = routineRepo.getProficiency(focusType.slug, lang)?.difficultyLevel ?: 0
+        return QuizSessionBuilder().build(cues, config, count, difficultyFor = { difficulty })
     }
 
     /** Scores the answer, feeds the shared proficiency bucket, and updates the live chrome. */

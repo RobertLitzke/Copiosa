@@ -6,6 +6,8 @@
     <!-- Background playback of the listening playlist (Media3 foreground service + its notification). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Rapid book download: a long sequential run of translation calls (BookBulkTranslateWorker). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
@@ -17,10 +19,16 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Copiosa">
 
+        <!--
+            singleTop: an intent for the already-running app (a launcher shortcut, the review
+            reminder) reaches MainActivity.onNewIntent instead of stacking a second copy of the one
+            activity on top of the first.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.Copiosa"
             android:windowSoftInputMode="adjustResize|stateUnchanged">
             <intent-filter>
@@ -70,6 +78,16 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <!--
+            WorkManager's own foreground-service host. Android 14+ requires the type to be declared
+            in the manifest as well as passed to ForegroundInfo, and WorkManager cannot know which
+            types an app uses — so the rapid book download's "dataSync" is merged in here.
+        -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
         <!--
             On-demand WorkManager init: CopiosaApp is the Configuration.Provider and supplies the

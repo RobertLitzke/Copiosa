@@ -1,5 +1,7 @@
 package com.copiosa.domain.routine
 
+import com.copiosa.domain.language.LanguageProfiles
+
 import com.copiosa.domain.model.Cefr
 import com.copiosa.domain.prompt.RoutineContentPrompt
 import org.junit.Assert.assertEquals
@@ -27,24 +29,42 @@ class ActivityRegistryTest {
         }
     }
 
+    // Descriptors now see the routine type, so both contracts are checked for every routine.
+    private fun promptCtx(type: RoutineType) =
+        PromptContext("Spanish", "English", type, LanguageProfiles.SPANISH)
+
+    private fun requestCtx(type: RoutineType, storyContext: String? = null) =
+        RequestContext(
+            routineType = type,
+            durationMinutes = 10,
+            storyContext = storyContext,
+            profile = LanguageProfiles.SPANISH,
+        )
+
     @Test
-    fun `llm activities contribute both prompt parts`() {
-        val promptCtx = PromptContext("Spanish", "English")
-        val requestCtx = RequestContext(durationMinutes = 10, storyContext = null)
-        for (descriptor in ActivityRegistry.all.filter { it.definition.needsLlm }) {
-            val slot = slotFor(descriptor)
-            assertNotNull("${descriptor.type} needs an LLM but has no system rule", descriptor.systemRule(promptCtx))
-            assertNotNull("${descriptor.type} needs an LLM but has no request line", descriptor.requestLine(0, slot, requestCtx))
+    fun `llm activities contribute both prompt parts for every routine type`() {
+        for (routineType in RoutineType.entries) {
+            for (descriptor in ActivityRegistry.all.filter { it.definition.needsLlm }) {
+                val slot = slotFor(descriptor)
+                assertNotNull(
+                    "${descriptor.type} needs an LLM but has no system rule in $routineType",
+                    descriptor.systemRule(promptCtx(routineType)),
+                )
+                assertNotNull(
+                    "${descriptor.type} needs an LLM but has no request line in $routineType",
+                    descriptor.requestLine(0, slot, requestCtx(routineType)),
+                )
+            }
         }
     }
 
     @Test
     fun `offline activities request nothing from the llm`() {
-        val promptCtx = PromptContext("Spanish", "English")
-        val requestCtx = RequestContext(durationMinutes = 10, storyContext = null)
-        for (descriptor in ActivityRegistry.all.filterNot { it.definition.needsLlm }) {
-            assertEquals(null, descriptor.systemRule(promptCtx))
-            assertEquals(null, descriptor.requestLine(0, slotFor(descriptor), requestCtx))
+        for (routineType in RoutineType.entries) {
+            for (descriptor in ActivityRegistry.all.filterNot { it.definition.needsLlm }) {
+                assertEquals(null, descriptor.systemRule(promptCtx(routineType)))
+                assertEquals(null, descriptor.requestLine(0, slotFor(descriptor), requestCtx(routineType)))
+            }
         }
     }
 
@@ -68,10 +88,12 @@ class ActivityRegistryTest {
 
     @Test
     fun `system prompt emits a rule for every llm activity`() {
-        val system = RoutineContentPrompt().systemPrompt("Mexico", "es", "en", Cefr.B2)
-        for (descriptor in ActivityRegistry.all.filter { it.definition.needsLlm }) {
-            val slug = descriptor.type.name.lowercase()
-            assertTrue("system prompt is missing a rule for $slug", system.contains("- $slug:"))
+        for (routineType in RoutineType.entries) {
+            val system = RoutineContentPrompt().systemPrompt("Mexico", "es", "en", Cefr.B2, routineType)
+            for (descriptor in ActivityRegistry.all.filter { it.definition.needsLlm }) {
+                val slug = descriptor.type.name.lowercase()
+                assertTrue("$routineType prompt is missing a rule for $slug", system.contains("- $slug:"))
+            }
         }
     }
 

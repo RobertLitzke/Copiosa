@@ -9,7 +9,7 @@ import com.copiosa.domain.conjugation.IrregularityClass
 import com.copiosa.domain.conjugation.IrregularityFamily
 
 /**
- * The colour a family of irregularity is highlighted in, following the [com.copiosa.ui.flashcards]
+ * The colour a family of irregularity is highlighted in, following the [com.copiosa.ui.vocab]
  * `CardStatus` precedent: a small hand-picked set, tuned to read against both the cream and dark
  * surfaces.
  *
@@ -74,5 +74,24 @@ fun IrregularityClass.label(): String = stringResource(
         IrregularityClass.IMPERFECT_IRREGULAR -> R.string.conj_class_imperfect_irregular
         IrregularityClass.SUBJ_IRREGULAR -> R.string.conj_class_subj_irregular
         IrregularityClass.OTHER -> R.string.conj_class_other
+
+        IrregularityClass.PT_STEM_E_I -> R.string.conj_class_pt_stem_e_i
+        IrregularityClass.PT_STEM_O_U -> R.string.conj_class_pt_stem_o_u
+        IrregularityClass.PT_STEM_E_EI -> R.string.conj_class_pt_stem_e_ei
+        IrregularityClass.PT_EU_NH -> R.string.conj_class_pt_eu_nh
+        IrregularityClass.PT_EU_C_CEDILLA -> R.string.conj_class_pt_eu_c
+        IrregularityClass.PT_EU_OU -> R.string.conj_class_pt_eu_ou
+        IrregularityClass.PT_EU_OTHER -> R.string.conj_class_pt_eu_other
+        IrregularityClass.PT_SUBJ_EU_STEM -> R.string.conj_class_pt_subj_eu_stem
+        IrregularityClass.PT_STRONG_PRET -> R.string.conj_class_pt_strong_pret
+        IrregularityClass.PT_STRONG_PRET_ENDING -> R.string.conj_class_pt_strong_pret_ending
+        IrregularityClass.PT_FUT_STEM -> R.string.conj_class_pt_fut_stem
+        IrregularityClass.PT_ORTH_CAR_GAR_CAR -> R.string.conj_class_pt_orth_car_gar_car
+        IrregularityClass.PT_ORTH_CER_GER_GUIR -> R.string.conj_class_pt_orth_cer_ger_guir
+        IrregularityClass.PT_ACCENT_SHIFT -> R.string.conj_class_pt_accent_shift
+        IrregularityClass.PT_SUPPLETIVE -> R.string.conj_class_pt_suppletive
+        IrregularityClass.PT_IMPERFECT_IRREGULAR -> R.string.conj_class_pt_imperfect_irregular
+        IrregularityClass.PT_SUBJ_IRREGULAR -> R.string.conj_class_pt_subj_irregular
+        IrregularityClass.PT_OTHER -> R.string.conj_class_pt_other_irregular
     },
 )

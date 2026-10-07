@@ -108,6 +108,7 @@ class BackupService @Inject constructor(
         const val DB_NAME = "copiosa.db"
 
         /** files/ subdirectories included in a backup; "datastore" holds the DataStore prefs. */
-        val BACKED_UP_DIRS = listOf("audio", "anki_media", "quiz_audio", "book_covers", "datastore")
+        val BACKED_UP_DIRS =
+            listOf("audio", "anki_media", "quiz_audio", "book_covers", "book_images", "datastore")
     }
 }

@@ -1,11 +1,11 @@
 package com.copiosa.data.tts
 
 import android.content.Context
+import com.copiosa.di.AppScope
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,9 +59,9 @@ data class SupertonicPaths(
 class SupertonicModelStore @Inject constructor(
     @ApplicationContext context: Context,
     private val http: OkHttpClient,
+    @AppScope private val scope: CoroutineScope,
 ) {
     private val dir = File(context.filesDir, "tts_supertonic")
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
 
     private val _state = MutableStateFlow<TtsModelState>(
@@ -88,7 +88,8 @@ class SupertonicModelStore @Inject constructor(
     /** Starts the download if it isn't already running or complete. Safe to call repeatedly. */
     fun download() {
         if (_state.value is TtsModelState.Downloading) return
-        scope.launch {
+        // IO, not the scope's default: the download and extraction block.
+        scope.launch(Dispatchers.IO) {
             mutex.withLock {
                 if (isComplete()) {
                     _state.value = TtsModelState.Ready
@@ -117,7 +118,7 @@ class SupertonicModelStore @Inject constructor(
 
     /** Deletes the model and reclaims the space. */
     fun remove() {
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             mutex.withLock {
                 cleanup()
                 _state.value = TtsModelState.NotDownloaded

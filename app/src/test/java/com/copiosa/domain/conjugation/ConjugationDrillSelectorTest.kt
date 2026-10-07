@@ -8,11 +8,13 @@ import kotlin.random.Random
 
 class ConjugationDrillSelectorTest {
 
-    private val verbs = VerbLexicon.verbs
-    private val allTenses = Tense.entries.toSet()
+    private val SPANISH = ConjugationSpecs.SPANISH
+
+    private val verbs = SPANISH.lexicon.verbs
+    private val allTenses = SPANISH.tenses.toSet()
     private val now = 1_700_000_000_000L
 
-    private fun selector(seed: Int = 1) = ConjugationDrillSelector(Random(seed))
+    private fun selector(seed: Int = 1) = ConjugationDrillSelector(SPANISH, Random(seed))
 
     private fun draw(
         config: ConjugationDrillConfig,
@@ -24,8 +26,8 @@ class ConjugationDrillSelectorTest {
     ): List<DrillItem> {
         val picked = mutableListOf<DrillItem>()
         repeat(rounds) { round ->
-            picked += ConjugationDrillSelector(Random(seed + round))
-                .select(verbs, config, stats, familyMastery, seenVerbs, now)
+            picked += ConjugationDrillSelector(SPANISH, Random(seed + round))
+                .select(config, stats, familyMastery, seenVerbs, now)
         }
         return picked
     }
@@ -165,7 +167,7 @@ class ConjugationDrillSelectorTest {
             .filterIsInstance<DrillItem.Transform>()
         assertTrue("no transform cards were produced", items.isNotEmpty())
         items.forEach {
-            val verb = VerbLexicon.byInfinitive(it.infinitive)!!
+            val verb = SPANISH.lexicon.byInfinitive(it.infinitive)!!
             assertTrue(
                 "${it.infinitive} ${it.source.slug} is regular — nothing to transform",
                 verb.overrideAt(it.source.tense, it.source.person) != null,
@@ -185,7 +187,7 @@ class ConjugationDrillSelectorTest {
         val items = draw(config, rounds = 20, familyMastery = warm).filterIsInstance<DrillItem.Generalize>()
         assertTrue("no generalize cards were produced", items.isNotEmpty())
         items.forEach {
-            val verb = VerbLexicon.byInfinitive(it.infinitive)!!
+            val verb = SPANISH.lexicon.byInfinitive(it.infinitive)!!
             assertTrue(
                 "${it.infinitive} ${it.target.slug} does not exhibit ${it.cls.slug}",
                 verb.overrideAt(it.target.tense, it.target.person)?.classes?.contains(it.cls) == true,

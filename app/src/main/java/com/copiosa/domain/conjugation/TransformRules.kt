@@ -4,9 +4,11 @@ package com.copiosa.domain.conjugation
  * One derivation the learner is asked to perform: given a cell, produce the cell it feeds.
  *
  * These are curated rather than arbitrary cell pairs, because only a handful of pairs are actually
- * *derivations* — places where Spanish builds one paradigm out of another, and where knowing the
+ * *derivations* — places where the language builds one paradigm out of another, and where knowing the
  * source cell is genuinely sufficient to get the target right. Asking for an unrelated pair would
  * just be a produce card with extra reading.
+ *
+ * Which rules are in play is a property of the language: see [ConjugationSpec.transformRules].
  */
 data class TransformRule(
     val slug: String,
@@ -24,6 +26,8 @@ data class TransformRule(
 }
 
 object TransformRules {
+
+    // ---- Spanish ----
 
     /** Third-plural preterite -> imperfect subjunctive. The one place the derivational spine is visible. */
     val PRETERITE_TO_IMPERFECT_SUBJUNCTIVE = TransformRule(
@@ -57,14 +61,62 @@ object TransformRules {
         label = "present -> preterite",
     )
 
-    val ALL = listOf(
+    val SPANISH = listOf(
         PRETERITE_TO_IMPERFECT_SUBJUNCTIVE,
         YO_TO_PRESENT_SUBJUNCTIVE,
         FUTURE_TO_CONDITIONAL,
         PRESENT_TO_PRETERITE,
     )
 
-    fun fromSlug(slug: String?): TransformRule? = ALL.firstOrNull { it.slug == slug }
+    // ---- Portuguese ----
+    //
+    // The same derivational spine, plus the one Spanish hasn't got: the future subjunctive, which is
+    // built off the very same third-plural preterite stem as the imperfect subjunctive. That shared
+    // source is exactly why "fizeram -> fizer" is worth asking — a learner who reaches for the
+    // infinitive writes "fazer" and is wrong in the one place Portuguese most often tests.
+
+    val PT_PRETERITE_TO_IMPERFECT_SUBJUNCTIVE = TransformRule(
+        slug = "pt_pret3p_to_subimp",
+        sourceTense = Tense.PRETERITE, sourcePerson = Person.ELLOS,
+        targetTense = Tense.IMPERFECT_SUBJUNCTIVE,
+        label = "preterite -> imperfect subjunctive",
+    )
+
+    val PT_PRETERITE_TO_FUTURE_SUBJUNCTIVE = TransformRule(
+        slug = "pt_pret3p_to_subfut",
+        sourceTense = Tense.PRETERITE, sourcePerson = Person.ELLOS,
+        targetTense = Tense.FUTURE_SUBJUNCTIVE,
+        label = "preterite -> future subjunctive",
+    )
+
+    val PT_EU_TO_PRESENT_SUBJUNCTIVE = TransformRule(
+        slug = "pt_pres1s_to_subpres",
+        sourceTense = Tense.PRESENT, sourcePerson = Person.YO,
+        targetTense = Tense.PRESENT_SUBJUNCTIVE,
+        label = "eu form -> present subjunctive",
+    )
+
+    val PT_FUTURE_TO_CONDITIONAL = TransformRule(
+        slug = "pt_fut1s_to_cond1s",
+        sourceTense = Tense.FUTURE, sourcePerson = Person.YO,
+        targetTense = Tense.CONDITIONAL, fixedTargetPerson = Person.YO,
+        label = "future -> conditional",
+    )
+
+    val PT_PRESENT_TO_PRETERITE = TransformRule(
+        slug = "pt_pres3s_to_pret3s",
+        sourceTense = Tense.PRESENT, sourcePerson = Person.EL,
+        targetTense = Tense.PRETERITE, fixedTargetPerson = Person.EL,
+        label = "present -> preterite",
+    )
+
+    val PORTUGUESE = listOf(
+        PT_PRETERITE_TO_IMPERFECT_SUBJUNCTIVE,
+        PT_PRETERITE_TO_FUTURE_SUBJUNCTIVE,
+        PT_EU_TO_PRESENT_SUBJUNCTIVE,
+        PT_FUTURE_TO_CONDITIONAL,
+        PT_PRESENT_TO_PRETERITE,
+    )
 
     /**
      * Whether a rule is worth asking about for a verb: the source cell must actually deviate, or the
@@ -78,8 +130,12 @@ object TransformRules {
         return verb.overrideAt(source.tense, source.person) != null
     }
 
-    /** Every (rule, target cell) pair a verb can be drilled on, given the persons in play. */
-    fun cardsFor(verb: VerbEntry, persons: Collection<Person>): List<Pair<TransformRule, Cell>> =
-        ALL.filter { applicableTo(verb, it) }
+    /** Every (rule, target cell) pair a verb can be drilled on, given [rules] and the persons in play. */
+    fun cardsFor(
+        verb: VerbEntry,
+        persons: Collection<Person>,
+        rules: List<TransformRule>,
+    ): List<Pair<TransformRule, Cell>> =
+        rules.filter { applicableTo(verb, it) }
             .flatMap { rule -> rule.targetCells(persons).filter { verb.allows(it) }.map { rule to it } }
 }

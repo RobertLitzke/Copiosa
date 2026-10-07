@@ -1,7 +1,15 @@
 package com.copiosa.domain.routine
 
+import com.copiosa.domain.listening.RebuildItem
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
 
 /**
@@ -19,9 +27,27 @@ data class RoutinePlan(
     val activities: List<ActivityInstance>,
 )
 
+/**
+ * Reads [ActivityType] by name, resolving names retired since a plan was saved. Without this a plan
+ * naming a merged-away type would fail to decode in full, not just lose the one activity.
+ */
+private object RetiringActivityTypeSerializer : KSerializer<ActivityType> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("com.copiosa.domain.routine.ActivityType", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: ActivityType) = encoder.encodeString(value.name)
+
+    override fun deserialize(decoder: Decoder): ActivityType {
+        val raw = decoder.decodeString()
+        return ActivityType.fromNameOrNull(raw)
+            ?: throw SerializationException("Unknown ActivityType '$raw'")
+    }
+}
+
 /** One activity in a [RoutinePlan]: its placement/difficulty plus the content the player renders. */
 @Serializable
 data class ActivityInstance(
+    @Serializable(with = RetiringActivityTypeSerializer::class)
     val type: ActivityType,
     val band: ArousalBand,
     val difficultyLevel: Int = 0,
@@ -54,9 +80,39 @@ data class NarrowReadingContent(val title: String, val paragraphs: List<String>)
 @SerialName("affective_pi")
 data class AffectivePiContent(val prompt: String, val statements: List<String>) : ActivityContent
 
+/**
+ * The routine's prose read. [blocks] are rendered as separate paragraphs, except for
+ * [TextFlavor.BEDTIME_STORY], whose sentences are joined into one settled block. [chapter] is set only
+ * for [TextFlavor.SERIAL_CHAPTER].
+ */
+@Serializable
+@SerialName("short_text")
+data class ShortTextContent(
+    val flavor: TextFlavor,
+    val title: String,
+    val blocks: List<String>,
+    val chapter: Int? = null,
+) : ActivityContent
+
+/**
+ * Superseded by [ShortTextContent]; retained only so plans saved before the merge still decode.
+ *
+ * [RoutinePlanCodec.decode] fails the *whole* plan on an unrecognised "kind" discriminator, not just
+ * the one activity, and a run whose plan no longer decodes sits on a permanent "preparing" spinner with
+ * no retry path — so removing this class would strand every in-flight run on upgrade.
+ */
+@Deprecated("Legacy plan decode only — new plans use ShortTextContent.")
 @Serializable
 @SerialName("bedtime_story")
 data class BedtimeStoryContent(val title: String, val sentences: List<String>) : ActivityContent
+
+/**
+ * The frequent-word drill needs no generated text either: it is an ordinary review session narrowed
+ * to cards for words ranked at or above [maxRank] in the bundled frequency list.
+ */
+@Serializable
+@SerialName("frequent_word_drill")
+data class FrequentWordDrillContent(val cardLimit: Int = 12, val maxRank: Int = 500) : ActivityContent
 
 /** Recognition cards need no generated text — cards come from the SRS store; this just caps the count. */
 @Serializable
@@ -67,6 +123,29 @@ data class RecognitionCardsContent(val cardLimit: Int = 10) : ActivityContent
 @SerialName("multiple_choice_cloze")
 data class MultipleChoiceClozeContent(val items: List<ClozeItem>) : ActivityContent
 
+/**
+ * A block drawn from the cloze bank. The item text is snapshotted into the plan like every other
+ * activity's, so a stored run still plays if the bank changes underneath it; [BankedClozeItem.sentenceId]
+ * is carried alongside so a graded answer can still move that sentence's own schedule. An id that no
+ * longer resolves simply doesn't update the bank — the item is still answerable.
+ */
+@Serializable
+@SerialName("cloze_bank")
+data class ClozeBankContent(val items: List<BankedClozeItem>) : ActivityContent
+
+/** One banked sentence in a routine plan: the playable item plus the row it came from. */
+@Serializable
+data class BankedClozeItem(val sentenceId: Long, val item: ClozeItem)
+
+/**
+ * A listen-and-rebuild block: banked sentences with their clips rendered at build time, so the step
+ * plays without waiting on the voice model. Like [ClozeBankContent] the items are snapshotted; a clip
+ * the cache has since evicted plays as silence and the item is still solvable by Show answer.
+ */
+@Serializable
+@SerialName("listen_rebuild")
+data class ListenRebuildContent(val items: List<RebuildItem>) : ActivityContent
+
 /** A swipe-to-sort set built from the user's own cards: each item names the bin (by index) it belongs in. */
 @Serializable
 @SerialName("swipe_sort")
@@ -76,7 +155,8 @@ data class SwipeSortContent(val dimension: SortDimension, val items: List<SwipeI
 @SerialName("cognate_hunt")
 data class CognateHuntContent(val words: List<CognateWord>) : ActivityContent
 
-/** One chapter of a story that continues night to night (see the story thread in the data layer). */
+/** Superseded by [ShortTextContent]; retained for legacy plan decode — see [BedtimeStoryContent]. */
+@Deprecated("Legacy plan decode only — new plans use ShortTextContent.")
 @Serializable
 @SerialName("serial_story")
 data class SerialStoryContent(val chapter: Int, val title: String, val paragraphs: List<String>) : ActivityContent
@@ -116,7 +196,15 @@ data class RapidFireItem(
  */
 @Serializable
 @SerialName("conjugation_drill")
-data class ConjugationDrillContent(val items: List<ConjugationDrillItem>) : ActivityContent
+data class ConjugationDrillContent(
+    val items: List<ConjugationDrillItem>,
+    /**
+     * Which language's paradigm the [items] coordinates are read against. Defaults to Spanish because
+     * every plan stored before the drill became language-parametric was Spanish, and a stored plan has
+     * to keep decoding.
+     */
+    val language: String = "es",
+) : ActivityContent
 
 /**
  * One drill card, mirroring the fields of
@@ -133,7 +221,7 @@ data class ConjugationDrillItem(
     val shownInfinitive: String? = null,
 )
 
-/** What a [SwipeSortContent] sorts by; the player derives the bin labels from this. */
+/** What a [SwipeSortContent] sorts by; the player derives the bin labels from the language profile. */
 @Serializable
 enum class SortDimension { GENDER }
 

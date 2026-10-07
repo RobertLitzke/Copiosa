@@ -30,7 +30,7 @@ Bjork's "desirable difficulties" framework holds that conditions which make prac
 
 - **Bidirectional review**: cards can review target→native, native→target, or randomly **both** directions ([ReviewDirection](../app/src/main/java/com/copiosa/domain/model/Enums.kt)), forcing both recognition and (harder, more valuable) production-side recall rather than letting the learner settle into the easy direction.
 - **Cloze deletion** ([Cloze.kt](../app/src/main/java/com/copiosa/domain/model/Cloze.kt)): Anki-compatible `{{c1::…}}` cards blank the target inside a full sentence, testing recall *in grammatical context* rather than as an isolated pair.
-- Contrast-cloze answers are deliberately varied so neither option is correct every time — preventing pattern-learning shortcuts that would remove the difficulty (see §3.2).
+- Contrast-cloze answers are deliberately varied so neither option is correct every time — preventing pattern-learning shortcuts that would remove the difficulty (see §3.3).
 
 #### 1.4 Dual coding
 
@@ -70,7 +70,7 @@ Schmidt's Noticing Hypothesis holds that input becomes intake only when features
 
 - Highlighting is **inflection-aware**: saving *gato* also highlights *gatos*; saving a verb highlights its conjugations (surface forms precomputed from the dictionary pack).
 - For gendered nouns the **preceding article is tinted too** (*la fiesta*), drawing attention to gender agreement — a classically hard-to-notice feature for English speakers.
-- Only words **due for review soon** (≤ 7 days) are highlighted; words that are locked in (due > 90 days) are not. Salience is spent where noticing still pays, and mastered words fade into normal text — the enhancement itself is spaced.
+- Only words **due for review soon** (≤ 7 days) are highlighted, and at most the 1,000 due soonest, so a large backlog cannot tint a whole page; words that are locked in (due > 90 days) are not. Salience is spent where noticing still pays, and mastered words fade into normal text — the enhancement itself is spaced.
 
 #### 2.5 Vocabulary recycling across contexts
 
@@ -93,11 +93,72 @@ Processing Instruction is one of the best-evidenced grammar-teaching techniques 
 - **Referential PI**: one fully conjugated, **pro-dropped** sentence whose verb form alone reveals who/when — the prompt explicitly forbids subject pronouns (*yo, tú, él…*) and time adverbs (*ayer, hoy, mañana*), and a structural validator ([RoutineValidation.kt](../app/src/main/java/com/copiosa/domain/routine/RoutineValidation.kt)) rejects generated items that leak those cues. The learner must parse *-ó* vs *-o* vs *-aba* to answer.
 - **Affective PI**: "which statement is true for you?" — pre-conjugated statements with no right answer, giving low-pressure exposure to the same forms while engaging self-reference (which itself aids memory — the self-reference effect).
 
-#### 3.2 Contrast-based discrimination
+#### 3.2 Explicit instruction with a curriculum (grammar courses)
+
+Everything else in the app is practice: it assumes the learner has met a form somewhere and needs
+repetition. That leaves a real hole for a tense the learner simply *doesn't have* — no amount of
+well-scheduled retrieval teaches the preterite to someone who has never been shown it. The **tense
+courses** ([domain/course/](../app/src/main/java/com/copiosa/domain/course/)) are the explicit-instruction
+half: authored curricula of ~10-15-minute lessons, taken over two to three weeks, that state what a
+tense means, show its paradigm, walk its irregular patterns, and drill each as it lands. The same
+machinery teaches a point with no paradigm behind it — `es_por_para` carries its practice items in
+the catalog beside the prose, since a preposition choice cannot be generated from the lexicon.
+
+Several well-evidenced choices are built into the shape rather than added on top:
+
+- **Explicit rule presentation before practice.** The strong-interface debate notwithstanding,
+  explicit form-focused instruction has robust meta-analytic support for morphology this salient
+  (Norris & Ortega). Each lesson states the rule, then immediately tests it.
+- **Segmented paradigm acquisition.** A lesson covers one pattern (regular -ar, the third-person
+  raise, the u-stem preterites), not a whole tense at once — the same load-management logic behind
+  breaking a paradigm table into teachable classes. The segmentation goes below the pattern, too:
+  a form lesson introduces **two or three persons at a time** (`LessonScope.persons`) and a
+  consolidation lesson reassembles the paradigm before the irregulars start. Six novel form-meaning
+  mappings at once exceeds what working memory will hold (Sweller's element interactivity); two does
+  not, and the endings are related enough that the later pairs cost less than the first.
+- **Recognition before production.** The opening lesson of a tense is decode-only, and its cards mix
+  the new tense with the present so "which tense is this?" is a real question rather than a foregone
+  one. Comprehension of a form reliably precedes production of it, and asking for production first
+  mostly measures whether the learner has memorised a table.
+- **Retrieval-spaced sittings.** Every lesson after the first opens on a short **warm-up drawn from
+  the previous few lessons**, sampled through each of those lessons' own scopes so it can only ask
+  what has actually been taught. The course therefore distributes retrieval across days rather than
+  massing it in one evening — the spacing effect applied to the *curriculum*, not just to cards —
+  and the window keeps it aimed at what is currently fading rather than at everything ever covered.
+- **Practice long enough to be practice.** Once more than a couple of endings are in play a lesson
+  carries at least twenty items, with teaching and practice interleaved in several beats rather than
+  a block of prose followed by a block of cards. A four-card "lesson" is a demonstration, not
+  retrieval, and the testing effect needs the retrieval.
+- **Interleaved, not blocked, within scope.** The drill selector's weighting mixes persons and verbs
+  inside the lesson's pattern rather than marching down the paradigm in order (Rohrer on
+  interleaving; §2.11's gap, closed here at least locally).
+- **Generation over recognition where the pattern is the point.** The `generalize` card type enters
+  precisely at the lessons that teach a rule — it asks about a verb the learner has never drilled, so
+  the rule is the only route to the answer.
+- **Contrast after competence.** The preterite↔imperfect course is a separate unit taken after both
+  tenses, because a discrimination drill is meaningless while either form is still being assembled.
+  It bucket-shares with the existing `preterite_imperfect` contrast category (§3.3), so course and
+  routine practice train one mastery estimate.
+
+The teaching prose is authored; only contextual practice items are generated, and a generated item's
+answer is adjudicated by the conjugation engine before it can be shown — explicit instruction is
+exactly where a plausible-but-wrong explanation does the most damage, so the accurate half is the
+half that isn't improvised.
+
+**Retention, and where it hands off.** Graduating a course mints flashcards into the ordinary deck
+(cloze sentences for usage, paradigm cards drawn from the learner's *own* weakest cells), so from
+that point the material is on FSRS like everything else. On top of that sits a checkup ladder at
+3/7/14/30/60 days — not a second scheduler for the same job, but a measure of whether the *skill*
+survived rather than whether a card is recallable. Its failures buy something FSRS structurally
+cannot: a checkup's misses are attributed back to the lessons that taught them, and those lessons'
+micro-lessons reopen. That is mastery learning's corrective loop (Bloom), with the diagnosis
+automated.
+
+#### 3.3 Contrast-based discrimination
 
 The hardest grammar points for a given L1→L2 pairing are typically *contrasts* the L1 doesn't make (for English→Spanish: ser/estar, por/para, preterite/imperfect, subjunctive/indicative). The **contrast cloze** activity drills exactly these: one blank, exactly two options forming the contrast pair, tracked per contrast category so adaptation (§5) can distinguish "comfortable with por/para" from "still shaky on subjunctive triggers." Item generation is constrained to vary which side is correct, so the drill measures discrimination, not answer-pattern memorization. A three-option **multiple-choice cloze** variant uses meaning-distinct distractors to test lexical discrimination rather than form contrast.
 
-#### 3.3 Morphological awareness
+#### 3.4 Morphological awareness
 
 Morphologically rich languages punish learners who treat words as unanalyzed strings. Morphology surfaces throughout:
 
@@ -106,7 +167,7 @@ Morphologically rich languages punish learners who treat words as unanalyzed str
 - Cards carry part of speech, gender (with distinct handling for epicene and plural-only nouns), and regional/dialect tags, displayed as chips during review; gender chips are color-coded.
 - The dictionary pack maps inflected forms back to lemmas with grammatical tags.
 
-#### 3.4 Cognate awareness and false friends
+#### 3.5 Cognate awareness and false friends
 
 For related language pairs, cognates are a massive free lexicon — and false friends are its tax. The **cognate hunt** activity presents a mixed set and has the learner classify true cognates vs false friends (*éxito* ≠ "exit"), training the discrimination explicitly rather than leaving it to painful discovery.
 
@@ -126,10 +187,16 @@ Krashen's Affective Filter Hypothesis: anxiety and low confidence block input fr
 Newly encoded material is preferentially consolidated during subsequent sleep (Stickgold, Walker, and the targeted-memory-reactivation literature); studying shortly before sleep, followed by sleep, measurably improves retention relative to equivalent study followed by waking activity. The app's flagship routine is a **bedtime wind-down** engineered around this:
 
 - A pre-sleep practice session reactivates recent vocabulary right before the consolidation window.
-- The session follows a **monotonically de-escalating arousal arc** — Engage (~30%) → Settle (~40%) → Drift (~30%) — enforced by the planner ([RoutinePlanner.kt](../app/src/main/java/com/copiosa/domain/routine/RoutinePlanner.kt)): every activity carries an arousal weight, activities are sorted descending within bands, high-arousal activity types are hard-excluded from bedtime routines regardless of future library growth, and the session always closes with the lowest-arousal activity (the bedtime story). The learning goal (pre-sleep reactivation) is balanced against the sleep-hygiene goal (don't wind the learner up at bedtime).
+- The session follows a **monotonically de-escalating arousal arc** — Engage (~30%) → Settle (~40%) → Drift (~30%) — enforced by the planner ([RoutinePlanner.kt](../app/src/main/java/com/copiosa/domain/routine/RoutinePlanner.kt)): every activity carries an arousal weight, activities are sorted descending within bands, and the session always closes with the lowest-arousal activity (the story). High-arousal activity types are capped rather than banned — the wind-down admits at most one, confined to the opening Engage band where a jolt still has the rest of the session to decay, and a five-minute routine has no Engage budget at all. The learning goal (pre-sleep reactivation) is balanced against the sleep-hygiene goal (don't wind the learner up at bedtime).
 - A **serial story** (one continuing narrative per language, with a persisted running summary feeding each night's chapter) adds narrative continuity — recurring characters and vocabulary across nights, which is narrow reading (§2.2) stretched over time and an anticipation hook for routine adherence.
 
-#### 4.3 Learner autonomy and interest-driven content
+#### 4.3 Arousal as a design parameter, not a constraint
+
+Because the arousal arc is a property of the *routine type* rather than of the planner, the same activity library can run the curve in reverse. The **daytime activation** routine ([RoutineType.kt](../app/src/main/java/com/copiosa/domain/routine/RoutineType.kt)) is the bedtime wind-down's mirror image: Drift (~20%) → Settle (~40%) → Engage (~40%), sorted *ascending* within bands, with no pinned closer and no activation ceiling, so the session ends on its most demanding slot rather than its calmest.
+
+The rationale differs from the bedtime one. There is no consolidation window to exploit; the argument is the ordinary arousal–performance one (Yerkes–Dodson, and the warm-up effect in skill acquisition): retrieval practice is more effective from an alert state, but starting cold on a demanding drill is where learners disengage. A brief low-stakes read is the on-ramp, the drilling escalates from there, and the learner is handed back to their day switched on rather than settled. The prose read that opens it is the same activity as the bedtime story, reshaped — see `TextFlavor`.
+
+#### 4.4 Learner autonomy and interest-driven content
 
 Self-determination and interest research (and Krashen's "compelling input" refinement) both predict better outcomes when learners control topics. Everything content-shaped in the app is learner-directed: conversations start from any topic, texts are imported from any URL, and the routine draws topics from a table populated by *the learner's own trail* — things they searched, words they looked up, subjects they chatted about, plus model-suggested adjacent topics ([TopicSource.kt](../app/src/main/java/com/copiosa/domain/routine/TopicSource.kt)). Practice content orbits demonstrated interests rather than a fixed syllabus.
 
@@ -159,11 +226,11 @@ These are well-supported concepts from SLA research and cognitive psychology tha
 
 Swain's **Output Hypothesis**: producing language forces syntactic processing, reveals gaps ("noticing the hole"), and builds fluency in ways comprehension alone cannot. The app is currently heavily **input-weighted**. The learner *can* type freely in chat, but nothing in the app requires, scaffolds, or evaluates production:
 
-- No **typed production drills** (type-the-translation, free-response conjugation — both explicitly deferred from the routine library as high-arousal, but also absent from any daytime context).
+- No **typed production drills** (type-the-translation, free-response conjugation). The daytime activation routine (§4.3) is now the obvious home for these — it draws freely from the high-arousal tier, and its peak is currently built from only three Engage activities.
 - No **speaking at all**: no speech recognition, no pronunciation practice, no shadowing or read-aloud, no spoken conversation mode. TTS gives the app a mouth but the learner has no microphone.
 - No **writing with feedback**: no journaling/composition flow where the model corrects or reformulates learner text.
 
-A daytime "activation" counterpart to the bedtime routine — built around retrieval-into-production — is the most natural structural fix, since the arousal-gated planner already anticipates high-arousal activity types.
+The daytime activation routine now exists (§4.3), but it is assembled from the same input-weighted library — it changed *when* and *in what order* practice happens, not *what kind* it is. Filling its high-arousal peak with genuine production activities is the remaining structural fix.
 
 ### 2.2 Corrective feedback and negotiation of meaning
 
@@ -171,11 +238,15 @@ Long's **Interaction Hypothesis** locates much of acquisition in the *negotiatio
 
 ### 2.3 Listening as a trained skill
 
-The app generates audio (playlists, story TTS) but treats listening as passive consumption. Missing: comprehension checks after listening, **dictation/transcription** exercises (a classic integrative task), variable playback with purpose (extensive listening at natural speed vs intensive listening on hard segments), speaker variety, and listening-first presentation of new material (hearing a word before seeing its spelling, which matters for languages with unreliable orthography-phonology mappings — less critical for Spanish, more for future profiles like French).
+The app generates audio (playlists, story TTS) and mostly treats listening as passive consumption. One exception has shipped: **listen-and-rebuild** — hear one of your banked sentences (several voices, with a slowed replay), tap its words back into order, and only then see it written — a tap-only cousin of dictation. Still missing: comprehension checks after listening, **dictation/transcription** exercises (a classic integrative task), variable playback with purpose (extensive listening at natural speed vs intensive listening on hard segments), speaker variety, and listening-first presentation of new material (hearing a word before seeing its spelling, which matters for languages with unreliable orthography-phonology mappings — less critical for Spanish, more for future profiles like French).
 
 ### 2.4 Frequency-informed vocabulary selection
 
-Nation's cost-benefit principle: the highest-frequency 2,000–3,000 word families cover the vast majority of running text, so *what* you learn matters as much as how you review it. The app schedules whatever the learner happens to save but never advises acquisition order — no frequency-list benchmarking ("you know 70% of the top 1,000 words"), no flagging that a just-saved word is rare (low priority) or that a high-frequency word keeps appearing unlearned in the learner's own texts. The reading pipeline already sees every word the learner reads; cross-referencing against a frequency list would enable "words you keep meeting but haven't saved" — arguably the single most valuable vocabulary feature not yet built.
+Nation's cost-benefit principle: the highest-frequency 2,000–3,000 word families cover the vast majority of running text, so *what* you learn matters as much as how you review it.
+
+**Built.** Each supported language bundles the top 2,000 content *lemmas*, derived offline from OpenSubtitles counts by `tools/build_frequency.py`: every surface form is lemmatised against the dictionary pack, counts are rolled up onto the headword, and closed-class words are dropped, so the list ranks vocabulary worth learning rather than `de`/`que`/`la`. On that sit four things — a coverage readout on the stats screen that reports deck membership and maturity separately ("1,412 in deck (71%) · 890 known (45%)"), a band chip on each card in the top 2,000, a modest frequency tilt in review ordering (hours of due-date bonus, never enough to jump a genuinely overdue card), and a "frequent words" drill that studies common vocabulary ahead of schedule — leaning on FSRS's own retrievability curve for partial credit rather than inventing a grading rule. Missing words can be seeded as cards in one action, translated on-device and introduced at a chosen daily rate.
+
+**Still missing:** the other half — "words you keep meeting but haven't saved". The reading pipeline sees every word the learner reads, but nothing counts encounters per word, so the app can say a rare word is low priority and a common one is not, but cannot yet say *this* word keeps turning up in *your* texts unlearned.
 
 ### 2.5 Fluency development
 
@@ -205,7 +276,7 @@ The revlog is faithfully collected and round-trips to Anki, but the app runs FSR
 
 Two related sequencing findings with no current representation:
 
-- **Interleaving**: mixing problem/category types within a session beats blocking (Rohrer). Routines partially interleave by construction, but flashcard review sessions are due-date-ordered with no deliberate mixing of card kinds or topics.
+- **Interleaving**: mixing problem/category types within a session beats blocking (Rohrer). Routines partially interleave by construction, and a course lesson interleaves persons and verbs within the pattern it is teaching (§3.2), but flashcard review sessions are still due-date-ordered with no deliberate mixing of card kinds or topics.
 - **Interference avoidance**: learning semantically or formally similar items *together* (days of the week, near-synonym sets, *llevar/traer*) creates interference and measurably slows acquisition (Nation's caution against lexical sets). Nothing warns when the learner saves several confusable words the same day, and nothing deliberately separates them in review order.
 
 ### 2.12 Multimodal and video input
@@ -230,6 +301,7 @@ The absence of streaks, badges, and leaderboards reads as deliberate (consistent
 | Glossing during reading | Hulstijn | ✅ Tap-to-define ladder |
 | Processing Instruction | VanPatten | ✅ Referential + affective PI |
 | Contrast discrimination drills | (L1-transfer literature) | ✅ Contrast cloze |
+| Explicit instruction + curriculum | Norris & Ortega; Bloom | ✅ Grammar courses |
 | Dual coding | Paivio | ✅ Card images/audio |
 | Cloze / in-context testing | — | ✅ Anki-compatible |
 | Sleep-adjacent consolidation | Stickgold; Walker | ✅ Bedtime routine |
@@ -239,8 +311,8 @@ The absence of streaks, badges, and leaderboards reads as deliberate (consistent
 | Incidental acquisition credit | Nation; Hulstijn | ✅ Passive review |
 | Output / production practice | Swain | ❌ Biggest gap |
 | Corrective feedback / recasts | Long; Lyster & Ranta | ❌ Not yet |
-| Trained listening comprehension | — | ❌ Audio is passive |
-| Frequency-informed vocab selection | Nation | ❌ Not yet |
+| Trained listening comprehension | — | ⚠️ Listen-and-rebuild only |
+| Frequency-informed vocab selection | Nation | ✅ Coverage, chips, tilt, drill, seeding |
 | Fluency development strand | Nation | ❌ Not yet |
 | Phonological / pronunciation training | HVPT literature | ❌ Not yet |
 | Collocations & formulaic chunks | Wray; Ellis | ⚠️ PHRASE kind only |

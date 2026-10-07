@@ -2,15 +2,14 @@ package com.copiosa.data.stats
 
 import com.copiosa.data.local.FocusSessionEntity
 import com.copiosa.data.local.FocusStatsDao
+import com.copiosa.di.AppScope
 import com.copiosa.domain.stats.FocusActivityType
 import java.time.Instant
 import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -35,12 +34,12 @@ import kotlinx.coroutines.sync.withLock
 @Singleton
 class FocusTimeTracker @Inject constructor(
     private val dao: FocusStatsDao,
+    @AppScope private val scope: CoroutineScope,
 ) {
     // Seams for tests; Hilt always uses the primary constructor defaults.
     internal var now: () -> Long = System::currentTimeMillis
     internal var zone: () -> ZoneId = ZoneId::systemDefault
     internal var flushIntervalMs: Long = FLUSH_INTERVAL_MS
-    internal var scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     enum class Channel { FOREGROUND, PLAYBACK }
 

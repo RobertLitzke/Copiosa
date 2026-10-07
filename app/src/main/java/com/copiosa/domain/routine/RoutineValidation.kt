@@ -1,5 +1,7 @@
 package com.copiosa.domain.routine
 
+import com.copiosa.domain.language.LanguageProfiles
+
 /**
  * Pure, dictionary-free validation of generated grammar items — the part that needs no language pack,
  * so it always runs and is unit-testable on its own. [RoutineContentValidator] layers the forms-table
@@ -10,25 +12,27 @@ object RoutineValidation {
     /**
      * Subject pronouns and time adverbs that must NOT survive in a pro-dropped referential PI
      * sentence: their presence would hand the learner the referent instead of making them parse the
-     * verb. Only unambiguous / accented forms are listed, so "tu" (your) and "el" (the) aren't
-     * mistaken for the pronouns "tú"/"él".
+     * verb. They come off the language's own profile — see
+     * [com.copiosa.domain.language.LanguageProfile.proDropCueWords], which also explains why only
+     * unambiguous forms belong in the list.
      */
-    val CUE_WORDS = setOf(
-        "yo", "tú", "usted", "ustedes", "él", "ella", "ellos", "ellas",
-        "nosotros", "nosotras", "vosotros", "vosotras",
-        "ayer", "hoy", "mañana", "manana", "ahora", "anoche",
-    )
+    fun cueWords(lang: String): Set<String> =
+        LanguageProfiles.forTag(lang)?.proDropCueWords.orEmpty()
 
     fun tokenize(sentence: String): List<String> =
         sentence.lowercase().split(Regex("[^\\p{L}]+")).filter { it.isNotBlank() }
 
-    /** Structural soundness + no surviving pronoun/time-adverb cue. */
-    fun piStructurallyValid(item: PiItem): Boolean {
+    /** Structural soundness + no surviving pronoun/time-adverb cue for [lang]. */
+    fun piStructurallyValid(item: PiItem, lang: String): Boolean {
         if (item.sentence.isBlank()) return false
         if (item.options.size < 2) return false
         if (item.answerIndex !in item.options.indices) return false
         if (item.options.any { it.isBlank() }) return false
-        return tokenize(item.sentence).none { it in CUE_WORDS }
+        val cues = cueWords(lang)
+        // A multi-word cue ("a gente") won't survive tokenization, so scan the sentence for those.
+        val lowered = item.sentence.lowercase()
+        if (cues.any { it.contains(' ') && lowered.contains(it) }) return false
+        return tokenize(item.sentence).none { it in cues }
     }
 
     /** Structural soundness + a single blank + exactly two distinct options. */

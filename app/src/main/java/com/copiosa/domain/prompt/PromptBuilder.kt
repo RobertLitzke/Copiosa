@@ -43,9 +43,14 @@ class PromptBuilder @Inject constructor() {
      * Builds the conversation system prompt from the editable [core] template and optional
      * [customInstructions]. Placeholders are substituted in both; the instructions are appended.
      *
-     * [vocabToUse] is a sample of the learner's saved words (front to back/translation) for the model
-     * to weave in where natural; [reuseWords] are distinctive words from the previous reply to recur.
-     * The fixed structured-output block is always appended so every reply carries metadata.
+     * Nothing here changes from one turn of a chat to the next, and that is deliberate: providers
+     * discount a request whose opening matches an earlier one, and the system prompt is the opening.
+     * What does change every turn — which saved words to weave in, which of the last reply's words
+     * to recur — travels in [turnNote] at the far end of the request instead, so the prompt and the
+     * whole history ahead of it stay a reusable prefix.
+     *
+     * [includeVocabReport] asks for the used/unused report on the priority words a [turnNote]
+     * supplies. The fixed structured-output block is always appended so every reply carries metadata.
      */
     fun buildConversationPrompt(
         core: String,
@@ -55,8 +60,7 @@ class PromptBuilder @Inject constructor() {
         nativeLang: String,
         level: Cefr,
         subject: String,
-        vocabToUse: List<Pair<String, String>> = emptyList(),
-        reuseWords: List<String> = emptyList(),
+        includeVocabReport: Boolean = false,
         // Requested on a chat's opening reply so the list can show a target-language title instead of
         // the learner's native-language subject. Topics are dropped for "Explain" turns.
         includeTitle: Boolean = false,
@@ -67,17 +71,34 @@ class PromptBuilder @Inject constructor() {
         val withExtra =
             if (extra.isEmpty()) base else base + "\n\n" + substitute(extra, country, targetLang, nativeLang, level, subject)
         return withExtra +
-            vocabToUseSection(vocabToUse) +
-            reuseWordsSection(reuseWords) +
+            TURN_NOTE_RULE +
             structuredOutput(
                 distinctiveInstruction = DISTINCTIVE_FROM_REPLY,
                 includeTopics = includeTopics,
-                includeVocabReport = vocabToUse.isNotEmpty(),
+                includeVocabReport = includeVocabReport,
                 avoidTrailingQuestion = true,
                 glossLangName = languageName(nativeLang),
                 includeTitle = includeTitle,
                 titleLangName = languageName(targetLang),
             )
+    }
+
+    /**
+     * The per-turn half of a chat's guidance, appended to the learner's latest message rather than
+     * placed in the system prompt (see [buildConversationPrompt] for why). [vocabToUse] is a sample
+     * of the learner's saved words (front to back/translation) to weave in where natural;
+     * [reuseWords] are distinctive words from the previous reply to recur. Empty when there is
+     * nothing to say, so a learner with no saved words sends their message untouched.
+     *
+     * It is added to the request only — the stored message stays exactly what the learner typed,
+     * which is also what later turns send as history.
+     */
+    fun turnNote(
+        vocabToUse: List<Pair<String, String>> = emptyList(),
+        reuseWords: List<String> = emptyList(),
+    ): String {
+        val body = (vocabToUseSection(vocabToUse) + reuseWordsSection(reuseWords)).trim()
+        return if (body.isEmpty()) "" else TURN_NOTE_OPEN + body + TURN_NOTE_CLOSE
     }
 
     /** The built-in conversation prompt, using [DEFAULT_CORE_PROMPT] with no custom instructions. */
@@ -113,19 +134,43 @@ class PromptBuilder @Inject constructor() {
         return "You are a $country $target teacher helping a ${levelDescriptor(level)} " +
             "$native-speaking learner understand $target vocabulary they have saved.\n" +
             "The learner sends a JSON array of items, each {\"id\": <number>, \"term\": <$target word " +
-            "or phrase>, \"context\": <sentence it appeared in, or null>}.\n" +
+            "or phrase>, \"context\": <sentence it appeared in, or null>, \"pos\": <its part of speech, " +
+            "or null>}.\n" +
             "Reply with ONLY a JSON array (no prose, no code fences) of the same length, each item:\n" +
             "{\"id\": <same id>, \"pos\": <one of \"noun\",\"verb\",\"adjective\",\"adverb\",\"phrase\"," +
             "\"expression\",\"grammar\",\"other\">, \"cefr\": <one of \"A1\",\"A2\",\"B1\",\"B2\",\"C1\",\"C2\">, " +
             "\"gender\": <for a noun, one of \"M\",\"F\",\"MF\" (common/epicene),\"MPL\",\"FPL\"; else null>, " +
             "\"region\": <a short region slug like \"mx\",\"spain\",\"latam\" if the term is region-specific; " +
             "else null>, " +
+            "\"translation\": <a short $native gloss for the back of a flashcard>, " +
             "\"explanation\": <the meaning written in $native>, \"example\": <one natural $target sentence " +
             "using the term>}.\n" +
+            "Keep \"translation\" under about 60 characters, but make it *distinguishing*: when the " +
+            "obvious one-word gloss is shared with other common $target words, add the brief cue that " +
+            "tells them apart — the sense, the typical use, or a parenthetical — so two such words never " +
+            "carry the same back. Give the most common sense first, separating further senses with a " +
+            "semicolon.\n" +
             "Write the \"explanation\" in $native, in a colloquial, friendly tone (2–4 sentences), " +
             "covering nuance and close synonyms; the informal take matters more than a dictionary " +
             "definition. Use simple Markdown (e.g. **bold**, *italics*, '- ' bullets). Always echo each id exactly."
     }
+
+    /**
+     * System prompt for the vocabulary screen's bulk add: the learner sends a JSON array of words or
+     * phrases, normally in their own language, and the model drafts one card for each. The wording
+     * lives beside the DTOs it describes, in [BulkCards].
+     */
+    fun bulkCardSystemPrompt(
+        country: String,
+        targetLang: String,
+        nativeLang: String,
+        level: Cefr,
+    ): String = BulkCards.systemPrompt(
+        country = country,
+        targetLanguage = languageName(targetLang),
+        nativeLanguage = languageName(nativeLang),
+        level = levelDescriptor(level),
+    )
 
     /**
      * System prompt for translating an imported text (or its title) into the learner's target
@@ -233,8 +278,8 @@ class PromptBuilder @Inject constructor() {
         targetLang: String,
         nativeLang: String,
         level: Cefr,
-        vocabToUse: List<Pair<String, String>> = emptyList(),
-        reuseWords: List<String> = emptyList(),
+        // As in [buildConversationPrompt]: the words themselves arrive in a [turnNote].
+        includeVocabReport: Boolean = false,
         // Dropped for "Explain" turns, whose reply is a one-word definition, not a conversational turn.
         includeTopics: Boolean = true,
     ): String {
@@ -248,12 +293,11 @@ class PromptBuilder @Inject constructor() {
             "about the text, help them with its vocabulary and grammar, and keep the conversation going " +
             "naturally."
         return base +
-            vocabToUseSection(vocabToUse) +
-            reuseWordsSection(reuseWords) +
+            TURN_NOTE_RULE +
             structuredOutput(
                 distinctiveInstruction = DISTINCTIVE_FROM_REPLY,
                 includeTopics = includeTopics,
-                includeVocabReport = vocabToUse.isNotEmpty(),
+                includeVocabReport = includeVocabReport,
                 avoidTrailingQuestion = true,
                 glossLangName = native,
             )
@@ -310,8 +354,19 @@ class PromptBuilder @Inject constructor() {
             if (includeTopics) {
                 add(
                     "\"topics\": [1-3 subjects the learner could explore next from here (NOT questions); " +
-                        "always provide some, even after a short follow-up reply. Each is an object " +
-                        "{\"phrase\": <the subject, 1-5 words — e.g. a person, event, or theme>, " +
+                        "always provide some, even after a short follow-up reply. Each one must be " +
+                        "SPECIFIC to this exchange: name a particular person, place, work, event, " +
+                        "practice or detail that came up in what you just wrote, or something " +
+                        "directly adjacent to one — a suggestion nobody could have made without " +
+                        "having read this conversation. Two tests before you write one down: it " +
+                        "would NOT fit unchanged in another conversation about this general subject, " +
+                        "and it has not already been covered here. So no bare category headings like " +
+                        "\"the history\", \"the culture\", \"famous people\", \"traditional food\", " +
+                        "\"daily life\" — narrow into something you actually mentioned, or step " +
+                        "sideways to its neighbour, rather than widening back out to the theme. " +
+                        "Each is an object " +
+                        "{\"phrase\": <the subject, 1-5 words — a concrete, named thing wherever one " +
+                        "will do>, " +
                         "\"gloss\": <a brief note in $glossLangName, at most ~12 words, saying what the " +
                         "phrase refers to so it stands on its own outside this chat>}]",
                 )
@@ -356,9 +411,27 @@ class PromptBuilder @Inject constructor() {
                 "in the same order, each on its own line, followed by that paragraph's translation. " +
                 "Never merge, split, drop, add, or reorder paragraphs — one output paragraph per marker, " +
                 "even for one-word paragraphs and ## headings (keep the ##). Keep *italic* and **bold** " +
-                "where the original has them. Earlier sections may appear in this conversation for " +
-                "context — translate ONLY the paragraphs in the latest message. Output nothing before " +
-                "the first marker and nothing after the last translation."
+                "where the original has them. Some paragraphs carry structure, which must survive " +
+                "intact: keep a list item's leading spaces and its \"- \" or \"1. \" marker; a paragraph " +
+                "may be a table written with | pipes, and must come back with the same number of rows " +
+                "and columns, the same | layout and its |---| separator row, with only the cell text " +
+                "translated; keep footnote markers like [^3] exactly where they appear in the sentence, " +
+                "and keep a \"[^3]: \" prefix at the start of the paragraph that has one. Earlier " +
+                "sections may appear in this conversation for context — translate ONLY the paragraphs " +
+                "in the latest message. Output nothing before the first marker and nothing after the " +
+                "last translation."
+
+        /**
+         * The standing explanation of a [turnNote], so the model reads one as direction from the app
+         * and not as something the learner said. Fixed text: it is part of the cacheable prefix.
+         */
+        private const val TURN_NOTE_RULE =
+            "\n\nThe learner's latest message may end with a teacher's note in square brackets. The " +
+                "app adds it; the learner did not write it and cannot see it. Follow it for that " +
+                "reply, and never mention it, quote it or respond to it."
+
+        private const val TURN_NOTE_OPEN = "[Teacher's note, added by the app — not written by the learner. "
+        private const val TURN_NOTE_CLOSE = "]"
 
         /** Distinctive-word instruction shared by conversation and text-discussion prompts. */
         private const val DISTINCTIVE_FROM_REPLY =

@@ -50,25 +50,14 @@ object RoutineContentParser {
 
     /** Slot id -> its generated content DTO. Empty when nothing usable could be parsed. */
     fun parse(raw: String): Map<Int, ActivityDto> {
-        val obj = isolateObject(raw) ?: return emptyMap()
-        val dto = listOf(obj, repairJson(obj)).firstNotNullOfOrNull { tryDecode(it) } ?: return emptyMap()
+        val obj = LenientJson.isolateObject(raw) ?: return emptyMap()
+        val dto = listOf(obj, LenientJson.repair(obj)).firstNotNullOfOrNull { tryDecode(it) }
+            ?: return emptyMap()
         return dto.activities.filter { it.id >= 0 }.associateBy { it.id }
-    }
-
-    private fun isolateObject(raw: String): String? {
-        val start = raw.indexOf('{')
-        val end = raw.lastIndexOf('}')
-        return if (start in 0 until end) raw.substring(start, end + 1) else null
     }
 
     private fun tryDecode(jsonText: String): ConsolidatedDto? =
         runCatching { json.decodeFromString(ConsolidatedDto.serializer(), jsonText) }
             .getOrNull()
             ?.takeIf { it.activities.isNotEmpty() }
-
-    private fun repairJson(jsonText: String): String =
-        jsonText
-            .replace('“', '"').replace('”', '"')
-            .replace('‘', '\'').replace('’', '\'')
-            .replace(Regex(""",(\s*[}\]])"""), "$1")
 }

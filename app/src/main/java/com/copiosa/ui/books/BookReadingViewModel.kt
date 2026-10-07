@@ -1,5 +1,6 @@
 package com.copiosa.ui.books
 
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -7,19 +8,34 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import com.copiosa.data.generation.BookAudioManager
+import com.copiosa.data.generation.BookAudioPlan
+import com.copiosa.data.generation.BookAudioScheduler
+import com.copiosa.data.generation.BookDownloadChoice
+import com.copiosa.data.generation.BookDownloadController
+import com.copiosa.data.generation.BookDownloadState
 import com.copiosa.data.generation.BookTranslationManager
+import com.copiosa.data.epub.BookEpubExportService
+import com.copiosa.data.epub.BookExportRun
+import com.copiosa.data.epub.BookExportState
+import com.copiosa.data.epub.EpubExportVariant
 import com.copiosa.data.local.BookEntity
 import com.copiosa.data.local.BookParagraphEntity
+import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.data.remote.LlmError
+import com.copiosa.data.remote.llmErrorOfCode
 import com.copiosa.data.repository.BookRepository
 import com.copiosa.data.repository.ConversationRepository
 import com.copiosa.data.repository.FlashcardRepository
 import com.copiosa.data.settings.SettingsRepository
+import com.copiosa.data.tts.SupertonicModelStore
 import com.copiosa.domain.book.BookChapter
 import com.copiosa.domain.book.chapterIndexAt
 import com.copiosa.domain.book.wantsTranslation
 import com.copiosa.domain.highlight.HighlightTargetProvider
 import com.copiosa.domain.model.BookDirection
+import com.copiosa.domain.reading.ReadMode
+import com.copiosa.domain.vocab.WordSource
 import com.copiosa.ui.components.ReadingSelectionController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -28,6 +44,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -46,8 +63,8 @@ sealed interface BookStatus {
     /** Sections are being translated right now. */
     data class Translating(val done: Int, val total: Int) : BookStatus
 
-    /** The last attempt failed; [error] is the reason to surface. */
-    data class Failed(val error: LlmError?) : BookStatus
+    /** The last attempt failed; [error] is the reason to surface, [done]/[total] where it stopped. */
+    data class Failed(val error: LlmError?, val done: Int, val total: Int) : BookStatus
 
     /** Partially translated and nothing in flight (read-ahead off, or simply not started). */
     data class Paused(val done: Int, val total: Int) : BookStatus
@@ -69,6 +86,11 @@ class BookReadingViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val bookRepo: BookRepository,
     private val books: BookTranslationManager,
+    private val downloads: BookDownloadController,
+    private val epubExport: BookEpubExportService,
+    private val bookAudio: BookAudioManager,
+    private val bookAudioScheduler: BookAudioScheduler,
+    private val ttsModelStore: SupertonicModelStore,
     private val settingsRepo: SettingsRepository,
     conversationRepo: ConversationRepository,
     flashcardRepo: FlashcardRepository,
@@ -84,6 +106,15 @@ class BookReadingViewModel @Inject constructor(
     /** The saved reading position, read once so the pager starts near it and restore is exact. */
     val savedScroll: StateFlow<Pair<Int, Int>?> =
         book.map { b -> b?.let { it.posParagraph to it.posOffset } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * The language version this book was last read in. Null only means the row hasn't loaded yet —
+     * the reader restores on the first non-null value and then leaves this alone, so the mode it is
+     * showing is never yanked out from under a tap that arrived while the book was still loading.
+     */
+    val savedMode: StateFlow<ReadMode?> =
+        book.map { it?.readMode }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
@@ -112,14 +143,20 @@ class BookReadingViewModel @Inject constructor(
         combine(book.filterNotNull(), books.active, books.errors, books.progress) { b, active, errors, progress ->
             val done = progress[id]?.first ?: b.translatedSections
             val total = b.totalSections
+            // The live error if this session produced one, else the reason Room kept from whenever
+            // the book last failed. A background stall is usually days old by the time it is looked
+            // at and the manager's map died with the process that filled it, so without the stored
+            // one the reader can only say that the count stopped moving.
+            val error = errors[id] ?: b.lastError?.let(::llmErrorOfCode)
             when {
-                errors[id] != null -> BookStatus.Failed(errors[id])
+                // Ahead of the error now that a failure outlives its run: a book being retried is
+                // translating, not failed.
                 active[id] != null -> BookStatus.Translating(done, total)
-                b.translatedSections >= total -> BookStatus.Ready
                 // A reverse book that never opted into the gloss is complete as it stands — its
                 // untranslated sections are not a shortfall, so there is nothing to report or nag
                 // about. Flipping the gloss on puts it back on the normal progress track.
-                !b.wantsTranslation -> BookStatus.Ready
+                b.translatedSections >= total || !b.wantsTranslation -> BookStatus.Ready
+                error != null -> BookStatus.Failed(error, b.translatedSections, total)
                 else -> BookStatus.Paused(b.translatedSections, total)
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BookStatus.Ready)
@@ -137,10 +174,36 @@ class BookReadingViewModel @Inject constructor(
             .map { (direction, frontier) -> bookRepo.tableOfContents(id, direction, frontier) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Whether the global auto read-ahead toggle is on (drives the frontier hint row's wording). */
+    /** Whether this book translates ahead of the reader (drives the frontier hint row's wording). */
     val autoReadAhead: StateFlow<Boolean> =
-        settingsRepo.settings.map { it.bookAutoReadAhead }
+        book.map { it?.downloadMode?.readsAhead ?: true }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    /** Download-mode, EPUB-export and audio actions for this book, and their dialogs; see [BookActions]. */
+    val actions = BookActions(viewModelScope, downloads, epubExport, bookAudio, bookAudioScheduler)
+
+    fun openDownloadDialog() = actions.openDownload(id)
+
+    fun openExportDialog() = actions.openExport(id)
+
+    // --- audio: the voice gate, then the confirmation with the real numbers ---
+
+    private val _needsTtsDownload = MutableStateFlow(false)
+    val needsTtsDownload: StateFlow<Boolean> = _needsTtsDownload.asStateFlow()
+
+    /** "Generate audio": the voice gate first, then the confirmation with the real numbers. */
+    fun requestAudio() {
+        if (ttsModelStore.isReady()) actions.openAudio(id) else _needsTtsDownload.value = true
+    }
+
+    /** The download prompt's confirm: the queue waits at PENDING until the voice arrives. */
+    fun confirmTtsDownload() {
+        _needsTtsDownload.value = false
+        ttsModelStore.download()
+        actions.openAudio(id)
+    }
+
+    fun dismissTtsDownload() { _needsTtsDownload.value = false }
 
     /** Once the frontier banner is waved away it stays gone; the overflow menu keeps "Continue". */
     val frontierHintDismissed: StateFlow<Boolean> =
@@ -161,17 +224,44 @@ class BookReadingViewModel @Inject constructor(
     /** Latest reported reading position (ord to pixel offset); -1 until the reader reports one. */
     private val visiblePosition = MutableStateFlow(-1 to 0)
 
-    private val selection = ReadingSelectionController(
+    /**
+     * Whether due vocabulary is tinted in this book: the book's own override if it has one, else the
+     * language's setting. Also drives the overflow menu's check mark.
+     */
+    val highlightWords: StateFlow<Boolean> =
+        combine(book, settingsRepo.settings) { b, s -> b?.highlightWords ?: s.highlightSavedWords }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    /** The selectable-reader engine; see [ReadingSelectionController]. The screen drives it directly. */
+    val readingSelection = ReadingSelectionController(
         scope = viewModelScope,
         conversationRepo = conversationRepo,
         flashcardRepo = flashcardRepo,
         highlightProvider = highlightProvider,
-        sourceConversationId = { null },
+        source = { WordSource.book(id) },
         readingText = visibleSectionText,
+        highlightEnabled = highlightWords,
     )
-    val translate = selection.translate
-    val savedNotice = selection.savedNotice
-    val highlightTargets = selection.highlightTargets
+
+    /** The words saved while reading this book, newest first. */
+    val savedWords: StateFlow<List<FlashcardEntity>> = flashcardRepo.observeSavedFrom(WordSource.book(id))
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * The footnote whose marker was last tapped, or null when no note is open.
+     *
+     * Looked up on demand rather than held with the paragraph: notes live at the end of their
+     * chapter, which is nowhere near the marker in the paged list, and most readings never open one.
+     */
+    val openNote = MutableStateFlow<BookParagraphEntity?>(null)
+
+    fun onFootnote(chapterIndex: Int, label: String) {
+        viewModelScope.launch { openNote.value = bookRepo.note(id, chapterIndex, label) }
+    }
+
+    fun dismissNote() {
+        openNote.value = null
+    }
 
     /** Which chapter the reader is in, for the table of contents to mark; -1 before it is known. */
     val currentChapter: StateFlow<Int> =
@@ -186,12 +276,14 @@ class BookReadingViewModel @Inject constructor(
         // without the gloss opted in needs nothing — its text is already there.
         viewModelScope.launch {
             val b = book.filterNotNull().first()
-            if (b.wantsTranslation &&
-                b.translatedSections < b.totalSections &&
-                b.translatedSections <= FIRST_OPEN_SECTIONS
-            ) {
+            val complete = b.translatedSections >= b.totalSections
+            if (b.wantsTranslation && !complete && b.translatedSections <= FIRST_OPEN_SECTIONS) {
                 books.ensureTranslatedThrough(id, FIRST_OPEN_SECTIONS)
             }
+            // A rapid download the OS killed (or one enqueued while offline) is re-kicked here:
+            // opening the book is a foreground moment, which is what a data-sync foreground service
+            // needs to start, and the unique work makes a still-running download a no-op.
+            downloads.resumeIfRapid(id, b.title, b.downloadMode, complete)
         }
         // Persist the reading position. Debounced because the reader reports every scroll pixel and
         // this is a DB write; the position only has to be right by the time the screen goes away.
@@ -217,10 +309,9 @@ class BookReadingViewModel @Inject constructor(
                 .collect { section ->
                     refreshVisibleSectionText(section)
                     // Nothing to read ahead *to* on a reverse book without the gloss: the text the
-                    // reader is scrolling through is the file's own.
-                    if (book.value?.wantsTranslation == true &&
-                        settingsRepo.settings.first().bookAutoReadAhead
-                    ) {
+                    // reader is scrolling through is the file's own. OFF asks for nothing at all.
+                    val b = book.value
+                    if (b?.wantsTranslation == true && b.downloadMode.readsAhead) {
                         books.ensureTranslatedThrough(id, section + READ_AHEAD_SECTIONS)
                     }
                 }
@@ -239,6 +330,11 @@ class BookReadingViewModel @Inject constructor(
         visiblePosition.value = ord to offsetPx
     }
 
+    /** Persists the language version being read, so reopening the book resumes in it. */
+    fun saveReadMode(mode: ReadMode) {
+        viewModelScope.launch { bookRepo.setReadMode(id, mode) }
+    }
+
     /** Continue translating from the frontier (the Failed/Paused rows' action). */
     fun continueTranslating() {
         books.consumeError(id)
@@ -247,16 +343,13 @@ class BookReadingViewModel @Inject constructor(
     }
 
     /**
-     * Flip the background slow-translate flag. Turning it on translates a single section straight away
-     * so the toggle visibly does something; the rest arrives as BookTranslateTask's trickle rather than
-     * a burst. Turning it off cancels the run in flight — read-ahead re-raises its own (small) target
-     * the next time the reader crosses a section.
+     * Flip highlighting for this book. Written as an explicit override rather than cleared back to
+     * "follow the setting": having just turned it off here, the learner would not expect a later
+     * change to the language default to switch it back on.
      */
-    fun setAutoTranslate(on: Boolean) {
-        viewModelScope.launch {
-            bookRepo.setAutoTranslate(id, on)
-            if (on) books.translateToEnd(id, maxSections = 1) else books.cancel(id)
-        }
+    fun toggleHighlightWords() {
+        val next = !highlightWords.value
+        viewModelScope.launch { bookRepo.setHighlightWords(id, next) }
     }
 
     fun toggleStar() {
@@ -273,20 +366,6 @@ class BookReadingViewModel @Inject constructor(
         books.cancel(id)
         viewModelScope.launch { bookRepo.delete(id) }
     }
-
-    // Selection passthroughs (the SelectableMessage wiring).
-    fun onSelectionTranslate(text: String, anchorY: Float, sourceText: String) =
-        selection.onSelectionTranslate(text, anchorY, sourceText)
-
-    fun saveCurrentTranslation(headword: String? = null) = selection.saveCurrentTranslation(headword)
-
-    fun selectSaveEntry(lemma: String, pos: String?) = selection.selectSaveEntry(lemma, pos)
-
-    fun downloadDictionary() = selection.downloadDictionary()
-
-    fun dismissTranslate() = selection.dismissTranslate()
-
-    fun consumeSavedNotice() = selection.consumeSavedNotice()
 
     companion object {
         /** How many sections past the one being read the auto read-ahead keeps translated. */

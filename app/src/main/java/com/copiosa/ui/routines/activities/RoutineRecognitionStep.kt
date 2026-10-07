@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.copiosa.R
 import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.domain.routine.RecognitionCardsContent
-import com.copiosa.ui.components.ProgressBar
+import com.copiosa.ui.components.rememberRevealTapGuard
 import com.copiosa.ui.routines.RoutinePlayerViewModel
 
 /**
@@ -40,17 +40,20 @@ import com.copiosa.ui.routines.RoutinePlayerViewModel
 @Composable
 internal fun RoutineRecognitionStep(
     content: RecognitionCardsContent,
-    index: Int,
-    total: Int,
     viewModel: RoutinePlayerViewModel,
     onComplete: () -> Unit,
+    header: @Composable () -> Unit,
 ) {
     var cards by remember { mutableStateOf<List<FlashcardEntity>?>(null) }
     LaunchedEffect(Unit) { cards = viewModel.recognitionCards(content.cardLimit) }
 
     val list = cards
     if (list == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        // The header is here too: a way out should not have to wait for the cards to load.
+        Column(Modifier.fillMaxSize()) {
+            header()
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        }
         return
     }
     if (list.isEmpty()) {
@@ -60,6 +63,8 @@ internal fun RoutineRecognitionStep(
 
     var i by remember { mutableIntStateOf(0) }
     var revealed by remember(i) { mutableStateOf(false) }
+    // Continue takes the reveal button's place, so a double tap on it must not skip the meaning.
+    val revealGuard = rememberRevealTapGuard(i)
     val card = list[i]
     LaunchedEffect(i) { viewModel.noteRecognition(card) }
     // L2 -> L1: cue the target side, reveal the native meaning.
@@ -67,7 +72,7 @@ internal fun RoutineRecognitionStep(
     val meaning = if (card.frontIsTarget) card.back else card.front
 
     Column(Modifier.fillMaxSize()) {
-        ProgressBar(progress = { (index + 1f) / total }, modifier = Modifier.fillMaxWidth())
+        header()
         Column(
             Modifier.fillMaxSize().padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -85,12 +90,22 @@ internal fun RoutineRecognitionStep(
             }
             Spacer(Modifier.weight(1f))
             if (!revealed) {
-                Button(onClick = { revealed = true }, modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = {
+                        revealGuard.mark()
+                        revealed = true
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     Text(stringResource(R.string.routine_recognition_reveal))
                 }
             } else {
                 Button(
-                    onClick = { if (i + 1 >= list.size) onComplete() else i++ },
+                    onClick = {
+                        if (revealGuard.settled()) {
+                            if (i + 1 >= list.size) onComplete() else i++
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(stringResource(R.string.routine_continue)) }
             }

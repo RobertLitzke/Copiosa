@@ -85,22 +85,26 @@ sealed interface DrillItem {
  *
  * Pure and seedable: pass a fixed [Random] for deterministic tests.
  */
-class ConjugationDrillSelector(private val random: Random = Random.Default) {
+class ConjugationDrillSelector(
+    private val spec: ConjugationSpec,
+    private val random: Random = Random.Default,
+) {
 
     fun select(
-        verbs: List<VerbEntry>,
         config: ConjugationDrillConfig,
         stats: Map<String, ItemStat> = emptyMap(),
         familyMastery: Map<IrregularityFamily, Double> = emptyMap(),
         seenVerbs: Set<String> = emptySet(),
         now: Long = System.currentTimeMillis(),
         count: Int = config.itemCount,
+        scope: DrillVerbFilter? = null,
     ): List<DrillItem> {
-        val clean = config.sanitized()
+        val clean = config.sanitized(spec)
+        val verbs = spec.lexicon.verbs.filter { scope?.allows(it, clean.tenses) ?: true }
         if (verbs.isEmpty()) return emptyList()
         val topFrequency = verbs.maxOf { it.frequency }.coerceAtLeast(1.0)
 
-        val candidates = candidates(verbs, clean, seenVerbs)
+        val candidates = candidates(verbs, clean, seenVerbs, scope)
             .map { it to weigh(it, clean, stats, familyMastery, topFrequency, now) }
             .filter { it.second > 0.0 }
             .toMutableList()
@@ -122,8 +126,9 @@ class ConjugationDrillSelector(private val random: Random = Random.Default) {
         verbs: List<VerbEntry>,
         config: ConjugationDrillConfig,
         seenVerbs: Set<String>,
+        scope: DrillVerbFilter? = null,
     ): List<DrillItem> = buildList {
-        val persons = config.persons
+        val persons = scope?.personsIn(config.persons(spec)) ?: config.persons(spec)
         val cells = config.tenses.flatMap { tense -> persons.map { Cell(tense, it) } }
 
         for (verb in verbs) {
@@ -137,7 +142,7 @@ class ConjugationDrillSelector(private val random: Random = Random.Default) {
                 }
             }
             if (DrillDirection.TRANSFORM in config.directions) {
-                for ((rule, target) in TransformRules.cardsFor(verb, persons)) {
+                for ((rule, target) in TransformRules.cardsFor(verb, persons, spec.transformRules)) {
                     if (target.tense !in config.tenses) continue
                     add(DrillItem.Transform(verb.infinitive, rule, rule.sourceCell(), target))
                 }
@@ -145,12 +150,14 @@ class ConjugationDrillSelector(private val random: Random = Random.Default) {
         }
 
         if (DrillDirection.GENERALIZE in config.directions) {
-            for (cls in VerbLexicon.generalizableClasses) {
+            for (cls in spec.lexicon.generalizableClasses) {
+                if (scope?.irregularityClasses?.contains(cls) == false) continue
                 // The card shows a pattern by example and then asks about a verb the learner has
                 // never drilled. Once the class is exhausted it simply stops offering, rather than
                 // re-showing a verb whose answer is already memorised.
-                val members = VerbLexicon.verbsInClass(cls)
+                val members = spec.lexicon.verbsInClass(cls)
                     .filter { it.allows(DrillDirection.GENERALIZE) }
+                    .filter { scope?.allows(it, config.tenses) ?: true }
                 if (members.size < VerbLexicon.MIN_GENERALIZE_VERBS) continue
                 val unseen = members.filter { it.infinitive !in seenVerbs }
                 val pick = unseen.randomOrNull(random) ?: continue
@@ -171,8 +178,8 @@ class ConjugationDrillSelector(private val random: Random = Random.Default) {
         topFrequency: Double,
         now: Long,
     ): Double {
-        val verb = VerbLexicon.byInfinitive(item.infinitive) ?: return 0.0
-        val form = ConjugationEngine.conjugate(verb, item.target.tense, item.target.person)
+        val verb = spec.lexicon.byInfinitive(item.infinitive) ?: return 0.0
+        val form = spec.engine.conjugate(verb, item.target.tense, item.target.person)
             ?: return 0.0
         val stat = stats[item.itemKey]
 

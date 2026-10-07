@@ -1,15 +1,31 @@
 package com.copiosa.domain.routine
 
+import com.copiosa.domain.language.LanguageProfile
 import com.copiosa.domain.prompt.RoutineContentParser
 
 /** A proficiency-bucket subdivision of a categorized activity (a contrast pair, a rapid-fire cue type). */
 data class BucketCategory(val slug: String, val label: String)
 
-/** Language names (in English) interpolated into the synthesis system prompt's activity rules. */
-data class PromptContext(val targetName: String, val nativeName: String)
+/**
+ * What a descriptor may interpolate into its rule block: the language names (in English) and the
+ * target language's grammar. The [profile] is what lets a rule name the language's own pronouns and
+ * false friends instead of hardcoding one language's.
+ */
+data class PromptContext(
+    val targetName: String,
+    val nativeName: String,
+    val routineType: RoutineType,
+    val profile: LanguageProfile?,
+)
 
 /** Slot-independent inputs to the per-slot request lines of the consolidated generation request. */
-data class RequestContext(val durationMinutes: Int, val storyContext: String?)
+data class RequestContext(
+    val routineType: RoutineType,
+    val durationMinutes: Int,
+    /** The serial story's running recap, when one exists; drives [ActivityType.SHORT_TEXT]'s flavour. */
+    val storyContext: String?,
+    val profile: LanguageProfile?,
+)
 
 /**
  * Data-layer services the offline-built activities draw on. Implemented by the synthesis manager so
@@ -27,13 +43,35 @@ interface RoutineBuildServices {
      * slot's difficulty widens which tenses and card types are in play.
      */
     suspend fun buildConjugationDrill(lang: String, slot: ActivitySlot): ConjugationDrillContent?
+
+    /**
+     * A fill-the-blank block from the learner's own banked sentences; null when the bank can't field
+     * one. Costs nothing — the sentences are already on disk — so it is the one activity that makes
+     * a routine cheaper rather than dearer.
+     */
+    suspend fun buildClozeBank(lang: String, slot: ActivitySlot): ClozeBankContent?
+
+    /**
+     * A listen-and-rebuild block from the same bank, its clips rendered up front; null when the voice
+     * model isn't installed or the bank can't field enough sentences of a tappable length.
+     */
+    suspend fun buildListenRebuild(lang: String): ListenRebuildContent?
+
+    /**
+     * How many active cards teach a word ranked at or above [maxRank] — what tells the frequent-word
+     * drill whether the learner's own deck can actually field a session at that depth.
+     */
+    suspend fun frequentWordCardCount(lang: String, maxRank: Int): Int
 }
 
 /** Everything a descriptor may need to assemble content for one slot. */
 class ActivityBuildContext(
     val lang: String,
+    val routineType: RoutineType,
     /** The serial story's next chapter number (1-based). */
     val nextChapter: Int,
+    /** The serial story's running recap, when one exists — mirrors [RequestContext.storyContext]. */
+    val storyContext: String?,
     val stats: Map<String, ActivityStats>,
     val validator: RoutineContentValidator,
     val services: RoutineBuildServices,

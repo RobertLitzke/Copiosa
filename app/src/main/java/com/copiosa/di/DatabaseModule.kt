@@ -9,16 +9,20 @@ import com.copiosa.data.local.ActivityProficiencyDao
 import com.copiosa.data.local.AppDatabase
 import com.copiosa.data.local.AudioItemDao
 import com.copiosa.data.local.BookDao
+import com.copiosa.data.local.ClozeDao
 import com.copiosa.data.local.ConjugationDrillDao
 import com.copiosa.data.local.ConversationDao
+import com.copiosa.data.local.CourseDao
 import com.copiosa.data.local.FlashcardDao
+import com.copiosa.data.local.PreMigrationSnapshot
 import com.copiosa.data.local.FocusStatsDao
 import com.copiosa.data.local.MessageDao
+import com.copiosa.data.local.FLASHCARDS_VIEW_SQL
+import com.copiosa.data.local.LlmUsageDao
 import com.copiosa.data.local.QuizDao
 import com.copiosa.data.local.ReviewLogDao
 import com.copiosa.data.local.RoutineRunDao
 import com.copiosa.data.local.StoryThreadDao
-import com.copiosa.data.local.SuggestedTopicDao
 import com.copiosa.data.local.TopicDao
 import dagger.Module
 import dagger.Provides
@@ -666,14 +670,445 @@ private val MIGRATION_32_33 = object : Migration(32, 33) {
     }
 }
 
+/**
+ * Per-item override of the language's "highlight saved words" setting. Nullable on purpose: NULL
+ * means "follow the setting", which is what every existing row must stay on — a boolean with a
+ * default would freeze the whole library at whatever the flag happened to be at upgrade time.
+ */
+private val MIGRATION_33_34 = object : Migration(33, 34) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE conversations ADD COLUMN highlightWords INTEGER")
+        db.execSQL("ALTER TABLE books ADD COLUMN highlightWords INTEGER")
+    }
+}
+
+/**
+ * Replaces the per-book `autoTranslate` boolean with the four-way `downloadMode`, and starts
+ * recording which model translated each section.
+ *
+ * `books` is rebuilt rather than altered because SQLite before 3.35 (i.e. most of the minSdk range)
+ * has no DROP COLUMN, and leaving the retired boolean behind would fail Room's schema check. The
+ * CREATE TABLE is [MIGRATION_29_30_SQL]'s proven statement plus the columns 31→32 and 33→34 added,
+ * minus `autoTranslate`, so the wording is copied rather than re-derived.
+ *
+ * The backfill is where the old two-flag world maps onto the new one:
+ *  - `autoTranslate = 1` was exactly "keep translating in the background" -> BACKGROUND.
+ *  - a REVERSE book without it never opted into its native gloss and costs nothing today -> OFF,
+ *    which is the only value that keeps it free.
+ *  - everything else is a forward book that translated as it was read -> WHILE_READING.
+ *
+ * The profile-wide `bookAutoReadAhead` preference lived in DataStore and is invisible from here, so
+ * a profile that had turned it *off* comes out with its forward books in WHILE_READING; the new
+ * dialog is where those go back to OFF.
+ *
+ * `book_sections` is backfilled from the book's own provider/model snapshot, which is what every
+ * existing translation was in fact produced with — so the dialog opens with nothing stale to redo.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration34To35Test`.
+ */
+internal val MIGRATION_34_35_SQL = listOf(
+    "CREATE TABLE IF NOT EXISTS `books_new` (" +
+        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+        "`title` TEXT NOT NULL, " +
+        "`originalTitle` TEXT NOT NULL, " +
+        "`author` TEXT, " +
+        "`coverFile` TEXT, " +
+        "`sourceFileName` TEXT, " +
+        "`level` TEXT NOT NULL, " +
+        "`direction` TEXT NOT NULL, " +
+        "`country` TEXT NOT NULL, " +
+        "`targetLanguage` TEXT NOT NULL, " +
+        "`nativeLanguage` TEXT NOT NULL, " +
+        "`provider` TEXT NOT NULL, " +
+        "`model` TEXT NOT NULL, " +
+        "`totalParagraphs` INTEGER NOT NULL, " +
+        "`wordCount` INTEGER NOT NULL, " +
+        "`totalSections` INTEGER NOT NULL, " +
+        "`translatedSections` INTEGER NOT NULL, " +
+        "`downloadMode` TEXT NOT NULL, " +
+        "`posParagraph` INTEGER NOT NULL, " +
+        "`posOffset` INTEGER NOT NULL, " +
+        "`finishedReading` INTEGER NOT NULL, " +
+        "`starred` INTEGER NOT NULL, " +
+        "`highlightWords` INTEGER, " +
+        "`createdAt` INTEGER NOT NULL, " +
+        "`updatedAt` INTEGER NOT NULL, " +
+        "`autoRetryAttempts` INTEGER NOT NULL, " +
+        "`lastAutoRetryAt` INTEGER)",
+    "INSERT INTO `books_new` (" +
+        "`id`, `title`, `originalTitle`, `author`, `coverFile`, `sourceFileName`, `level`, " +
+        "`direction`, `country`, `targetLanguage`, `nativeLanguage`, `provider`, `model`, " +
+        "`totalParagraphs`, `wordCount`, `totalSections`, `translatedSections`, `downloadMode`, " +
+        "`posParagraph`, `posOffset`, `finishedReading`, `starred`, `highlightWords`, " +
+        "`createdAt`, `updatedAt`, `autoRetryAttempts`, `lastAutoRetryAt`) " +
+        "SELECT `id`, `title`, `originalTitle`, `author`, `coverFile`, `sourceFileName`, `level`, " +
+        "`direction`, `country`, `targetLanguage`, `nativeLanguage`, `provider`, `model`, " +
+        "`totalParagraphs`, `wordCount`, `totalSections`, `translatedSections`, " +
+        "CASE WHEN `autoTranslate` <> 0 THEN 'BACKGROUND' " +
+        "WHEN `direction` = 'REVERSE' THEN 'OFF' ELSE 'WHILE_READING' END, " +
+        "`posParagraph`, `posOffset`, `finishedReading`, `starred`, `highlightWords`, " +
+        "`createdAt`, `updatedAt`, `autoRetryAttempts`, `lastAutoRetryAt` FROM `books`",
+    "DROP TABLE `books`",
+    "ALTER TABLE `books_new` RENAME TO `books`",
+    "CREATE INDEX IF NOT EXISTS `index_books_targetLanguage` ON `books` (`targetLanguage`)",
+    "CREATE TABLE IF NOT EXISTS `book_sections` (" +
+        "`bookId` INTEGER NOT NULL, " +
+        "`sectionIndex` INTEGER NOT NULL, " +
+        "`provider` TEXT NOT NULL, " +
+        "`model` TEXT NOT NULL, " +
+        "`translatedAt` INTEGER NOT NULL, " +
+        "PRIMARY KEY(`bookId`, `sectionIndex`), " +
+        "FOREIGN KEY(`bookId`) REFERENCES `books`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+    "INSERT INTO `book_sections` (`bookId`, `sectionIndex`, `provider`, `model`, `translatedAt`) " +
+        "SELECT b.`id`, p.`sectionIndex`, b.`provider`, b.`model`, b.`updatedAt` " +
+        "FROM `books` b JOIN `book_paragraphs` p ON p.`bookId` = b.`id` " +
+        "WHERE p.`translatedText` IS NOT NULL GROUP BY b.`id`, p.`sectionIndex`",
+)
+
+private val MIGRATION_34_35 = object : Migration(34, 35) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_34_35_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * Book audio: groups the flat playlist into folders and gives a track a resume point.
+ *
+ * `tag` is the grouping label (a book's chapters share the book's title) and is what the Audio pane
+ * folds on; `sourceBookId`/`sourceChapterIndex` are provenance, so a later pass can tell which
+ * chapters already have a track without matching on a name the user can see change.
+ *
+ * Plain ALTERs, with no foreign key on `sourceBookId`: `audio_items` has never had one, and adding a
+ * constraint would mean the whole create/INSERT-SELECT/DROP/RENAME rebuild that 34->35 needed for
+ * `books`. Deleting a book removes its audio explicitly in BookRepository instead — the rows outlive
+ * a cascade deliberately nowhere, and the files have to be unlinked in code regardless.
+ *
+ * `positionMs` defaults to 0, which is exactly the old behaviour (every track started at the top),
+ * so existing rows need no backfill.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration35To36Test`.
+ */
+internal val MIGRATION_35_36_SQL = listOf(
+    "ALTER TABLE `audio_items` ADD COLUMN `tag` TEXT",
+    "ALTER TABLE `audio_items` ADD COLUMN `sourceBookId` INTEGER",
+    "ALTER TABLE `audio_items` ADD COLUMN `sourceChapterIndex` INTEGER",
+    "ALTER TABLE `audio_items` ADD COLUMN `positionMs` INTEGER NOT NULL DEFAULT 0",
+    "CREATE INDEX IF NOT EXISTS `index_audio_items_tag` ON `audio_items` (`tag`)",
+)
+
+private val MIGRATION_35_36 = object : Migration(35, 36) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_35_36_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * 36 -> 37: records how an auto-generated flashcard came to exist.
+ *
+ * The frequency-list seeder can add hundreds of cards in one tap. Without a marker, a batch produced
+ * by a bad translation pass or a wrong list would be indistinguishable from words the user saved
+ * themselves, and the only way to undo it would be date-guessing. `autoSource` names the mechanism
+ * ("freq"), so such a batch can be counted and removed exactly.
+ *
+ * A nullable column with no default: every existing row is user-authored, and NULL is precisely what
+ * that means, so there is nothing to backfill.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration36To37Test`.
+ */
+internal val MIGRATION_36_37_SQL = listOf(
+    "ALTER TABLE `flashcards` ADD COLUMN `autoSource` TEXT",
+)
+
+private val MIGRATION_36_37 = object : Migration(36, 37) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_36_37_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * 37 -> 38: the tense-course tables — enrolment/checkup standing per course, per-lesson results,
+ * and course sittings (`planJson` + `currentIndex`, mirroring `routine_runs`). Status/kind columns
+ * hold enum *names* as plain TEXT (`CourseStatus`, `SessionKind`, `CourseSessionStatus` — frozen),
+ * the same trade-off `conjugation_attempts` makes.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration37To38Test`.
+ */
+internal val MIGRATION_37_38_SQL = listOf(
+    "CREATE TABLE IF NOT EXISTS `course_progress` (" +
+        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+        "`courseId` TEXT NOT NULL, " +
+        "`targetLanguage` TEXT NOT NULL, " +
+        "`status` TEXT NOT NULL, " +
+        "`startedAt` INTEGER NOT NULL, " +
+        "`graduatedAt` INTEGER, " +
+        "`checkupStage` INTEGER NOT NULL, " +
+        "`nextCheckupAt` INTEGER, " +
+        "`lastCheckupAt` INTEGER)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS `index_course_progress_courseId_targetLanguage` " +
+        "ON `course_progress` (`courseId`, `targetLanguage`)",
+    "CREATE TABLE IF NOT EXISTS `course_lesson_state` (" +
+        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+        "`courseId` TEXT NOT NULL, " +
+        "`lessonId` TEXT NOT NULL, " +
+        "`targetLanguage` TEXT NOT NULL, " +
+        "`completedAt` INTEGER, " +
+        "`passes` INTEGER NOT NULL, " +
+        "`lastAccuracy` REAL, " +
+        "`needsReview` INTEGER NOT NULL, " +
+        "`generatedItemsJson` TEXT)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS `index_course_lesson_state_courseId_lessonId_targetLanguage` " +
+        "ON `course_lesson_state` (`courseId`, `lessonId`, `targetLanguage`)",
+    "CREATE TABLE IF NOT EXISTS `course_sessions` (" +
+        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+        "`courseId` TEXT NOT NULL, " +
+        "`lessonId` TEXT, " +
+        "`kind` TEXT NOT NULL, " +
+        "`targetLanguage` TEXT NOT NULL, " +
+        "`status` TEXT NOT NULL, " +
+        "`planJson` TEXT, " +
+        "`currentIndex` INTEGER NOT NULL, " +
+        "`createdAt` INTEGER NOT NULL, " +
+        "`completedAt` INTEGER, " +
+        "`error` TEXT)",
+    "CREATE INDEX IF NOT EXISTS `index_course_sessions_courseId_targetLanguage` " +
+        "ON `course_sessions` (`courseId`, `targetLanguage`)",
+)
+
+private val MIGRATION_37_38 = object : Migration(37, 38) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_37_38_SQL.forEach(db::execSQL)
+    }
+}
+
+/** Why a book's last translation attempt failed, so a background stall can explain itself. */
+internal val MIGRATION_38_39_SQL = listOf(
+    "ALTER TABLE books ADD COLUMN lastError TEXT",
+)
+
+private val MIGRATION_38_39 = object : Migration(38, 39) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_38_39_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * The cloze practice bank: sentences the learner has already met, one word blanked, each carrying
+ * its own FSRS schedule, plus the append-only log of answers on them.
+ *
+ * The unique (targetLanguage, lemma, textKey) index is what makes the background miners idempotent —
+ * they insert with IGNORE, so rescanning the same book costs nothing — and what makes a suspended
+ * row a tombstone that stops a rejected sentence being re-added.
+ *
+ * `cardId` is intentionally an unconstrained column rather than a foreign key: deleting a vocab card
+ * must not delete a good sentence, it must only stop it nudging.
+ *
+ * No column carries a SQL DEFAULT, matching every other new-table migration here: the Kotlin
+ * entity's defaults construct new rows, and Room compares declared defaults when it validates the
+ * schema on open — a DEFAULT the entity doesn't declare fails that check on the first launch after
+ * upgrade.
+ */
+internal val MIGRATION_39_40_SQL = listOf(
+    "CREATE TABLE IF NOT EXISTS `cloze_sentences` (" +
+        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+        "`targetLanguage` TEXT NOT NULL, " +
+        "`text` TEXT NOT NULL, " +
+        "`answer` TEXT NOT NULL, " +
+        "`lemma` TEXT NOT NULL, " +
+        "`textKey` TEXT NOT NULL, " +
+        "`cardId` INTEGER, " +
+        "`translation` TEXT, " +
+        "`distractors` TEXT, " +
+        "`source` TEXT NOT NULL, " +
+        "`suspended` INTEGER NOT NULL, " +
+        "`flaggedReason` TEXT, " +
+        "`dueAt` INTEGER NOT NULL, " +
+        "`intervalDays` REAL NOT NULL, " +
+        "`stability` REAL, " +
+        "`difficulty` REAL, " +
+        "`fsrsStep` INTEGER, " +
+        "`repetitions` INTEGER NOT NULL, " +
+        "`lapses` INTEGER NOT NULL, " +
+        "`lastReviewedAt` INTEGER, " +
+        "`state` TEXT NOT NULL, " +
+        "`ankiNoteGuid` TEXT, " +
+        "`ankiOrd` INTEGER, " +
+        "`createdAt` INTEGER NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS `index_cloze_sentences_targetLanguage_dueAt` " +
+        "ON `cloze_sentences` (`targetLanguage`, `dueAt`)",
+    "CREATE INDEX IF NOT EXISTS `index_cloze_sentences_cardId` ON `cloze_sentences` (`cardId`)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS `index_cloze_sentences_targetLanguage_lemma_textKey` " +
+        "ON `cloze_sentences` (`targetLanguage`, `lemma`, `textKey`)",
+    "CREATE TABLE IF NOT EXISTS `cloze_reviews` (" +
+        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+        "`clozeId` INTEGER NOT NULL, " +
+        "`reviewedAt` INTEGER NOT NULL, " +
+        "`rating` TEXT NOT NULL, " +
+        "`lastIntervalDays` REAL NOT NULL, " +
+        "`intervalDays` REAL NOT NULL, " +
+        "`stabilityAfter` REAL, " +
+        "`difficultyAfter` REAL, " +
+        "`state` TEXT NOT NULL, " +
+        "`latencyMs` INTEGER, " +
+        "FOREIGN KEY(`clozeId`) REFERENCES `cloze_sentences`(`id`) " +
+        "ON UPDATE NO ACTION ON DELETE CASCADE )",
+    "CREATE INDEX IF NOT EXISTS `index_cloze_reviews_clozeId` ON `cloze_reviews` (`clozeId`)",
+)
+
+private val MIGRATION_39_40 = object : Migration(39, 40) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_39_40_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * 40 -> 41: the language version each reader was left in, stored beside the reading position it
+ * already restores (`conversations.scrollIndex`, `books.posParagraph`).
+ *
+ * Enum *name* as plain TEXT, the `downloadMode` trade-off, with `Converters.stringToReadMode`
+ * falling back to TARGET on anything it can't parse. The SQL default is TARGET too, which is
+ * precisely the old behaviour — every reader opened in the target language — so nothing needs
+ * backfilling and no existing text or book changes how it looks on first open after the upgrade.
+ *
+ * The column goes on `conversations` as a whole even though only imported texts (URL_TRANSLATION)
+ * have a reader to restore; chats simply carry an unread TARGET, as they already do for
+ * `scrollIndex`.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration40To41Test`.
+ */
+internal val MIGRATION_40_41_SQL = listOf(
+    "ALTER TABLE `conversations` ADD COLUMN `readMode` TEXT NOT NULL DEFAULT 'TARGET'",
+    "ALTER TABLE `books` ADD COLUMN `readMode` TEXT NOT NULL DEFAULT 'TARGET'",
+)
+
+private val MIGRATION_40_41 = object : Migration(40, 41) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_40_41_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * 41 -> 42: when a book's reading position last moved, so Home can offer the book actually being
+ * read. Until now it ordered by `updatedAt`, which only the translation pipeline writes — a book
+ * downloading in the background outranked the one open on the nightstand.
+ *
+ * Nullable with no default and no backfill: nothing recorded when the existing books were last
+ * read, and copying `updatedAt` across would bake in exactly the wrong answer this column exists to
+ * replace. A NULL sorts behind any real reading time and falls back to the old order among
+ * themselves, so the first scroll after the upgrade puts the right book on top.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration41To42Test`.
+ */
+internal val MIGRATION_41_42_SQL = listOf(
+    "ALTER TABLE `books` ADD COLUMN `lastReadAt` INTEGER",
+)
+
+private val MIGRATION_41_42 = object : Migration(41, 42) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_41_42_SQL.forEach(db::execSQL)
+    }
+}
+
+/** 42 -> 43: the notes/cards split. The statements, and the reasoning, are in `Migration42To43.kt`. */
+private val MIGRATION_42_43 = object : Migration(42, 43) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_42_43_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * 43 -> 44: drops `suggested_topics`, the table `TopicSuggestionTask` refilled every few days for a
+ * surface that was never built. Nothing read it. Its unique index goes with the table.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration43To44Test`.
+ */
+internal val MIGRATION_43_44_SQL = listOf(
+    "DROP TABLE IF EXISTS `suggested_topics`",
+)
+
+private val MIGRATION_43_44 = object : Migration(43, 44) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_43_44_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * 44 -> 45: where a saved word came from, beyond a conversation. `notes` gains `sourceBookId` and
+ * `sourceRoutineRunId`, so a word saved in a book or a routine's reading step records its source the
+ * way one saved in a chat or text always has, and each reader can list the words it produced.
+ *
+ * Nothing to backfill: those saves were never recorded, and a guess from timestamps would be worse
+ * than the gap. The `flashcards` view has to be dropped and recreated, since a view's column list is
+ * fixed when it is made; its text is [FLASHCARDS_VIEW_SQL], which Room checks character for character.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration44To45Test`.
+ */
+internal val MIGRATION_44_45_SQL = listOf(
+    "ALTER TABLE `notes` ADD COLUMN `sourceBookId` INTEGER",
+    "ALTER TABLE `notes` ADD COLUMN `sourceRoutineRunId` INTEGER",
+    "DROP VIEW IF EXISTS `flashcards`",
+    "CREATE VIEW `flashcards` AS $FLASHCARDS_VIEW_SQL",
+)
+
+private val MIGRATION_44_45 = object : Migration(44, 45) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_44_45_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * 45 -> 46: the usage meter. Both providers report what each call consumed and until now it was
+ * dropped on the floor; `llm_usage` keeps it as a running total per local day for each (provider,
+ * model, feature, book). See `LlmUsageEntity` for why `costReported` is in the key and why `bookId`
+ * is not a foreign key.
+ *
+ * Nothing to backfill: usage that was never recorded cannot be recovered, and an estimate from the
+ * stored text would put invented numbers under a heading that promises measured ones.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration45To46Test`.
+ */
+internal val MIGRATION_45_46_SQL = listOf(
+    "CREATE TABLE IF NOT EXISTS `llm_usage` (" +
+        "`day` INTEGER NOT NULL, " +
+        "`provider` TEXT NOT NULL, " +
+        "`model` TEXT NOT NULL, " +
+        "`feature` TEXT NOT NULL, " +
+        "`bookId` INTEGER NOT NULL, " +
+        "`costReported` INTEGER NOT NULL, " +
+        "`calls` INTEGER NOT NULL, " +
+        "`promptTokens` INTEGER NOT NULL, " +
+        "`cachedTokens` INTEGER NOT NULL, " +
+        "`outputTokens` INTEGER NOT NULL, " +
+        "`costUsd` REAL NOT NULL, " +
+        "PRIMARY KEY(`day`, `provider`, `model`, `feature`, `bookId`, `costReported`))",
+)
+
+private val MIGRATION_45_46 = object : Migration(45, 46) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_45_46_SQL.forEach(db::execSQL)
+    }
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
 
+    private const val DATABASE_NAME = "copiosa.db"
+
     @Provides
     @Singleton
-    fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
-        Room.databaseBuilder(context, AppDatabase::class.java, "copiosa.db")
+    fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
+        // 43 restructures the vocabulary instead of adding to it, so the file is copied aside first.
+        PreMigrationSnapshot.takeIfOlderThan(context, DATABASE_NAME, beforeVersion = 43)
+        return Room.databaseBuilder(context, AppDatabase::class.java, DATABASE_NAME)
             .addMigrations(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
                 MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
@@ -681,9 +1116,16 @@ object DatabaseModule {
                 MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
                 MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27,
                 MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32,
-                MIGRATION_32_33,
+                MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36,
+                MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40,
+                MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45,
+                MIGRATION_45_46,
             )
             .build()
+    }
+
+    @Provides
+    fun provideClozeDao(db: AppDatabase): ClozeDao = db.clozeDao()
 
     @Provides
     fun provideConversationDao(db: AppDatabase): ConversationDao = db.conversationDao()
@@ -713,9 +1155,6 @@ object DatabaseModule {
     fun provideTopicDao(db: AppDatabase): TopicDao = db.topicDao()
 
     @Provides
-    fun provideSuggestedTopicDao(db: AppDatabase): SuggestedTopicDao = db.suggestedTopicDao()
-
-    @Provides
     fun provideStoryThreadDao(db: AppDatabase): StoryThreadDao = db.storyThreadDao()
 
     @Provides
@@ -729,4 +1168,10 @@ object DatabaseModule {
 
     @Provides
     fun provideBookDao(db: AppDatabase): BookDao = db.bookDao()
+
+    @Provides
+    fun provideCourseDao(db: AppDatabase): CourseDao = db.courseDao()
+
+    @Provides
+    fun provideLlmUsageDao(db: AppDatabase): LlmUsageDao = db.llmUsageDao()
 }

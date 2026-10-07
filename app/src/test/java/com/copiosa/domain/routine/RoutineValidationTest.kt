@@ -9,33 +9,33 @@ class RoutineValidationTest {
     @Test
     fun pi_proDroppedSentence_isValid() {
         val item = PiItem("Comí una manzana fresca.", listOf("yo", "tú", "ella"), 0)
-        assertTrue(RoutineValidation.piStructurallyValid(item))
+        assertTrue(RoutineValidation.piStructurallyValid(item, "es"))
     }
 
     @Test
     fun pi_survivingSubjectPronoun_isRejected() {
         // "yo" hands the learner the answer instead of making them parse the verb.
         val item = PiItem("Yo comí una manzana.", listOf("yo", "tú", "ella"), 0)
-        assertFalse(RoutineValidation.piStructurallyValid(item))
+        assertFalse(RoutineValidation.piStructurallyValid(item, "es"))
     }
 
     @Test
     fun pi_survivingTimeAdverb_isRejected() {
         val item = PiItem("Ayer comí una manzana.", listOf("ayer", "hoy", "mañana"), 0)
-        assertFalse(RoutineValidation.piStructurallyValid(item))
+        assertFalse(RoutineValidation.piStructurallyValid(item, "es"))
     }
 
     @Test
     fun pi_unaccentedTuAndEl_areNotMistakenForPronouns() {
         // "tu" (your) and "el" (the) are legitimate here — only accented "tú"/"él" are cues.
         val item = PiItem("Perdió el libro de tu hermano.", listOf("yo", "tú", "él"), 2)
-        assertTrue(RoutineValidation.piStructurallyValid(item))
+        assertTrue(RoutineValidation.piStructurallyValid(item, "es"))
     }
 
     @Test
     fun pi_badAnswerIndexOrTooFewOptions_isRejected() {
-        assertFalse(RoutineValidation.piStructurallyValid(PiItem("Comí.", listOf("yo", "tú"), 5)))
-        assertFalse(RoutineValidation.piStructurallyValid(PiItem("Comí.", listOf("yo"), 0)))
+        assertFalse(RoutineValidation.piStructurallyValid(PiItem("Comí.", listOf("yo", "tú"), 5), "es"))
+        assertFalse(RoutineValidation.piStructurallyValid(PiItem("Comí.", listOf("yo"), 0), "es"))
     }
 
     @Test
