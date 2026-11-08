@@ -27,6 +27,11 @@ data class StatsUi(
     /** The active profile's tag — shown in the header and named in the clear-confirmation copy. */
     val activeLang: String = "",
     val stats: LearnerStats? = null,
+    /**
+     * The active profile's desired retention as a percentage, set against measured retention. Null
+     * in the all-languages scope, where each language has a target of its own.
+     */
+    val retentionTargetPct: Int? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -42,8 +47,18 @@ class StatsViewModel @Inject constructor(
         combine(settingsRepo.activeProfileTag, scope) { lang, sc -> lang to sc }
             .flatMapLatest { (lang, sc) ->
                 // Null lang means "all profiles combined" (see StatsRepository).
-                statsRepo.observeStats(if (sc == StatsScope.ALL) null else lang)
-                    .map { stats -> StatsUi(loaded = true, scope = sc, activeLang = lang, stats = stats) }
+                combine(
+                    statsRepo.observeStats(if (sc == StatsScope.ALL) null else lang),
+                    settingsRepo.settings.map { Math.round(it.desiredRetention * 100).toInt() },
+                ) { stats, targetPct ->
+                    StatsUi(
+                        loaded = true,
+                        scope = sc,
+                        activeLang = lang,
+                        stats = stats,
+                        retentionTargetPct = if (sc == StatsScope.ALL) null else targetPct,
+                    )
+                }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatsUi())
 

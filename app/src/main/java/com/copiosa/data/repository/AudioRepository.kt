@@ -4,6 +4,7 @@ import android.content.Context
 import com.copiosa.data.local.AudioItemDao
 import com.copiosa.data.local.AudioItemEntity
 import com.copiosa.data.settings.SettingsRepository
+import com.copiosa.domain.listening.RadioScript
 import com.copiosa.domain.model.AudioStatus
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -75,6 +76,7 @@ class AudioRepository @Inject constructor(
         sourceBookId: Long? = null,
         sourceChapterIndex: Int? = null,
         sortOrder: Double? = null,
+        kind: String = RadioScript.KIND_ARTICLE,
     ): Long {
         val order = sortOrder ?: ((dao.maxSortOrder() ?: 0.0) + 1.0)
         return dao.insert(
@@ -91,6 +93,7 @@ class AudioRepository @Inject constructor(
                 tag = tag,
                 sourceBookId = sourceBookId,
                 sourceChapterIndex = sourceChapterIndex,
+                kind = kind,
             ),
         )
     }

@@ -1,6 +1,8 @@
 package com.copiosa.data.settings
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.util.Log
 import androidx.datastore.core.DataMigration
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.MutablePreferences
@@ -17,6 +19,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.copiosa.domain.model.BookDownloadMode
 import com.copiosa.domain.model.Cefr
+import com.copiosa.domain.model.ModelOption
 import com.copiosa.domain.model.OpenRouterModels
 import com.copiosa.domain.model.Persona
 import com.copiosa.domain.model.ProviderId
@@ -31,6 +34,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import java.security.KeyStore
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -60,8 +64,21 @@ class SettingsRepository @Inject constructor(
 
         /** The configured OpenRouter roster, JSON-encoded; absent on a profile that predates it. */
         fun openRouterModels(tag: String) = stringPreferencesKey("p.$tag.openrouter_models")
-        fun geminiBackgroundModel(tag: String) = stringPreferencesKey("p.$tag.gemini_background_model")
-        fun openRouterBackgroundModel(tag: String) = stringPreferencesKey("p.$tag.openrouter_background_model")
+
+        /** The background slot's provider; blank once "same as main" has been chosen deliberately. */
+        fun backgroundProvider(tag: String) = stringPreferencesKey("p.$tag.background_provider")
+        fun backgroundModel(tag: String) = stringPreferencesKey("p.$tag.background_model")
+
+        /**
+         * Retired in favour of [backgroundProvider] + [backgroundModel], from when the slot was one
+         * model per provider; still read once, to carry the one that was in effect over.
+         */
+        fun legacyBackgroundModel(tag: String, provider: ProviderId) = stringPreferencesKey(
+            when (provider) {
+                ProviderId.GEMINI -> "p.$tag.gemini_background_model"
+                ProviderId.OPENROUTER -> "p.$tag.openrouter_background_model"
+            },
+        )
         fun nativeLang(tag: String) = stringPreferencesKey("p.$tag.native_lang")
         fun defaultLevel(tag: String) = stringPreferencesKey("p.$tag.default_level")
         fun defaultCountry(tag: String) = stringPreferencesKey("p.$tag.default_country")
@@ -90,17 +107,43 @@ class SettingsRepository @Inject constructor(
         fun conjugationDrill(tag: String) = stringPreferencesKey("p.$tag.conjugation_drill")
     }
 
-    private val securePrefs by lazy {
+    /**
+     * The encrypted API-key store. Its file is excluded from Auto Backup (res/xml/backup_rules.xml),
+     * but a copy restored before that exclusion — or a keystore that otherwise lost its master key —
+     * leaves a file nothing on this device can decrypt, and opening it throws. Keys can't be
+     * recovered from that state, so wipe the store and start empty: the user re-enters their keys,
+     * instead of the app crashing on every key read.
+     */
+    private val securePrefs: SharedPreferences by lazy {
+        try {
+            openSecurePrefs()
+        } catch (e: Exception) {
+            Log.w(TAG, "API-key store unreadable on this device; resetting it", e)
+            resetSecurePrefs()
+            openSecurePrefs()
+        }
+    }
+
+    private fun openSecurePrefs(): SharedPreferences {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
-        EncryptedSharedPreferences.create(
+        return EncryptedSharedPreferences.create(
             context,
-            "secure_keys",
+            SECURE_PREFS_NAME,
             masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
         )
+    }
+
+    /** Deletes the key file and its keystore master key, so the next open builds both fresh. */
+    private fun resetSecurePrefs() {
+        context.deleteSharedPreferences(SECURE_PREFS_NAME)
+        runCatching {
+            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                .deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+        }.onFailure { Log.w(TAG, "Could not delete the API-key master key", it) }
     }
 
     /** Target-language tag of the active profile. */
@@ -175,20 +218,19 @@ class SettingsRepository @Inject constructor(
             OpenRouterModels.decode(p[Keys.openRouterModels(tag)]) ?: emptyList(),
             activeOpenRouter,
         )
+        val provider = p[Keys.provider(tag)]?.let { runCatching { ProviderId.valueOf(it) }.getOrNull() }
+            ?: d.provider
+        val background = backgroundChoiceOf(
+            storedProvider = p[Keys.backgroundProvider(tag)],
+            storedModel = p[Keys.backgroundModel(tag)],
+            active = provider,
+            legacyModel = p[Keys.legacyBackgroundModel(tag, provider)],
+        )
         return AppSettings(
-            provider = p[Keys.provider(tag)]?.let { runCatching { ProviderId.valueOf(it) }.getOrNull() }
-                ?: d.provider,
+            provider = provider,
             geminiModel = p[Keys.geminiModel(tag)] ?: d.geminiModel,
             openRouterModel = activeOpenRouter,
             openRouterModels = openRouterRoster,
-            // A slot naming a model that has since left its list falls back to "same as main"
-            // rather than sending background work to an id nothing offers any more.
-            geminiBackgroundModel = p[Keys.geminiBackgroundModel(tag)]
-                ?.takeIf { it in AppSettings.GEMINI_MODELS }
-                ?: d.geminiBackgroundModel,
-            openRouterBackgroundModel = p[Keys.openRouterBackgroundModel(tag)]
-                ?.takeIf { id -> openRouterRoster.any { it.id == id } }
-                ?: d.openRouterBackgroundModel,
             nativeLanguage = p[Keys.nativeLang(tag)] ?: d.nativeLanguage,
             targetLanguage = tag,
             defaultLevel = p[Keys.defaultLevel(tag)]?.let { runCatching { Cefr.valueOf(it) }.getOrNull() }
@@ -228,7 +270,11 @@ class SettingsRepository @Inject constructor(
             newCardsPerDay = p[Keys.newCardsPerDay(tag)] ?: d.newCardsPerDay,
             dailyGoalMinutes = (p[Keys.dailyGoalMinutes(tag)] ?: d.dailyGoalMinutes)
                 .coerceIn(AppSettings.DAILY_GOAL_MIN, AppSettings.DAILY_GOAL_MAX),
-        )
+        ).let { s ->
+            // A slot naming a model that has since left its list falls back to "same as main"
+            // rather than sending background work to an id nothing offers any more.
+            s.copy(backgroundChoice = background?.takeIf(s::offers))
+        }
     }
 
     private fun MutablePreferences.writeProfile(tag: String, s: AppSettings) {
@@ -237,8 +283,9 @@ class SettingsRepository @Inject constructor(
         this[Keys.openRouterModel(tag)] = s.openRouterModel
         this[Keys.openRouterModels(tag)] =
             OpenRouterModels.encode(OpenRouterModels.normalize(s.openRouterModels, s.openRouterModel))
-        this[Keys.geminiBackgroundModel(tag)] = s.geminiBackgroundModel
-        this[Keys.openRouterBackgroundModel(tag)] = s.openRouterBackgroundModel
+        this[Keys.backgroundProvider(tag)] = s.backgroundChoice?.provider?.name.orEmpty()
+        this[Keys.backgroundModel(tag)] = s.backgroundChoice?.model.orEmpty()
+        ProviderId.entries.forEach { remove(Keys.legacyBackgroundModel(tag, it)) }
         this[Keys.nativeLang(tag)] = s.nativeLanguage
         // No target-language key: the tag itself is the profile identity.
         this[Keys.defaultLevel(tag)] = s.defaultLevel.name
@@ -279,8 +326,20 @@ class SettingsRepository @Inject constructor(
 
     // --- API keys (encrypted, global across profiles) ---
 
-    fun getApiKey(provider: ProviderId): String? =
-        securePrefs.getString(keyName(provider), null)?.takeIf { it.isNotBlank() }
+    /**
+     * The stored key, or null. A single value that no longer decrypts (the store opened, but this
+     * entry is damaged) is dropped and reads as missing rather than throwing into every LLM call.
+     */
+    fun getApiKey(provider: ProviderId): String? {
+        val name = keyName(provider)
+        return try {
+            securePrefs.getString(name, null)?.takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            Log.w(TAG, "Stored ${provider.name} API key unreadable; removing it", e)
+            runCatching { securePrefs.edit().remove(name).apply() }
+            null
+        }
+    }
 
     fun setApiKey(provider: ProviderId, key: String) {
         securePrefs.edit().putString(keyName(provider), key.trim()).apply()
@@ -288,10 +347,39 @@ class SettingsRepository @Inject constructor(
 
     override fun hasApiKey(provider: ProviderId): Boolean = !getApiKey(provider).isNullOrBlank()
 
+    /**
+     * Where a background call for [settings] should actually be sent: [AppSettings.backgroundFor],
+     * unless the slot's provider has no key. The slot is on its own provider, so its key can be
+     * missing while the fallback's is there (settings travel in a backup; keys do not) — and a book
+     * section should not fail over a title that its own model could have translated.
+     */
+    fun backgroundTarget(settings: AppSettings, fallback: ModelOption = settings.main): ModelOption =
+        settings.backgroundFor(fallback).takeIf { hasApiKey(it.provider) } ?: fallback
+
     private fun keyName(provider: ProviderId) = "api_key_${provider.name}"
 
     companion object {
         const val DEFAULT_PROFILE = "es"
+        private const val TAG = "SettingsRepository"
+        private const val SECURE_PREFS_NAME = "secure_keys" // backup_rules.xml excludes this file
+
+        /**
+         * The background slot as stored. [storedProvider] is blank for a deliberate "same as main",
+         * and null on a profile last written when the slot was one model per provider — only the
+         * [active] provider's was ever in effect, so [legacyModel] (that one) is what carries over.
+         */
+        internal fun backgroundChoiceOf(
+            storedProvider: String?,
+            storedModel: String?,
+            active: ProviderId,
+            legacyModel: String?,
+        ): ModelOption? {
+            if (storedProvider == null) {
+                return legacyModel?.takeIf { it.isNotBlank() }?.let { ModelOption(active, it) }
+            }
+            val provider = runCatching { ProviderId.valueOf(storedProvider) }.getOrNull() ?: return null
+            return storedModel?.takeIf { it.isNotBlank() }?.let { ModelOption(provider, it) }
+        }
 
         /**
          * Where a new profile's teacher is from, before the learner changes it. Only a starting

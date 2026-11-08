@@ -7,7 +7,6 @@ import com.copiosa.domain.book.nativeText
 import com.copiosa.domain.book.targetText
 import com.copiosa.domain.cloze.ClozeCandidate
 import com.copiosa.domain.cloze.ClozeMineContext
-import com.copiosa.domain.highlight.normalizeWord
 import com.copiosa.domain.model.BookDirection
 import com.copiosa.domain.text.Sentences
 import javax.inject.Inject
@@ -24,6 +23,8 @@ import javax.inject.Singleton
  * bound — it is the "tied to study that's already happened" rule made literal. A sentence from
  * chapter thirty of an unread novel is exactly the kind of disconnected material this mode exists to
  * avoid.
+ *
+ * Which word is blanked is [SentenceBlanks]' decision, shared with the other reading sources.
  */
 @Singleton
 class BookSentenceSource @Inject constructor(
@@ -33,18 +34,24 @@ class BookSentenceSource @Inject constructor(
     override val id = "book"
 
     override suspend fun mine(ctx: ClozeMineContext, limit: Int): List<ClozeCandidate> {
-        val out = ArrayList<ClozeCandidate>(limit)
+        val carded = ArrayList<ClozeCandidate>(limit)
+        val uncarded = ArrayList<ClozeCandidate>()
+        val proposed = HashSet<String>()
         for (book in bookDao.booksFor(ctx.lang)) {
-            if (out.size >= limit) break
+            if (carded.size >= limit) break
             if (book.posParagraph <= 0) continue
 
             val paragraphs = bookDao.readParagraphs(book.id, book.posParagraph, PARAGRAPHS_PER_BOOK)
             for (paragraph in paragraphs) {
-                if (out.size >= limit) break
-                out += candidatesIn(paragraph, book.direction, book.id, ctx, limit - out.size)
+                if (carded.size >= limit) break
+                for (picked in candidatesIn(paragraph, book.direction, book.id, ctx, proposed)) {
+                    if (picked.carded) carded += picked.candidate else uncarded += picked.candidate
+                }
             }
         }
-        return out
+        // Words the learner is studying come first and take what they need; common words they have
+        // no card for get a share, never the run.
+        return carded.take(limit) + uncarded.take(maxOf(1, limit / UNCARDED_SHARE))
     }
 
     private fun candidatesIn(
@@ -52,35 +59,18 @@ class BookSentenceSource @Inject constructor(
         direction: BookDirection,
         bookId: Long,
         ctx: ClozeMineContext,
-        room: Int,
-    ): List<ClozeCandidate> {
+        proposed: MutableSet<String>,
+    ): List<SentenceBlanks.Picked> {
         val studyText = paragraph.targetText(direction)?.takeIf { it.isNotBlank() } ?: return emptyList()
         val sentences = Sentences.split(studyText)
         val glosses = glossesFor(paragraph, direction, sentences.size)
 
-        val out = ArrayList<ClozeCandidate>()
-        for ((index, sentence) in sentences.withIndex()) {
-            if (out.size >= room) break
-            val hit = TOKEN.findAll(sentence)
-                .firstOrNull { ctx.formToCard.containsKey(normalizeWord(it.value)) } ?: continue
-            val form = normalizeWord(hit.value)
-            val cardId = ctx.formToCard[form] ?: continue
-            // The lemma is the card's own headword form, so every sentence for one word shares a
-            // cap key regardless of which inflection happened to appear here.
-            val lemma = ctx.formsByCard[cardId]?.minByOrNull { it.length } ?: form
-            if (!ctx.hasRoomFor(lemma)) continue
-
-            out += ClozeCandidate(
-                sentence = sentence,
-                answer = hit.value,
-                answerStart = hit.range.first,
-                lemma = lemma,
-                cardId = cardId,
-                translation = glosses?.getOrNull(index),
-                source = "$id:$bookId",
-            )
+        return sentences.withIndex().mapNotNull { (index, raw) ->
+            val sentence = SentenceBlanks.clean(raw)
+            if (!SentenceBlanks.comfortable(sentence)) return@mapNotNull null
+            val gloss = glosses?.getOrNull(index)?.let(SentenceBlanks::clean)
+            SentenceBlanks.pick(sentence, ctx, "$id:$bookId", gloss, proposed)
         }
-        return out
     }
 
     /**
@@ -103,6 +93,7 @@ class BookSentenceSource @Inject constructor(
         /** Recent paragraphs to scan per book per pass — a trickle, in the BookTranslateTask mould. */
         const val PARAGRAPHS_PER_BOOK = 120
 
-        val TOKEN = Regex("[\\p{L}\\p{M}\\p{Nd}'’-]+")
+        /** One uncarded common word for every this many candidates a run may offer. */
+        const val UNCARDED_SHARE = 4
     }
 }

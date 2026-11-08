@@ -346,9 +346,12 @@ private fun TileText(text: String) {
     )
 }
 
-/** Play at normal speed, or slowed — the classic intensive-listening move on a hard segment. */
+/**
+ * Play at normal speed, or slowed — the classic intensive-listening move on a hard segment. Shared
+ * with the multiple-choice runner's listening mode, so the two listening activities have one control.
+ */
 @Composable
-private fun ListenControls(ready: Boolean, playing: Boolean, onPlay: () -> Unit, onSlow: () -> Unit) {
+internal fun ListenControls(ready: Boolean, playing: Boolean, onPlay: () -> Unit, onSlow: () -> Unit) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -410,4 +413,4 @@ private fun ResultPanel(correct: Boolean, contentPadding: Dp, onContinue: () -> 
 private const val WRONG_BEAT_MS = 900L
 
 /** "Slow" playback rate; pitch-preserving, via [QuizClipPlayer]. */
-private const val SLOW_SPEED = 0.7f
+internal const val SLOW_SPEED = 0.7f

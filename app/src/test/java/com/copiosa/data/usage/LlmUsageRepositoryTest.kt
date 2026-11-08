@@ -190,6 +190,27 @@ class LlmUsageRepositoryTest {
     }
 
     @Test
+    fun `a month's total covers every provider and model, whichever one is in use`() = runBlocking {
+        // A main model on one provider and a background model on the other: the meter is keyed on
+        // where each call actually went, not on the profile's selected provider.
+        repo.record(ProviderId.GEMINI, request(LlmFeature.CHAT), TokenUsage(1_000_000, 0, 1_000_000))
+        repo.record(ProviderId.GEMINI, request(LlmFeature.CHAT, model = "gemini-2.5-pro"), TokenUsage(1_000_000, 0, 0))
+        repo.record(ProviderId.OPENROUTER, request(LlmFeature.VOCAB, model = "x/cheap"), TokenUsage(500, 0, 200, costUsd = 0.25))
+        repo.record(ProviderId.OPENROUTER, request(LlmFeature.CLOZE_BANK, model = "x/other"), TokenUsage(500, 0, 200, costUsd = 0.50))
+
+        val october = repo.observe(UsageWindow.month(YearMonth.of(2026, 10))).first()
+        assertEquals(4, october.total.calls)
+        // 2.5 flash at $0.30 in + $2.50 out, 2.5 pro at $1.25 in, plus what OpenRouter billed.
+        assertEquals(0.30 + 2.50 + 1.25 + 0.25 + 0.50, october.total.costUsd, 1e-9)
+        assertEquals(0, october.total.unpricedCalls)
+        assertEquals(
+            setOf("gemini-2.5-flash", "gemini-2.5-pro", "x/cheap", "x/other"),
+            october.byModel.map { it.model }.toSet(),
+        )
+        assertEquals(october.total.costUsd, october.byModel.sumOf { it.totals.costUsd }, 1e-9)
+    }
+
+    @Test
     fun `a book totals every call made for it, across days and models, and says since when`() = runBlocking {
         // An unrelated call first, so the book's date is its own and not the meter's.
         repo.record(ProviderId.GEMINI, request(LlmFeature.CHAT), TokenUsage(9000, 0, 9000))

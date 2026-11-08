@@ -6,10 +6,12 @@ import com.copiosa.data.local.ClozeDao
 import com.copiosa.data.local.ConjugationDrillDao
 import com.copiosa.data.local.ConversationDao
 import com.copiosa.data.local.DayTotal
+import com.copiosa.data.local.DueCard
 import com.copiosa.data.local.FlashcardDao
 import com.copiosa.data.local.FocusStatsDao
 import com.copiosa.data.local.MessageDao
 import com.copiosa.data.local.RatingCount
+import com.copiosa.data.local.RetentionCount
 import com.copiosa.data.local.ReviewLogDao
 import com.copiosa.data.local.StateCount
 import com.copiosa.domain.srs.ReviewWindows
@@ -113,6 +115,27 @@ data class ClozeStats(
     val mature: Int,
 )
 
+/** Review-state reviews in one maturity band, and how many of them were passed. */
+data class RetentionBand(val reviews: Int, val passed: Int) {
+    /** Share passed, 0..100; null with no reviews to measure. */
+    val percent: Int? get() = if (reviews == 0) null else (passed * 100) / reviews
+}
+
+/**
+ * What the schedule has coming, and how well it is holding. [dueByDay] runs from today for
+ * [StatsRepository.FORECAST_DAYS] days and counts words (notes), since the queue shows a word at
+ * most once a day; today's figure includes the [overdue] pile. Retention is measured over the last
+ * [StatsRepository.RETENTION_DAYS] days, to set against the profile's retention target.
+ */
+data class ReviewOutlook(
+    /** Epoch day of `dueByDay[0]`. */
+    val today: Long,
+    val dueByDay: List<Int>,
+    val overdue: Int,
+    val young: RetentionBand,
+    val mature: RetentionBand,
+)
+
 /** The full stats-screen payload for one scope (a profile, or all profiles combined). */
 data class LearnerStats(
     val time: TimeStats,
@@ -120,6 +143,7 @@ data class LearnerStats(
     val reading: ReadingStats,
     val conjugation: ConjugationStats,
     val cloze: ClozeStats,
+    val outlook: ReviewOutlook,
 )
 
 /**
@@ -156,6 +180,13 @@ class StatsRepository @Inject constructor(
         // Start-of-day of the oldest sparkline day, so the query window aligns to day boundaries.
         val sparkFrom = LocalDate.ofEpochDay(today - (REVIEW_SPARK_DAYS - 1))
             .atStartOfDay(zone()).toInstant().toEpochMilli()
+
+        val startOfToday = LocalDate.ofEpochDay(today).atStartOfDay(zone()).toInstant().toEpochMilli()
+        val forecastEnd = LocalDate.ofEpochDay(today + FORECAST_DAYS).atStartOfDay(zone()).toInstant().toEpochMilli()
+        val outlookFlow = combine(
+            flashcardDao.observeDueCardsBefore(lang, forecastEnd),
+            reviewDao.observeRetentionCounts(lang, nowMs - RETENTION_DAYS * DAY_MS, ReviewWindows.MATURE_THRESHOLD_DAYS),
+        ) { due, retention -> outlook(due, retention, today, startOfToday) }
 
         val timeFlow = combine(
             focusDao.observeDayTotalsScoped(lang),
@@ -267,14 +298,16 @@ class StatsRepository @Inject constructor(
             )
         }
 
+        val vocabOutlookFlow = combine(vocabFlow, outlookFlow) { vocab, outlook -> vocab to outlook }
+
         return combine(
             timeFlow,
-            vocabFlow,
+            vocabOutlookFlow,
             readingFlow,
             conjugationFlow,
             clozeFlow,
-        ) { time, vocab, reading, conjugation, cloze ->
-            LearnerStats(time, vocab, reading, conjugation, cloze)
+        ) { time, (vocab, outlook), reading, conjugation, cloze ->
+            LearnerStats(time, vocab, reading, conjugation, cloze, outlook)
         }
     }
 
@@ -303,6 +336,19 @@ class StatsRepository @Inject constructor(
                 val day = today - (HEATMAP_DAYS - 1) + i
                 DayMinutes(epochDay = day, minutes = minutesByDay[day] ?: 0, isToday = day == today)
             },
+        )
+    }
+
+    private fun outlook(due: List<DueCard>, retention: List<RetentionCount>, today: Long, startOfToday: Long): ReviewOutlook {
+        val band = { mature: Boolean ->
+            retention.firstOrNull { it.mature == mature }?.let { RetentionBand(it.total, it.passed) } ?: RetentionBand(0, 0)
+        }
+        return ReviewOutlook(
+            today = today,
+            dueByDay = dueNotesPerDay(due, today, FORECAST_DAYS, zone()),
+            overdue = due.filter { it.dueAt < startOfToday }.distinctBy { it.noteId }.size,
+            young = band(false),
+            mature = band(true),
         )
     }
 
@@ -356,7 +402,28 @@ class StatsRepository @Inject constructor(
         /** The reviews-per-day sparkline spans the last 30 days. */
         const val REVIEW_SPARK_DAYS = 30
 
+        /** The due forecast runs from today over this many days. */
+        const val FORECAST_DAYS = 30
+
+        /** Measured retention looks back this many days. */
+        const val RETENTION_DAYS = 30L
+
         /** Mastery at or above which a drilled form counts as solid. Matches the drill repository. */
         const val MASTERED_THRESHOLD = 0.85
     }
+}
+
+/**
+ * Distinct notes due on each of [days] days from [today], oldest first. Anything already overdue lands
+ * on today, which is when the queue offers it. A note counts once on a day even with both of its
+ * cards due, because the queue shows a word at most once a day.
+ */
+internal fun dueNotesPerDay(due: List<DueCard>, today: Long, days: Int, zone: ZoneId): List<Int> {
+    val notesByDay = HashMap<Int, MutableSet<Long>>()
+    for (card in due) {
+        val day = Instant.ofEpochMilli(card.dueAt).atZone(zone).toLocalDate().toEpochDay()
+        val index = (day - today).coerceAtLeast(0).toInt()
+        if (index < days) notesByDay.getOrPut(index) { HashSet() }.add(card.noteId)
+    }
+    return (0 until days).map { notesByDay[it]?.size ?: 0 }
 }

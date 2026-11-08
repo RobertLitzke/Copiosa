@@ -81,28 +81,37 @@ object ClozeGate {
         if (rawTokens.size < MIN_WORDS) return ClozeReject.TOO_SHORT
         if (rawTokens.size > MAX_WORDS) return ClozeReject.TOO_LONG
 
-        val answerNorm = normalizeWord(candidate.answer)
-        if (answerNorm.isEmpty()) return ClozeReject.ANSWER_NOT_FOUND
+        // The answer as the tokens it spans: one for a word, several for a phrase card's term.
+        val answerTokens = candidate.answer.split(WHITESPACE).map(::normalizeWord).filter { it.isNotEmpty() }
+        if (answerTokens.isEmpty()) return ClozeReject.ANSWER_NOT_FOUND
         val tokens = rawTokens.map(::normalizeWord)
-        val occurrences = tokens.count { it == answerNorm }
-        if (occurrences == 0) return ClozeReject.ANSWER_NOT_FOUND
+        val span = answerTokens.size
+        val starts = (0..tokens.size - span).filter { i -> tokens.subList(i, i + span) == answerTokens }
+        if (starts.isEmpty()) return ClozeReject.ANSWER_NOT_FOUND
         // Two sightings and the other one spells the answer out.
-        if (occurrences > 1) return ClozeReject.ANSWER_REPEATED
+        if (starts.size > 1) return ClozeReject.ANSWER_REPEATED
+        val blankStart = starts.single()
         // Options render lower case, so a capitalised blank would give itself away.
-        if (tokens.first() == answerNorm) return ClozeReject.ANSWER_SENTENCE_INITIAL
+        if (blankStart == 0) return ClozeReject.ANSWER_SENTENCE_INITIAL
 
-        val match = list?.matchOfForm(candidate.answer)
-        val pos = match?.pos?.let(FrequencyPos::cardPosFor)?.takeIf { it != "unknown" }
-            ?: answerPos?.trim()?.lowercase()?.takeIf { it.isNotEmpty() && it != "unknown" }
-        // No stated part of speech anywhere: refuse rather than guess, since a wrongly blanked
-        // function word is exactly the failure this gate exists to prevent.
-        if (pos == null || pos !in CONTENT_POS) return ClozeReject.ANSWER_NOT_CONTENT_WORD
+        val match = if (span == 1) list?.matchOfForm(candidate.answer) else null
+        if (span > 1) {
+            // A phrase is blanked whole, and only ever because the learner has a card for it: the
+            // card is what says these words are one unit and not an arbitrary run of the sentence.
+            if (candidate.cardId == null) return ClozeReject.UNANCHORED
+        } else {
+            val pos = match?.pos?.let(FrequencyPos::cardPosFor)?.takeIf { it != "unknown" }
+                ?: answerPos?.trim()?.lowercase()?.takeIf { it.isNotEmpty() && it != "unknown" }
+            // No stated part of speech anywhere: refuse rather than guess, since a wrongly blanked
+            // function word is exactly the failure this gate exists to prevent.
+            if (pos == null || pos !in CONTENT_POS) return ClozeReject.ANSWER_NOT_CONTENT_WORD
 
-        // The blank has to be worth practising: a word the learner is studying, or a frequent one.
-        if (candidate.cardId == null && match == null) return ClozeReject.UNANCHORED
+            // The blank has to be worth practising: a word the learner is studying, or a frequent one.
+            if (candidate.cardId == null && match == null) return ClozeReject.UNANCHORED
+        }
 
-        val blankIndex = tokens.indexOf(answerNorm)
-        val others = tokens.filterIndexed { i, t -> i != blankIndex && t.isScorable() }
+        val blank = blankStart until blankStart + span
+        val others = tokens.filterIndexed { i, t -> i !in blank && t.isScorable() }
         if (others.isEmpty()) return ClozeReject.TOO_LITTLE_CONTEXT
 
         // Both remaining checks ask "what are these other words", which only the frequency list can

@@ -12,6 +12,8 @@ data class ClozeSessionItem(
     val sentenceId: Long,
     /** The sentence with the answer blanked out, ready to render. */
     val prompt: String,
+    /** The sentence whole, as it is spoken in a listening sitting. */
+    val sentence: String,
     val options: List<String>,
     val answerIndex: Int,
     /** Native-language rendering of the whole sentence, shown after the answer when there is one. */

@@ -32,6 +32,12 @@ object ClozeGrading {
     fun slowThresholdMs(wordCount: Int): Long = fastThresholdMs(wordCount) * SLOW_MULTIPLE
 
     /**
+     * The grade for a *typed* answer. Latency says nothing here — it is mostly typing — and there is
+     * no guessing floor to guard against, so a word produced from memory is simply GOOD.
+     */
+    fun gradeForTyped(correct: Boolean): ReviewRating = if (correct) ReviewRating.GOOD else ReviewRating.AGAIN
+
+    /**
      * [repetitions] is the sentence's own review count: on a first sighting a fast correct answer is
      * indistinguishable from a lucky guess, so it earns GOOD rather than EASY.
      */

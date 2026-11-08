@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Auto Backup rules for Android 6–11 (android:fullBackupContent). Only excludes are listed, so
+    everything else is still backed up.
+
+    secure_keys.xml is the EncryptedSharedPreferences file holding the API keys. Its contents are
+    encrypted under a master key in this device's Android Keystore, which is never backed up, so a
+    restored copy cannot be decrypted on another phone — every read would throw. Leave it behind;
+    the user re-enters their keys after a restore.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="secure_keys.xml" />
+</full-backup-content>

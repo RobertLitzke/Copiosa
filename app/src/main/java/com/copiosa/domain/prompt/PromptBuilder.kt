@@ -156,6 +156,45 @@ class PromptBuilder @Inject constructor() {
     }
 
     /**
+     * System prompt for the lookup card's "Explain" in a reader — a text, a book, a routine's
+     * reading step — where there is no chat to ask in. The learner's message
+     * ([selectionExplanationRequest]) carries the selection and the sentence it was read in; the
+     * reply is shown in the card as it comes, so it is prose rather than JSON, and short enough to
+     * read without leaving the page.
+     */
+    fun selectionExplanationSystemPrompt(
+        country: String,
+        targetLang: String,
+        nativeLang: String,
+        level: Cefr,
+    ): String {
+        val target = languageName(targetLang)
+        val native = languageName(nativeLang)
+        return "You are a $country $target teacher helping a ${levelDescriptor(level)} " +
+            "$native-speaking learner who is reading $target and has stopped on a word or phrase.\n" +
+            "The learner sends the selection and, when there is one, the sentence it appeared in.\n" +
+            "Reply in $native: first what the selection means in that sentence, then briefly how it " +
+            "is used there — the sense in play, the base form if it is inflected, and any idiom, " +
+            "register or regional note that matters. When the selection is itself a full sentence or " +
+            "longer, translate it naturally and point out only what is idiomatic.\n" +
+            "Keep it to 2–4 short sentences in simple Markdown (**bold**, *italics*, '- ' bullets). " +
+            "No greeting, no heading, no follow-up question, and do not translate the rest of the " +
+            "sentence."
+    }
+
+    /**
+     * The learner's half of an "Explain": the [selection], and the [sentence] around it when one was
+     * captured and adds anything. Both are quoted from what is being read, so they are clipped — a
+     * selection can run to paragraphs, and the explanation does not get better past the first few.
+     */
+    fun selectionExplanationRequest(selection: String, sentence: String?): String {
+        val picked = selection.trim().take(MAX_EXPLAINED_SELECTION)
+        val around = sentence?.trim()?.take(MAX_EXPLAINED_SELECTION)
+            ?.takeIf { it.isNotEmpty() && !it.equals(picked, ignoreCase = true) }
+        return if (around == null) "Selection: $picked" else "Selection: $picked\nSentence: $around"
+    }
+
+    /**
      * System prompt for the vocabulary screen's bulk add: the learner sends a JSON array of words or
      * phrases, normally in their own language, and the model drafts one card for each. The wording
      * lives beside the DTOs it describes, in [BulkCards].
@@ -399,6 +438,9 @@ class PromptBuilder @Inject constructor() {
          * (see VocabUsageDetector) — but it turns the vocab section from opt-out into a concrete target.
          */
         const val VOCAB_MIN_TO_USE = 4
+
+        /** Characters of a selection, and of its sentence, quoted in an "Explain" request. */
+        private const val MAX_EXPLAINED_SELECTION = 600
 
         /**
          * The `[[P<n>]]` output contract for book sections, shared by both translation directions —

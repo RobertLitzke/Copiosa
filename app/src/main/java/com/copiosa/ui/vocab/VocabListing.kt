@@ -2,6 +2,7 @@ package com.copiosa.ui.vocab
 
 import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.data.local.noteKey
+import com.copiosa.domain.srs.isLeech
 import com.copiosa.ui.components.stripInlineMarkdown
 import java.text.Collator
 
@@ -38,10 +39,12 @@ data class VocabFilter(
     /** A normalized part-of-speech key, as stored on the note. */
     val partOfSpeech: String? = null,
     val explained: ExplainedFilter = ExplainedFilter.ANY,
+    /** Only words with a direction that keeps being forgotten — see [com.copiosa.domain.srs.Leech]. */
+    val leechesOnly: Boolean = false,
 ) {
     /** Filters beyond the search box and the two always-visible controls, which live in the sheet. */
     val sheetFiltersActive: Boolean
-        get() = status != null || partOfSpeech != null || explained != ExplainedFilter.ANY
+        get() = status != null || partOfSpeech != null || explained != ExplainedFilter.ANY || leechesOnly
 
     /** Whether anything at all is narrowing the list. */
     val active: Boolean
@@ -51,7 +54,9 @@ data class VocabFilter(
 /**
  * The list as shown: [cards] (one row per note — see [leadCard]) narrowed by [filter], then ordered
  * by [sort]. [ranks] is the frequency rank by card id, for [VocabSort.MOST_COMMON]; [now] is one
- * clock for the whole pass so every row is judged against the same moment.
+ * clock for the whole pass so every row is judged against the same moment. [leeches] is the note
+ * keys with a leech among their cards — handed in because a row is only its note's lead card, and
+ * the direction that keeps slipping may well be the other one.
  *
  * Every ordering falls back to newest-first for ties, so the list never reshuffles between
  * identical rows from one recomposition to the next.
@@ -63,6 +68,7 @@ internal fun listVocab(
     now: Long,
     ranks: Map<Long, Int> = emptyMap(),
     collator: Collator = Collator.getInstance(),
+    leeches: Set<Long> = emptySet(),
 ): List<FlashcardEntity> {
     val needle = filter.query.trim()
     // A frozen card is not scheduled to be seen, so it is never "coming up" in a window.
@@ -75,6 +81,7 @@ internal fun listVocab(
             (maxDue == null || (!card.suspended && card.dueAt <= maxDue)) &&
             (filter.status == null || statusOf(card) == filter.status) &&
             (filter.partOfSpeech == null || card.partOfSpeech?.trim()?.lowercase() == filter.partOfSpeech) &&
+            (!filter.leechesOnly || card.noteKey in leeches) &&
             when (filter.explained) {
                 ExplainedFilter.ANY -> true
                 ExplainedFilter.EXPLAINED -> !card.explanation.isNullOrBlank()
@@ -96,6 +103,10 @@ internal fun listVocab(
     }
     return kept.sortedWith(order)
 }
+
+/** The notes with a leech among [cards] — every card of the deck, not one row per note. */
+internal fun leechNotesIn(cards: List<FlashcardEntity>): Set<Long> =
+    cards.filter { it.isLeech }.mapTo(HashSet()) { it.noteKey }
 
 /** The distinct part-of-speech keys in [cards], most frequent first — what the filter offers. */
 internal fun partsOfSpeechIn(cards: List<FlashcardEntity>): List<String> =

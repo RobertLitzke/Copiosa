@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Star
@@ -34,6 +35,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -70,6 +73,7 @@ import com.copiosa.domain.model.ReviewDirection
 import com.copiosa.domain.model.ReviewRating
 import com.copiosa.domain.srs.SpacedRepetitionScheduler
 import com.copiosa.domain.stats.FocusActivityType
+import com.copiosa.ui.audio.PronounceButton
 import com.copiosa.ui.components.MarkdownText
 import com.copiosa.ui.components.TrackFocusTime
 import com.copiosa.ui.components.flagForLanguage
@@ -99,8 +103,11 @@ fun ReviewScreen(
     onFinished: (() -> Unit)? = null,
     /** Opens a card's detail screen from the reveal. Null where leaving would abandon the session (a routine step). */
     onOpenDetail: ((Long) -> Unit)? = null,
+    /** Opens a cloze sitting on the given cards' words — the session's misses. Null inside a routine. */
+    onPractiseInSentences: ((List<Long>) -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val leechNotice by viewModel.leechNotice.collectAsStateWithLifecycle()
     // Back from a card's detail screen it may have been edited, explained or deleted; see refreshCurrent.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshCurrent() }
     // The routine player embeds this screen as a step and tracks ROUTINE time itself; only the
@@ -116,6 +123,14 @@ fun ReviewScreen(
             onUndo = viewModel::undo,
             onBack = onBack,
         )
+        leechNotice?.let { notice ->
+            LeechNoticeRow(
+                notice = notice,
+                // Null in a routine step, where leaving would abandon the session.
+                onOpen = onOpenDetail?.let { open -> { viewModel.dismissLeechNotice(); open(notice.cardId) } },
+                onDismiss = viewModel::dismissLeechNotice,
+            )
+        }
         when {
             state.loading -> Box(
                 modifier = Modifier.fillMaxWidth().weight(1f),
@@ -152,6 +167,14 @@ fun ReviewScreen(
                         repeatSize = state.nextSessionSize,
                         onPick = viewModel::startAnother,
                     )
+                    // The words just missed, met again straight away in sentences: a different way
+                    // in to the same memory while the miss is still fresh.
+                    val missed = state.summary?.missedCards.orEmpty()
+                    if (onPractiseInSentences != null && missed.isNotEmpty()) {
+                        OutlinedButton(onClick = { onPractiseInSentences(missed) }, modifier = Modifier.fillMaxWidth()) {
+                            Text(pluralStringResource(R.plurals.review_practise_misses, missed.size, missed.size))
+                        }
+                    }
                     TextButton(onClick = onBack) {
                         Text(stringResource(R.string.action_done))
                     }
@@ -172,6 +195,39 @@ fun ReviewScreen(
                 onRemoveImage = viewModel::removeImage,
                 onOpenDetail = onOpenDetail,
             )
+        }
+    }
+}
+
+/**
+ * A word that has just crossed into being a leech, named once in a quiet strip under the header.
+ * It offers the word's own screen — where it can be rewritten, explained, given an image or frozen —
+ * and never stands between the learner and the next card.
+ */
+@Composable
+private fun LeechNoticeRow(notice: LeechNotice, onOpen: (() -> Unit)?, onDismiss: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(start = 20.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                stringResource(R.string.review_leech_notice, stripInlineMarkdown(notice.word), notice.lapses),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            if (onOpen != null) {
+                TextButton(onClick = onOpen) { Text(stringResource(R.string.review_leech_open)) }
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = stringResource(R.string.action_dismiss),
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -581,9 +637,10 @@ private fun Enrichment(card: FlashcardEntity, explanationShown: Boolean, onToggl
 
 /**
  * One side of the review card: a language flag + the term, plus (when this is the target-language
- * side) a gender ("el"/"la") chip, region chip, and any altForms shown as accepted synonyms. The
- * flag disambiguates words identical across the two languages (e.g. "son"). [target] selects which
- * language side to render (the review direction decides which side is shown first).
+ * side) a button to hear it, a gender ("el"/"la") chip, region chip, and any altForms shown as
+ * accepted synonyms. The flag disambiguates words identical across the two languages (e.g. "son").
+ * [target] selects which language side to render (the review direction decides which side is shown
+ * first).
  */
 @Composable
 private fun CardFace(card: FlashcardEntity, target: Boolean, big: Boolean) {
@@ -613,8 +670,14 @@ private fun CardFace(card: FlashcardEntity, target: Boolean, big: Boolean) {
                 textAlign = TextAlign.Center,
                 modifier = Modifier.weight(1f),
             )
-            // Balances the flag's width so the word stays visually centered in the card.
-            Spacer(Modifier.width(if (big) 24.dp else 22.dp))
+            // The target side can be heard: as the prompt it gives nothing away (the answer is its
+            // meaning), and as the answer it is only on screen once revealed. The native side keeps
+            // an empty slot of the same width, so the two words stay centered on one axis.
+            if (target) {
+                PronounceButton(text = stripInlineMarkdown(text), langCode = lang)
+            } else {
+                Spacer(Modifier.width(36.dp))
+            }
         }
         // The country a word is specific to (if set) sits just below the flag, on the target side.
         if (target) {
@@ -675,12 +738,17 @@ private fun ClozeFace(card: FlashcardEntity, clozeText: String, revealed: Boolea
     }
     if (revealed) {
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Text(
-            Cloze.answer(clozeText),
-            style = SerifBody,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        // Only now that the blank is filled: read aloud any sooner, the sentence is the answer.
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.width(36.dp))
+            Text(
+                Cloze.answer(clozeText),
+                style = SerifBody,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f),
+            )
+            PronounceButton(text = Cloze.answer(clozeText), langCode = card.targetLanguage)
+        }
         val answers = Cloze.activeAnswers(clozeText, activeOrd)
         if (answers.isNotEmpty()) {
             Text(

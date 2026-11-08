@@ -41,7 +41,8 @@ reading, and your progress live on your phone.
   word is learned in both directions, recognising it and producing it, each on its own schedule.
   Anki `.apkg` decks move in and out losslessly, review history included, and a plain JSON export
   lets you edit cards in bulk outside the app and merge them back. Words you merely *meet* while
-  reading earn quiet passive credit.
+  reading earn quiet passive credit. A word that keeps slipping is pointed out, never frozen for
+  you, and every card shows its review history and can be rescheduled or started over by hand.
 - **The commonest words first.** The 2,000 most frequent words of Spanish and Portuguese are built
   in. See how much of that list your deck covers, drill the most frequent words you have, and let
   the app fill the gaps a few at a time.
@@ -49,9 +50,13 @@ reading, and your progress live on your phone.
   learned to the scheduler. Spanish ships four: the preterite, the imperfect, choosing between the
   two, and *por* against *para*. Lessons introduce a couple of forms at a time and spend most of
   their length on practice.
-- **Cloze bank.** Fill-in-the-blank practice built from sentences you already own: your cards'
-  examples, the dictionary's, and the pages of your books you've actually read. The mining happens
-  on the phone and costs nothing.
+- **Cloze bank.** Fill-in-the-blank practice built from sentences you already own: the pages of
+  your books you've actually read, your texts and chats, the dictionary's examples and your cards'
+  own. A sitting is made of the words you most need right now — the ones you missed today, the ones
+  that keep slipping, the ones coming due — and the mining happens on the phone and costs nothing.
+  Pick the word from four, type it, hear the sentence before you see it, fill several gaps in a
+  passage you've read, or walk the 2,000 commonest words in order. The bank also makes a hands-free
+  radio track: sentence, meaning, sentence again.
 - **Listen anywhere.** Turn any conversation, text, or selection into a playlist item spoken by a
   neural voice running on the phone itself. A whole book becomes a folder of chapter tracks.
   Background playback, per-item voices, adjustable speed.

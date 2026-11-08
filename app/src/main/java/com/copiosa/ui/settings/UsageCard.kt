@@ -98,7 +98,6 @@ internal fun UsageCard(overview: UsageOverview, settings: AppSettings) {
                     UsageRow("${settings.label(row.model)} · ${row.provider.displayLabel()}", row.totals, showEach = false)
                 }
             }
-            UsageNote(stringResource(R.string.usage_scope))
             overview.countingSince?.let {
                 UsageNote(stringResource(R.string.usage_counting_since, usageDateLabel(it)))
             }
@@ -161,6 +160,7 @@ private fun featureLabel(feature: LlmFeature?): String = stringResource(
         LlmFeature.QUIZ_POOL -> R.string.usage_feature_quiz
         LlmFeature.VOCAB -> R.string.usage_feature_vocab
         LlmFeature.BULK_ADD -> R.string.usage_feature_bulk_add
+        LlmFeature.EXPLAIN -> R.string.usage_feature_explain
         null -> R.string.usage_feature_other
     },
 )

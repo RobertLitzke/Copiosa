@@ -1,7 +1,9 @@
 package com.copiosa.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -10,6 +12,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
@@ -31,8 +35,10 @@ import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,8 +64,11 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.copiosa.R
 import com.copiosa.data.local.FlashcardEntity
+import com.copiosa.data.remote.LlmError
 import com.copiosa.data.translate.DictionaryDownload
 import com.copiosa.data.translate.DictionaryEntry
+import com.copiosa.domain.highlight.targetTerm
+import com.copiosa.ui.audio.PronounceButton
 import com.copiosa.ui.vocab.PosChip
 import com.copiosa.ui.theme.SerifTitle
 
@@ -88,10 +97,10 @@ sealed interface DefinitionView {
 }
 
 /**
- * Transient, dictionary-style card for a selected word/phrase: the term, its on-device translation,
- * an optional offline definition (part of speech + native-language meaning), and actions to save it
- * as a flashcard, ask the model to explain it inline, or copy it. When the word is already in the
- * user's vocabulary ([savedCard] non-null) it shows the full saved entry instead — meaning, POS/CEFR
+ * Transient, dictionary-style card for a selected word/phrase: the term (with a button to hear it),
+ * its on-device translation, an optional offline definition (part of speech + native-language
+ * meaning), and actions to save it as a flashcard, ask the model to explain it, or copy it. When
+ * the word is already in the user's vocabulary ([savedCard] non-null) it shows the full saved entry instead — meaning, POS/CEFR
  * chips, example, and any explanation — with an action to open its detail screen.
  *
  * It floats above the chat and dismisses on a tap outside its bounds (or back press). It anchors to
@@ -121,7 +130,14 @@ fun TranslationCard(
     onDownloadDictionary: () -> Unit,
     onOpenSaved: () -> Unit,
     onDismiss: () -> Unit,
+    /** A saved card spelled like the selection but not the word meant; see [TranslateState.relatedCard]. */
+    relatedCard: FlashcardEntity? = null,
+    onOpenRelated: () -> Unit = {},
     onSendToAudio: (() -> Unit)? = null,
+    /** The answer to an inline "Explain", shown in the card; a chat answers in the conversation instead. */
+    explanation: String? = null,
+    explaining: Boolean = false,
+    explainError: LlmError? = null,
 ) {
     val clipboard = LocalClipboardManager.current
     val positionProvider = remember(anchorYPx) {
@@ -167,7 +183,17 @@ fun TranslationCard(
                 // A selection can be several paragraphs long (it is also how text is copied out of a
                 // reader); the passage itself is highlighted in the text behind the card, so a few
                 // lines here are enough to confirm what was picked without burying the actions.
-                Text(original, style = SerifTitle, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        original,
+                        style = SerifTitle,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // Says the selection now; the headphones below queue it for the Audio tab.
+                    PronounceButton(text = original)
+                }
 
                 // Whether the dictionary entries below carry the English, in which case the machine
                 // translation above them would only repeat it. The dictionary's meanings belong to this
@@ -190,7 +216,7 @@ fun TranslationCard(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (savedCard != null) {
-                        SavedEntry(savedCard)
+                        SavedEntry(savedCard, original)
                     } else {
                         when {
                             loading -> LoadingRow(stringResource(R.string.translating))
@@ -219,6 +245,21 @@ fun TranslationCard(
                                 stringResource(R.string.translate_unavailable),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+
+                    InlineExplanation(explanation, explainError)
+
+                    // The card this selection's spelling matched, kept in reach: the reader may have
+                    // meant it after all, and can open it or pick its entry below.
+                    if (savedCard == null && relatedCard != null) {
+                        TextButton(onClick = onOpenRelated, contentPadding = PaddingValues(0.dp)) {
+                            Icon(Icons.Filled.Bookmark, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Text(
+                                stringResource(R.string.vocab_related_saved, relatedCard.targetTerm),
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(start = 6.dp),
                             )
                         }
                     }
@@ -263,8 +304,14 @@ fun TranslationCard(
                             )
                         }
                     }
-                    OutlinedButton(onClick = onExplain, enabled = canExplain) {
-                        Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                    // Answered once per selection: the answer stays in the card, so asking again
+                    // would only pay for the same thing. A failure leaves the button live to retry.
+                    OutlinedButton(onClick = onExplain, enabled = canExplain && !explaining && explanation == null) {
+                        if (explaining) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
                         Text(stringResource(R.string.action_explain), modifier = Modifier.padding(start = 6.dp))
                     }
                     // Copies the *selection*, not its meaning: the card is the only way to lift text
@@ -284,11 +331,56 @@ fun TranslationCard(
     }
 }
 
-/** The full saved-vocabulary entry: chips, meaning, explanation, and example. */
+/**
+ * What "Explain" came back with: the model's account of the selection in the sentence it was read
+ * in, or why there isn't one. It arrives a moment after the tap, into a body that may already be
+ * taller than its scroll window (a saved word with a note and an example), so it scrolls itself
+ * into view rather than landing where the reader has to go looking for it.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SavedEntry(card: FlashcardEntity) {
+private fun InlineExplanation(explanation: String?, error: LlmError?) {
+    if (explanation == null && error == null) return
+    val bringIntoView = remember { BringIntoViewRequester() }
+    LaunchedEffect(explanation, error) { bringIntoView.bringIntoView() }
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().bringIntoViewRequester(bringIntoView),
+    ) {
+        if (explanation != null) {
+            // The same mark as the button that asked, so the answer reads as its result.
+            Icon(
+                Icons.Filled.AutoAwesome,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 2.dp).size(16.dp),
+            )
+            MarkdownText(explanation, modifier = Modifier.weight(1f))
+        } else if (error != null) {
+            Text(
+                llmErrorText(error),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+/**
+ * The full saved-vocabulary entry: chips, meaning, explanation, and example. Names the saved word
+ * when it is not [original] itself — a form of it, or the base form a save was about to use.
+ */
+@Composable
+private fun SavedEntry(card: FlashcardEntity, original: String) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionLabel(stringResource(R.string.vocab_saved_label))
+        val term = card.targetTerm
+        SectionLabel(
+            if (WordColorizer.normalize(term) == WordColorizer.normalize(original)) {
+                stringResource(R.string.vocab_saved_label)
+            } else {
+                stringResource(R.string.vocab_saved_as_label, term)
+            },
+        )
 
         if (!card.partOfSpeech.isNullOrBlank() || !card.cefrLevel.isNullOrBlank()) {
             Row(

@@ -125,6 +125,25 @@ class VocabListingTest {
     }
 
     @Test
+    fun `the leech filter keeps a word whose other direction is the one slipping`() {
+        // Every card of the deck: word 1 is a leech only in the direction that is not its lead card.
+        val everyCard = listOf(
+            card(1, "a"),
+            card(10, "a", lapses = 9, intervalDays = 2.0).copy(noteId = 1),
+            card(2, "b", lapses = 9, intervalDays = 40.0),
+            card(3, "c", lapses = 9, intervalDays = 2.0, suspended = true),
+            card(4, "d", lapses = 8, intervalDays = 2.0),
+        )
+        val leeches = leechNotesIn(everyCard)
+        assertEquals(setOf(1L, 4L), leeches)
+
+        val rows = listOf(card(1, "a"), card(2, "b"), card(3, "c"), card(4, "d"))
+        val shown = listVocab(rows, VocabFilter(leechesOnly = true), VocabSort.NEWEST, now, emptyMap(), collator, leeches)
+        assertEquals(listOf(4L, 1L), shown.map { it.id })
+        assertEquals(true, VocabFilter(leechesOnly = true).sheetFiltersActive)
+    }
+
+    @Test
     fun `a blank explanation counts as unexplained`() {
         val cards = listOf(card(1, "a", explanation = "  "), card(2, "b", explanation = "Yes."))
         assertEquals(listOf(1L), list(cards, VocabFilter(explained = ExplainedFilter.UNEXPLAINED)))

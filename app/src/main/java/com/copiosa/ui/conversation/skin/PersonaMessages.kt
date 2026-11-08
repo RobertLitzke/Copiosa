@@ -55,7 +55,7 @@ internal fun PersonaMessageItem(
     onSelected: (Long, String, Float) -> Unit,
     onCleared: () -> Unit,
     onSendToAudio: () -> Unit,
-    /** BCP-47 tag of the language the tutor writes in; the paper layout hyphenates by it. */
+    /** BCP-47 tag of the language the tutor writes in: read aloud in it, and hyphenated by it on paper. */
     language: String,
 ) {
     when (chatSkin.spec.layout) {
@@ -64,9 +64,10 @@ internal fun PersonaMessageItem(
         )
         ChatLayout.BUBBLES -> BubbleMessage(
             message, chatSkin, index, colorizer, isActiveSelection, onSelected, onCleared, onSendToAudio,
+            language,
         )
         ChatLayout.TRANSCRIPT -> TranscriptMessage(
-            message, chatSkin, colorizer, isActiveSelection, onSelected, onCleared, onSendToAudio,
+            message, chatSkin, colorizer, isActiveSelection, onSelected, onCleared, onSendToAudio, language,
         )
     }
 }
@@ -133,7 +134,7 @@ private fun PaperMessage(
                 message, chatSkin, colorizer, isActiveSelection, onSelected, onCleared,
                 justifyIn = language,
             )
-            AssistantActionRow(message = message, onSendToAudio = onSendToAudio)
+            AssistantActionRow(message = message, language = language, onSendToAudio = onSendToAudio)
         } else {
             Text(
                 message.content,
@@ -181,6 +182,7 @@ private fun BubbleMessage(
     onSelected: (Long, String, Float) -> Unit,
     onCleared: () -> Unit,
     onSendToAudio: () -> Unit,
+    language: String,
 ) {
     val palette = chatSkin.skin.palette
     val isTutor = message.role != Role.USER
@@ -230,7 +232,7 @@ private fun BubbleMessage(
                 }
             }
             if (isTutor) {
-                AssistantActionRow(message = message, onSendToAudio = onSendToAudio)
+                AssistantActionRow(message = message, language = language, onSendToAudio = onSendToAudio)
             }
         }
     }
@@ -249,6 +251,7 @@ private fun TranscriptMessage(
     onSelected: (Long, String, Float) -> Unit,
     onCleared: () -> Unit,
     onSendToAudio: () -> Unit,
+    language: String,
 ) {
     val palette = chatSkin.skin.palette
     val isTutor = message.role != Role.USER
@@ -271,7 +274,7 @@ private fun TranscriptMessage(
                     AssistantBody(
                         message, chatSkin, colorizer, isActiveSelection, onSelected, onCleared,
                     )
-                    AssistantActionRow(message = message, onSendToAudio = onSendToAudio)
+                    AssistantActionRow(message = message, language = language, onSendToAudio = onSendToAudio)
                 } else {
                     Text(
                         message.content,

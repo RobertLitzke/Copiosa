@@ -12,7 +12,7 @@ files in four layers that only point downward:
 ```
 ui/        Compose screens + ViewModels (23), navigation, theming/skins
 domain/    Pure Kotlin logic: prompts, FSRS, routine planning, quiz generation, conjugation, courses, parsing
-data/      Room (DB v46), repositories, LLM providers, TTS, Anki interop, EPUB import, generation queues, maintenance, backup
+data/      Room (DB v47), repositories, LLM providers, TTS, Anki interop, EPUB import, generation queues, maintenance, backup
 di/        Hilt modules (DatabaseModule, NetworkModule, QuizModule, MaintenanceModule, CoroutineModule)
 ```
 
@@ -70,11 +70,14 @@ shortcuts jump to review, a new chat, or routines.
   Gemini and plain prompting on OpenRouter. `LlmResponse.truncated` reports a reply that stopped at
   the ceiling — a caller that retries malformed output must check it first, since asking again for
   the same thing is cut at the same place.
-- **Background model**: each provider has a second, optional model slot per profile
-  (`AppSettings.backgroundModel`, blank = same as main) for work nobody is waiting on — batched
+- **Background model**: each profile has one optional second model
+  (`AppSettings.backgroundChoice`, null = same as main) for work nobody is waiting on — batched
   card enrichment, the cloze bank's three passes, topic suggestions, and title translations (which
-  fall back to the *item's* model, not the profile's). A single tapped "Explain" stays on the main
-  model, as does everything the learner reads or plays.
+  fall back to the *item's* model, not the profile's). It is a provider *and* a model, independent
+  of the main provider, so a call site must send to `providers.forId(target.provider)` — never
+  `providers.active()` — with `target` from `SettingsRepository.backgroundTarget`, which also falls
+  back when the slot's provider has no key. A single tapped "Explain" — on a card's detail screen or
+  a reader's lookup card — stays on the main model, as does everything the learner reads or plays.
 - **Prompts**: `domain/prompt/PromptBuilder` renders the conversation system prompt from an
   editable template (placeholders for level, country, native/target language). **The system prompt
   is identical on every ordinary turn of a chat**, so the prompt plus the history ahead of the new
@@ -154,6 +157,24 @@ keep it, and Settings → Models shows the month to date.
   has English of its own. One pack per language, fetched on demand (`es` ~120 MB, `pt` ~55 MB; sizes in
   `LocalDictionary.PACK_SIZE_MB` so the button can say what it will cost). A pack older than
   `REQUIRED_SCHEMA` reads as not-downloaded, so a schema bump surfaces as that same download button.
+- **Saving from the card**: one rule — the back is the meaning of the headword on the front.
+  `ui/components/SaveHeadword` picks the default headword (the selection itself when it is a
+  headword with English of its own, else the base form the pack can gloss) and its back (that
+  headword's English). When the pack has no English for the base form, the controller translates
+  the *base form* (`translateBaseForm`), never the form in the sentence, and withdraws the
+  suggestion if that fails too — otherwise *madrigueras* is saved as *madriguera* / "burrows".
+  The pack has a row for every inflected form as well as every headword; only rows with English
+  count as headwords here. Among base forms a verb wins, except a second-person or participle
+  reading, which loses to a noun (*matices* -> *matiz*, not *matizar*). A save whose headword is
+  already a card's front shows that card instead of adding a second note. A card found only
+  through its cached forms gives way when the dictionary's default is another word it can gloss
+  (*tratados* is treaties, not *tratar*); the card stays reachable as a link.
+- **Explain**: the lookup card's "Explain" has two answers. In a chat it sends a turn
+  (`ConversationViewModel.explain`), so the reply joins the conversation. Everywhere else there is
+  no conversation to ask in, so `ReadingSelectionController.explain` calls
+  `ConversationRepository.explainSelection` with the selection and the sentence around it and shows
+  the reply in the card (`TranslateState.explanation`). Main model, `LlmFeature.EXPLAIN`, nothing
+  stored — a saved card's own explanation is about the word, this one about a sentence.
   Saving a selection creates a flashcard, backed by the dictionary's English when it has any.
 - **Highlighting**: `domain/highlight/HighlightTargetProvider` maps saved lemmas + inflections so
   known words are tinted in any reader, and encountering them grants passive review credit. Only
@@ -323,6 +344,19 @@ keep it, and Settings → Models shows the month to date.
   box and snowflake on the detail screen — with the list's long-press as the whole-word shortcut.
   Passive credit for meeting a word while reading goes to the term-first card only: that is
   recognition, and says nothing about production.
+- **Leeches** (`domain/srs/Leech`): a card forgotten eight times that has still not reached a
+  mature interval. Derived from the schedule a card already carries — no column, nothing to keep in
+  step — and per card, like freezing. The maturity clause is what makes it usable on an imported
+  deck, whose lifetime lapse counts would otherwise flag words that settled years ago. A leech is
+  only ever *pointed out*: the Vocab filter ("keeps slipping", matched per note through
+  `leechNotesIn`, since a list row is only the lead card), a line on the detail screen, and one
+  dismissible strip in review when a grade crosses the threshold (`Leech.crossedInto`: at eight and
+  every fourth lapse after). Nothing is frozen on the learner's behalf.
+- **History and moving a schedule by hand**: each direction's box on the detail screen folds out its
+  review log (`ReviewLogDao.observeForCard`) and carries two actions. *Set due date* writes `dueAt`
+  alone — FSRS grades the next answer on the time actually elapsed, so no interval is fixed up.
+  *Start over* (`FlashcardRepository.resetSchedule`) returns the card to new with its lapse and
+  repetition counts zeroed, and keeps the log.
 - **Review UX**: `ReviewScreen` does Again/Hard/Good/Easy with re-queue-on-Again, bidirectional
   and cloze rendering (`domain/model/Cloze` parses Anki-style `{{c1::…}}`), images, audio, and an
   undo stack (restores the pre-review schedule, deletes its review-log entry, and returns any
@@ -361,7 +395,8 @@ keep it, and Settings → Models shows the month to date.
   translator stands in with a bare word pair. Drafts the deck already teaches arrive unticked.
   Each becomes a note with a card each way, stamped `autoSource = "bulk"`, and only a batch of ten
   or fewer is queued for immediate enrichment — a longer one waits for `EnrichVocabTask`.
-- **Images**: `ImageSearchRepository` (Openverse/Wikimedia) with a bulk "add images" stepping flow.
+- **Images**: `ImageSearchRepository` (Wikimedia Commons; the 500px search thumbnail is also what gets
+  attached, so picking one costs no second download) with a bulk "add images" stepping flow.
 
 ### Audio: TTS synthesis and playback
 
@@ -385,6 +420,14 @@ keep it, and Settings → Models shows the month to date.
   orders untagged items first, so a whole book's backlog can never starve a chat reply.
 - **Model store**: `SupertonicModelStore` downloads the ~100 MB voice model only on explicit user
   request; everything degrades gracefully (items stay PENDING) until it is installed.
+- **Play now**: `ui/audio/PronounceButton` is the self-contained play button on the lookup card,
+  the target side of a review card, and each chat reply. It goes through `playback/Pronouncer`,
+  which keeps nothing: `TtsEngine.speech` emits one sentence of PCM at a time and each is written
+  to a streaming `AudioTrack`, so a long reply starts after one sentence's synthesis rather than
+  after all of it. One utterance at a time, transient audio focus, and it stops when the activity
+  does (no foreground service — a process frozen mid-sentence would keep the focus it took). Text is
+  reduced to prose first by `domain/text/SpeechText`. "Send to audio" (headphones) is the other
+  path: it queues a file for the Audio tab.
 - **Folders**: `audio_items.tag` is a free-text grouping label, folded into folder rows by
   `ui/audio/groupByTag` (in Kotlin, over the same flat query — no second query, no second ordering
   rule) and opened as `Routes.AUDIO_TAG`. Tagged items are exempt from three of the playlist's
@@ -417,6 +460,51 @@ LLM calls. `PHRASE` cues (`RESTAURANT`, see `PhraseScenario`) are whole generate
 answer options are seeded once and stored on the cue row. Slugs are prefixed `rf_` so they can't
 collide with the contrast-cloze category slugs sharing the proficiency table.
 
+### The cloze bank
+
+Fill-the-blank practice on sentences the learner already owns (`domain/cloze/`, `data/cloze/`,
+`ui/cloze/`). One table of sentences, `cloze_sentences`, each stored with Anki `{{c1::…}}` markup
+and usually linked to the card whose word it blanks.
+
+- **The deck decides what a sitting holds.** `ClozeSelector` (pure) ranks the bank by how much the
+  word behind each sentence needs practice — asked for by name, missed in a review today, in
+  relearning, a leech, due, due this week — and takes one sentence per word. The bank was first
+  built as a queue of its own, soonest-due sentence first; with every sentence due at once that was
+  an arbitrary order and a second backlog beside the deck. A sentence still keeps an FSRS record
+  (`ClozeRepository.record`), but it only breaks ties: a sentence answered easily last week waits
+  behind one never seen. `Routes.clozeFor(cardIds)` opens the screen straight into a sitting on
+  given words — the end of a review session offers it for that session's misses, and a word's
+  detail screen for that word.
+- **Sources**, all held to one `ClozeGate`: read book pages, imported texts and chat replies
+  (`BookSentenceSource`, `ConversationSentenceSource`, both choosing the blank through
+  `SentenceBlanks`), dictionary examples, the card's own example sentence, and — one call a day,
+  for words nothing local serves or that keep slipping — the model. Reading goes first: a card's
+  own example is the one sentence the learner has already seen that word in. Reading sources take
+  only sentences of twelve words or fewer, which is also what the listening modes can use.
+- **The bank rotates.** `ClozeMineContext.BANK_MAX_PER_LANGUAGE` is a ceiling, not a stop: a full
+  bank gives up sentences whose card has *settled* (`ClozeSelector.isSettled` — mature and not due
+  for a week), never one pinned, flagged or converted from Anki. The same line stops anything being
+  mined for a settled card, so a sentence is not evicted and mined straight back.
+- **Blanks** are one content word, or a phrase card's whole term when the sentence spells it
+  literally. A form the card's cached inflections don't list (a stem-changing verb's *duerme*) is
+  found by asking the dictionary pack which headword it belongs to.
+- **Wrong options** (`ClozeDistractors`) agree with the answer's ending so grammar can't eliminate
+  them, and come from two pools: the frequency list, and the learner's own vocabulary. A rare answer
+  draws two of its three from the deck — beside three common words it was simply the odd one out —
+  and the list always supplies at least one when it can.
+- **Translations** are filled by the on-device translator as a sentence is banked
+  (`machineTranslated`), so nothing waits on the model; the model's translation pass then replaces
+  those as it reaches them.
+- **Ways to sit**: pick from four; **type** the word (`ClozeTyped` — a missing accent is right and
+  shown corrected, a miss can be overruled); **listen** (below); a **reading passage**
+  (`ClozePassage` — several of the learner's words taken out of a page they have read and offered
+  back as a word bank; made fresh each time, never banked, and credited to the cards as cloze
+  nudges); and the **common-words track** (`ClozeSelector.selectTrack` — the frequency list's
+  words in rank order, including ones never carded, which the reading sources bank one sentence
+  each for).
+- **Browse** (`Routes.CLOZE_BROWSE`): the whole bank as a searchable list — pin, edit, set aside,
+  delete.
+
 ### Listen and rebuild
 
 The first activity that trains listening rather than playing audio beside a task: hear a banked
@@ -427,10 +515,11 @@ cloze bank (`cloze_sentences`) and the on-device voice — no LLM, no new table.
   punctuation and the sentence-initial capital because both give the order away; shuffles so the bank
   never arrives solved; grades by case-insensitive word, so repeated words are interchangeable.
 - **Data** (`data/listening/ListenRebuildRepository`): `ClozeDao.rebuildPool` prefers sentences
-  already met in a cloze sitting, then random. Clips render on demand into `cacheDir/rebuild_audio`,
-  content-keyed, with the voice derived from the sentence id (speaker variety, cache hits), capped at
-  300 files. It **reads the bank and never writes it**: hearing a sentence is not recalling its blank,
-  and crediting the cloze FSRS schedule would make it lie.
+  already met in a cloze sitting, then random. Clips come from `SentenceClipStore`, which renders on
+  demand into `cacheDir/rebuild_audio`, content-keyed, with the voice derived from the sentence id
+  (speaker variety, cache hits), capped at 300 files. It **reads the bank and never writes it**:
+  hearing a sentence is not recalling its blank, and crediting the cloze FSRS schedule would make it
+  lie.
 - **UI**: one runner, `ui/listening/ListenRebuildActivity`, shared by the standalone screen
   (`Routes.LISTEN_REBUILD`, Routines tab) and the routine step. A full arrangement is checked at once;
   on a miss the correct leading words lock and the rest return to the bank, and the item counts as
@@ -439,6 +528,26 @@ cloze bank (`cloze_sentences`) and the on-device voice — no LLM, no new table.
 - **Routine** (`ListenAndRebuild` descriptor, `LISTEN_REBUILD`, settle band): clips are rendered at
   build time so the player never waits on the model; the planner marks it unavailable without the
   voice model or a bank of at least three sentences. Attempts feed only the routine's own bucket.
+
+### The cloze bank by ear
+
+Two more ways to use the bank's sentences, both built on that clip store and that rule.
+
+- **Listening sitting** (`ClozeViewModel.startListening`): the bank's ordinary items, but each
+  sentence is played and not written out until an answer is picked. `MultipleChoiceActivity` takes
+  the clips as an `audio` list *beside* its items rather than on them: clips land one at a time while
+  the sitting runs, and the runner's state is keyed on the item list, so a path arriving on an item
+  would start the sitting over. The clip says the missing word aloud, so an answer here scores the
+  sitting and **writes nothing** — no `cloze_reviews` row, no card nudge. The sentences are chosen
+  by the same `ClozeSelector` as any other sitting.
+- **Radio** (`domain/listening/RadioScript`, `TtsEngine.synthesizeRadio`): a hands-free pass over
+  the bank, made as **one ordinary playlist track** rather than played by the cloze screen, so
+  background playback, speed, the resume point and the folder view are the playlist's own. The row
+  has `kind = RADIO`, its `text` is the script (a sentence per line, a tab before its translation),
+  and `AudioGenerationManager.render` branches on the kind — still on the one shared render queue.
+  Each sentence is spoken, left a pause to work out, glossed in the native language by a second
+  voice, and spoken again; the repeat reuses the first rendering. Tracks go in a tagged folder, so
+  the played-item sweeps leave them until the folder is deleted.
 
 ### Conjugation drill
 
@@ -739,7 +848,7 @@ theme, voice, playlists filter by language). API keys are global and encrypted.
 
 ## Data model
 
-Room database `copiosa.db`, schema **v46**, migrations in `di/DatabaseModule.kt` (append-only; the
+Room database `copiosa.db`, schema **v47**, migrations in `di/DatabaseModule.kt` (append-only; the
 only destructive one rebuilt the quiz tables at v21→22). Highlights:
 
 | Table | Purpose | Notes |
@@ -751,8 +860,9 @@ only destructive one rebuilt the quiz tables at v21→22). Highlights:
 | `flashcards` | **view**: a card joined to its note | read-only; the shape the old table had, so existing queries still work |
 | `flashcards_v42` | the pre-split table | superseded by 42→43, kept for one release as a way back; drop it next |
 | `reviews` | review log | append-only, keyed by card id; fuel for future FSRS parameter fitting |
-| `audio_items` | TTS playlist | `filePath` absolute; status drives the render queue; `playedAt` drives retention; `tag` groups a book's chapters into a folder |
+| `audio_items` | TTS playlist | `filePath` absolute; status drives the render queue; `playedAt` drives retention; `tag` groups a book's chapters into a folder; `kind` says what `text` is (`ARTICLE` prose, `RADIO` a sentence script) |
 | `quiz_pools` / `quiz_cues` | rapid-fire pools | unique per (lang, cueType); pre-rendered audio |
+| `cloze_sentences` / `cloze_reviews` | the cloze bank and its answer log | unique on (language, lemma, textKey), which is what makes mining idempotent; `cardId` has no foreign key, so a sentence outlives its card; `pinned` exempts a row from rotation, `machineTranslated` marks a translation the model may replace |
 | `routine_runs` | routine sessions | `planJson` = serialized `RoutinePlan` |
 | `activity_attempts` | per-answer log | **write-only**: nothing reads it back. Adaptation reads `activity_proficiency`, which each attempt updates as it is recorded |
 | `activity_proficiency` | mastery per bucket | (bucketKey, language) unique |

@@ -15,6 +15,7 @@ import com.copiosa.data.tts.TtsEngine
 import com.copiosa.data.tts.TtsModelState
 import com.copiosa.data.usage.LlmUsageRepository
 import com.copiosa.domain.model.BookDownloadMode
+import com.copiosa.domain.model.ModelOption
 import com.copiosa.domain.model.ProviderId
 import com.copiosa.domain.srs.SpacedRepetitionScheduler
 import com.copiosa.domain.usage.UsageWindow
@@ -175,16 +176,9 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { repo.update { it.copy(backgroundLlmTasks = on) } }
     }
 
-    /** Sets the background model for the provider in use; blank follows the main model. */
-    fun setBackgroundModel(model: String) {
-        viewModelScope.launch {
-            repo.update {
-                when (it.provider) {
-                    ProviderId.GEMINI -> it.copy(geminiBackgroundModel = model)
-                    ProviderId.OPENROUTER -> it.copy(openRouterBackgroundModel = model)
-                }
-            }
-        }
+    /** Sets the background model, on whichever provider it belongs to; null follows the main model. */
+    fun setBackgroundModel(choice: ModelOption?) {
+        viewModelScope.launch { repo.update { it.copy(backgroundChoice = choice) } }
     }
 
     /** The download mode newly imported books start in; existing books keep their own. */

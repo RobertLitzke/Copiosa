@@ -117,7 +117,7 @@ object ClozePrompts {
         append("For each item you are given, write ONE natural sentence in $targetLanguage that uses ")
         append("the given word in the given sense.\n\n")
         append("Rules, all required:\n")
-        append("- Between 6 and 16 words.\n")
+        append("- Between 6 and 12 words.\n")
         append("- The word must appear EXACTLY ONCE, and must NOT be the first word of the sentence.\n")
         append("- The sentence must make the word's meaning inferable — someone who knows the rest of ")
         append("the sentence should be able to work out that this word, and no other, belongs there.\n")

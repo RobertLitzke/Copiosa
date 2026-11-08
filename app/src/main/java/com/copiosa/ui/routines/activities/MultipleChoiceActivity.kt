@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -55,6 +56,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.copiosa.R
 import com.copiosa.ui.components.SegmentProgress
+import com.copiosa.ui.listening.ListenControls
+import com.copiosa.ui.listening.SLOW_SPEED
+import com.copiosa.ui.quiz.QuizClipPlayer
 import com.copiosa.ui.theme.SourceSerif
 
 internal data class ChoiceItem(
@@ -88,6 +92,12 @@ internal data class ChoiceItem(
  * [title] opts a host into the runner's own header, with per-question progress ticks. Hosts that
  * draw their own chrome — the course and routine players, whose progress counts *segments* rather
  * than questions — pass nothing and keep theirs.
+ *
+ * [audio] turns a sitting into a listening one: a clip path per item, parallel to [items]. The
+ * sentence is then heard rather than read — played as the item appears, and not written out until
+ * an answer is in. It is a parameter of its own rather than a field of [ChoiceItem] because clips
+ * land one at a time while the sitting is under way (null means "not rendered yet"), and the
+ * runner's state is keyed on [items]: a path arriving must not start the sitting over.
  */
 @Composable
 internal fun MultipleChoiceActivity(
@@ -106,6 +116,7 @@ internal fun MultipleChoiceActivity(
     onExit: (() -> Unit)? = null,
     allowSkip: Boolean = false,
     allowAgainLater: Boolean = false,
+    audio: List<String?>? = null,
 ) {
     if (items.isEmpty()) {
         LaunchedEffect(Unit) { onComplete() }
@@ -140,7 +151,27 @@ internal fun MultipleChoiceActivity(
     // halfway down.
     val scroll = remember(at) { ScrollState(0) }
 
+    val listening = audio != null
+    val clip = audio?.getOrNull(index)
+    val player = remember { QuizClipPlayer() }
+    DisposableEffect(Unit) { onDispose { player.release() } }
+    var playing by remember { mutableStateOf(false) }
+
+    fun play(speed: Float) {
+        val path = clip ?: return
+        playing = true
+        player.play(path, speed) { playing = false }
+    }
+
+    // Plays each sentence as its item appears — or as soon as a late clip lands, unless the learner
+    // has already answered without it.
+    LaunchedEffect(at, clip) { if (clip != null && selected == null) play(1.0f) }
+
     fun advance() {
+        if (listening) {
+            player.release()
+            playing = false
+        }
         if (at + 1 >= order.size) onComplete() else at++
     }
 
@@ -179,7 +210,20 @@ internal fun MultipleChoiceActivity(
             Spacer(Modifier.height(12.dp))
             SectionLabel(prompt)
             Spacer(Modifier.height(10.dp))
-            SentenceLine(item = item, picked = picked)
+            if (listening) {
+                ListenControls(
+                    ready = clip != null,
+                    playing = playing,
+                    onPlay = { play(1.0f) },
+                    onSlow = { play(SLOW_SPEED) },
+                )
+            }
+            // A listening item is written out only once it has been answered: reading the sentence
+            // first would turn the question back into the one the ordinary sitting asks.
+            if (!listening || picked != null) {
+                if (listening) Spacer(Modifier.height(16.dp))
+                SentenceLine(item = item, picked = picked)
+            }
 
             if (item.translation != null && (showTranslation || picked != null)) {
                 Spacer(Modifier.height(10.dp))
@@ -222,8 +266,9 @@ internal fun MultipleChoiceActivity(
             }
 
             // Offered only while it would still cost something to look — once the answer is in, the
-            // translation is shown outright above.
-            if (item.translation != null && picked == null && !showTranslation) {
+            // translation is shown outright above. Not offered while listening: the meaning in English
+            // is the sentence handed over in another form.
+            if (item.translation != null && picked == null && !showTranslation && !listening) {
                 Spacer(Modifier.height(4.dp))
                 TextButton(
                     onClick = { showTranslation = true },

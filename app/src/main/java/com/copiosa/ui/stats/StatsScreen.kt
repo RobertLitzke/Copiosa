@@ -59,6 +59,8 @@ import com.copiosa.data.stats.ClozeStats
 import com.copiosa.data.stats.ConjugationStats
 import com.copiosa.data.stats.DayMinutes
 import com.copiosa.data.stats.ReadingStats
+import com.copiosa.data.stats.RetentionBand
+import com.copiosa.data.stats.ReviewOutlook
 import com.copiosa.data.stats.TimeStats
 import com.copiosa.data.stats.VocabStats
 import com.copiosa.domain.conjugation.IrregularityFamily
@@ -71,6 +73,8 @@ import com.copiosa.ui.vocab.scopeLabel
 import com.copiosa.ui.components.ScreenHeader
 import com.copiosa.ui.components.SectionLabel
 import com.copiosa.ui.components.SegmentedToggle
+import com.copiosa.ui.components.ratingColor
+import com.copiosa.ui.components.ratingLabel
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -108,6 +112,7 @@ fun StatsScreen(
             ui.stats?.let { stats ->
                 TimeSection(stats.time)
                 VocabSection(stats.vocab)
+                OutlookSection(stats.outlook, ui.retentionTargetPct)
                 ConjugationSection(stats.conjugation)
                 ClozeSection(stats.cloze)
                 ReadingSection(stats.reading)
@@ -220,6 +225,139 @@ private fun VocabSection(v: VocabStats) {
         }
     }
 }
+
+/**
+ * The due forecast and measured retention. Today carries the overdue pile, so it is a tile rather
+ * than a bar: drawn to scale it would flatten every day after it. The chart starts tomorrow and
+ * shows the load the schedule settles into.
+ */
+@Composable
+private fun OutlookSection(o: ReviewOutlook, targetPct: Int?) {
+    val ahead = o.dueByDay.drop(1)
+    val hasRetention = o.young.reviews + o.mature.reviews > 0
+    if (o.dueByDay.sum() == 0 && !hasRetention) return
+    StatCard(stringResource(R.string.stats_outlook_section)) {
+        StatTileGrid(
+            listOf(
+                Tile("${o.dueByDay.firstOrNull() ?: 0}", stringResource(R.string.stats_due_today)),
+                Tile("${o.overdue}", stringResource(R.string.stats_overdue)),
+                Tile("${ahead.take(7).sum()}", stringResource(R.string.stats_due_next_7)),
+                Tile(
+                    if (ahead.isEmpty()) "—" else "${Math.round(ahead.average())}",
+                    stringResource(R.string.stats_due_daily_avg),
+                ),
+            ),
+        )
+        if (ahead.any { it > 0 }) {
+            Spacer(Modifier.height(4.dp))
+            SectionLabel(stringResource(R.string.stats_forecast_chart))
+            // Index 0 of [ahead] is tomorrow.
+            ForecastChart(ahead, firstDay = o.today + 1)
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            SectionLabel(stringResource(R.string.stats_retention_section))
+            if (targetPct != null) {
+                Text(
+                    stringResource(R.string.stats_retention_target, targetPct),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        RetentionRow(stringResource(R.string.stats_retention_young), o.young, targetPct)
+        RetentionRow(stringResource(R.string.stats_retention_mature), o.mature, targetPct)
+    }
+}
+
+/** One maturity band's measured retention; the figure turns to the error colour when it falls short of target. */
+@Composable
+private fun RetentionRow(label: String, band: RetentionBand, targetPct: Int?) {
+    val pct = band.percent
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, style = MaterialTheme.typography.bodySmall)
+        Text(
+            if (pct == null) {
+                stringResource(R.string.stats_retention_none)
+            } else {
+                pluralStringResource(R.plurals.stats_retention_value, band.reviews, pct, band.reviews)
+            },
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = if (pct == null) FontWeight.Normal else FontWeight.SemiBold,
+            color = when {
+                pct == null -> MaterialTheme.colorScheme.onSurfaceVariant
+                targetPct != null && pct < targetPct -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurface
+            },
+        )
+    }
+}
+
+/** Words due per day as bars (first day left), with a tap read-out like the study-time chart's. */
+@Composable
+private fun ForecastChart(counts: List<Int>, firstDay: Long) {
+    var selected by remember(counts) { mutableStateOf<Int?>(null) }
+    val max = (counts.maxOrNull() ?: 0).coerceAtLeast(1)
+    val bar = MaterialTheme.colorScheme.primary
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val empty = MaterialTheme.colorScheme.surfaceVariant
+    val highlight = MaterialTheme.colorScheme.onSurface
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        val picked = selected
+        Text(
+            if (picked == null) {
+                stringResource(R.string.stats_chart_hint)
+            } else {
+                "${dayDateLabel(firstDay + picked)} · " +
+                    pluralStringResource(R.plurals.stats_words, counts[picked], counts[picked])
+            },
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (picked == null) FontWeight.Normal else FontWeight.SemiBold,
+            color = if (picked == null) muted else MaterialTheme.colorScheme.onSurface,
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(FORECAST_HEIGHT)
+                .pointerInput(counts.size) {
+                    detectTapGestures { offset ->
+                        val i = (offset.x / (size.width / counts.size.toFloat())).toInt().coerceIn(counts.indices)
+                        selected = if (i == selected) null else i
+                    }
+                },
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            counts.forEachIndexed { i, n ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height((FORECAST_HEIGHT * (n.toFloat() / max)).coerceAtLeast(2.dp))
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(
+                            when {
+                                i == selected -> highlight
+                                n <= 0 -> empty
+                                else -> bar.copy(alpha = 0.7f)
+                            },
+                        ),
+                )
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(rowDateLabel(firstDay), style = MaterialTheme.typography.labelSmall, color = muted)
+            Text(
+                stringResource(R.string.stats_forecast_max, max),
+                style = MaterialTheme.typography.labelSmall,
+                color = muted,
+            )
+            Text(rowDateLabel(firstDay + counts.size - 1), style = MaterialTheme.typography.labelSmall, color = muted)
+        }
+    }
+}
+
+private val FORECAST_HEIGHT = 72.dp
 
 /**
  * Frequency coverage, one row per band. Two figures, not one: how many of the band's words are in
@@ -402,28 +540,6 @@ private fun RatingDistribution(counts: Map<ReviewRating, Int>) {
         }
     }
 }
-
-/**
- * Fixed, semantic grade hues (fail→ace), independent of the profile's accent palette — under a
- * red-accent country theme, deriving these from the scheme collides Again/Good (both red) and
- * Hard/Easy (both gold). These mid-tones stay legible on the card surface in light and dark.
- */
-private fun ratingColor(rating: ReviewRating): Color = when (rating) {
-    ReviewRating.AGAIN -> Color(0xFFD64545) // red
-    ReviewRating.HARD -> Color(0xFFE0952B) // amber
-    ReviewRating.GOOD -> Color(0xFF3FA45B) // green
-    ReviewRating.EASY -> Color(0xFF3E7CB1) // blue
-}
-
-@Composable
-private fun ratingLabel(rating: ReviewRating): String = stringResource(
-    when (rating) {
-        ReviewRating.AGAIN -> R.string.rating_again
-        ReviewRating.HARD -> R.string.rating_hard
-        ReviewRating.GOOD -> R.string.rating_good
-        ReviewRating.EASY -> R.string.rating_easy
-    },
-)
 
 @Composable
 private fun ReadingSection(r: ReadingStats) {

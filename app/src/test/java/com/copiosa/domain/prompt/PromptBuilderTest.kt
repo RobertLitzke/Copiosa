@@ -73,6 +73,39 @@ class PromptBuilderTest {
         assertFalse(chatPrompt(includeVocabReport = false).contains("vocabUsed"))
     }
 
+    @Test
+    fun selectionExplanation_namesBothLanguagesAndAsksForProse() {
+        val prompt = builder.selectionExplanationSystemPrompt(
+            country = "Mexico",
+            targetLang = "es",
+            nativeLang = "en",
+            level = Cefr.B1,
+        )
+        assertTrue(prompt.contains("Mexico"))
+        assertTrue(prompt.contains("Spanish"))
+        assertTrue(prompt.contains("Reply in English"))
+        // The card renders the reply as it comes; a JSON contract here would be shown to the reader.
+        assertFalse(prompt.contains("JSON"))
+    }
+
+    @Test
+    fun selectionExplanationRequest_sendsTheSentenceOnlyWhenItAddsSomething() {
+        assertEquals(
+            "Selection: echar de menos\nSentence: Voy a echar de menos esta ciudad.",
+            builder.selectionExplanationRequest(" echar de menos ", "Voy a echar de menos esta ciudad."),
+        )
+        assertEquals("Selection: gato", builder.selectionExplanationRequest("gato", null))
+        assertEquals("Selection: gato", builder.selectionExplanationRequest("gato", "  "))
+        // A whole sentence selected is its own context.
+        assertEquals("Selection: Ya voy.", builder.selectionExplanationRequest("Ya voy.", "ya voy."))
+    }
+
+    @Test
+    fun selectionExplanationRequest_clipsAPassage() {
+        val request = builder.selectionExplanationRequest("palabra ".repeat(500), null)
+        assertTrue(request.length < 700)
+    }
+
     private fun chatPrompt(includeVocabReport: Boolean) = builder.buildConversationPrompt(
         core = PromptBuilder.DEFAULT_CORE_PROMPT,
         customInstructions = "",

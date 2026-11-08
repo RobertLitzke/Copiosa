@@ -12,10 +12,12 @@ import com.copiosa.domain.cloze.ClozeCandidate
 import com.copiosa.domain.cloze.ClozeMineContext
 import com.copiosa.domain.highlight.normalizeWord
 import com.copiosa.domain.highlight.targetTerm
+import com.copiosa.domain.model.FlashcardState
 import com.copiosa.domain.model.Role
 import com.copiosa.domain.prompt.ClozeGenerationParser
 import com.copiosa.domain.prompt.ClozePrompts
 import com.copiosa.domain.prompt.ClozeRequestItem
+import com.copiosa.domain.srs.isLeech
 import com.copiosa.domain.usage.LlmFeature
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -46,18 +48,31 @@ class LlmClozeSource @Inject constructor(
 
     override suspend fun mine(ctx: ClozeMineContext, limit: Int): List<ClozeCandidate> {
         val wanted = flashcardDao.allActive(ctx.lang)
-            .filter { card ->
+            .asSequence()
+            .mapNotNull { card ->
                 val lemma = normalizeWord(card.targetTerm)
-                lemma.isNotEmpty() &&
-                    // Nothing in the bank for this word at all, not merely room for more: a word with
-                    // a real sentence from the learner's own reading doesn't need an invented one.
-                    (ctx.banked[lemma] ?: 0) == 0 &&
-                    ctx.hasRoomFor(lemma)
+                if (lemma.isEmpty() || !ctx.hasRoomFor(lemma) || !ctx.wantsSentencesFor(card.id)) return@mapNotNull null
+                val banked = ctx.banked[lemma] ?: 0
+                // A word that keeps slipping is the one that most needs to be met in more than the
+                // single sentence it can be recognised by, so it earns a second even with one banked.
+                // Everything else only gets a written sentence when it has none at all: a real one
+                // from the learner's own reading beats an invented one.
+                val struggling = card.state == FlashcardState.RELEARNING || card.isLeech
+                when {
+                    struggling && banked < STRUGGLING_TARGET -> card to 0
+                    banked == 0 -> card to 1
+                    else -> null
+                }
             }
+            .sortedBy { it.second }
+            .map { it.first }
+            .distinctBy { it.noteId }
             .take(minOf(limit, BATCH))
+            .toList()
         if (wanted.isEmpty()) return emptyList()
 
         val settings = settingsRepo.settings.first()
+        val target = settingsRepo.backgroundTarget(settings)
         val items = wanted.map {
             ClozeRequestItem(
                 id = it.id,
@@ -67,11 +82,11 @@ class LlmClozeSource @Inject constructor(
             )
         }
         val response = tryLlm {
-            providers.active().chat(
+            providers.forId(target.provider).chat(
                 LlmRequest(
                     systemPrompt = ClozePrompts.generation(settings.targetLanguage, settings.nativeLanguage),
                     messages = listOf(LlmMessage(Role.USER, ClozeGenerationParser.encodeGenerationRequest(items))),
-                    model = settings.backgroundModel,
+                    model = target.model,
                     feature = LlmFeature.CLOZE_BANK,
                     maxTokens = (wanted.size * TOKENS_PER_ITEM).coerceIn(512, 4096),
                     json = JsonShape.ARRAY,
@@ -106,5 +121,8 @@ class LlmClozeSource @Inject constructor(
         /** Words per request — the enrichment pass's batch size, for the same reasons. */
         const val BATCH = 10
         const val TOKENS_PER_ITEM = 120
+
+        /** Sentences a struggling word should have before the model stops writing more for it. */
+        const val STRUGGLING_TARGET = 2
     }
 }

@@ -226,7 +226,7 @@ These are well-supported concepts from SLA research and cognitive psychology tha
 
 Swain's **Output Hypothesis**: producing language forces syntactic processing, reveals gaps ("noticing the hole"), and builds fluency in ways comprehension alone cannot. The app is currently heavily **input-weighted**. The learner *can* type freely in chat, but nothing in the app requires, scaffolds, or evaluates production:
 
-- No **typed production drills** (type-the-translation, free-response conjugation). The daytime activation routine (§4.3) is now the obvious home for these — it draws freely from the high-arousal tier, and its peak is currently built from only three Engage activities.
+- Few **typed production drills**. The cloze bank now has one — the sentence, its meaning, and a keyboard, with a missing accent forgiven and a miss the learner can overrule — but there is still no type-the-translation on a card and no free-response conjugation. The daytime activation routine (§4.3) is now the obvious home for these — it draws freely from the high-arousal tier, and its peak is currently built from only three Engage activities.
 - No **speaking at all**: no speech recognition, no pronunciation practice, no shadowing or read-aloud, no spoken conversation mode. TTS gives the app a mouth but the learner has no microphone.
 - No **writing with feedback**: no journaling/composition flow where the model corrects or reformulates learner text.
 
@@ -238,7 +238,7 @@ Long's **Interaction Hypothesis** locates much of acquisition in the *negotiatio
 
 ### 2.3 Listening as a trained skill
 
-The app generates audio (playlists, story TTS) and mostly treats listening as passive consumption. One exception has shipped: **listen-and-rebuild** — hear one of your banked sentences (several voices, with a slowed replay), tap its words back into order, and only then see it written — a tap-only cousin of dictation. Still missing: comprehension checks after listening, **dictation/transcription** exercises (a classic integrative task), variable playback with purpose (extensive listening at natural speed vs intensive listening on hard segments), speaker variety, and listening-first presentation of new material (hearing a word before seeing its spelling, which matters for languages with unreliable orthography-phonology mappings — less critical for Spanish, more for future profiles like French).
+The app generates audio (playlists, story TTS) and mostly treats listening as passive consumption. One exception has shipped: **listen-and-rebuild** — hear one of your banked sentences (several voices, with a slowed replay), tap its words back into order, and only then see it written — a tap-only cousin of dictation. Two more draw on the same bank: a **listening cloze** sitting, where the sentence is heard and only written out once its missing word has been picked (it scores the sitting but moves no schedule, since the audio contains the answer), and **cloze radio**, a hands-free playlist track that says each sentence, leaves a pause to work it out, gives its meaning, and says it again. Still missing: comprehension checks after listening, **dictation/transcription** exercises (a classic integrative task), variable playback with purpose (extensive listening at natural speed vs intensive listening on hard segments), speaker variety, and listening-first presentation of new material (hearing a word before seeing its spelling, which matters for languages with unreliable orthography-phonology mappings — less critical for Spanish, more for future profiles like French).
 
 ### 2.4 Frequency-informed vocabulary selection
 
@@ -311,7 +311,7 @@ The absence of streaks, badges, and leaderboards reads as deliberate (consistent
 | Incidental acquisition credit | Nation; Hulstijn | ✅ Passive review |
 | Output / production practice | Swain | ❌ Biggest gap |
 | Corrective feedback / recasts | Long; Lyster & Ranta | ❌ Not yet |
-| Trained listening comprehension | — | ⚠️ Listen-and-rebuild only |
+| Trained listening comprehension | — | ⚠️ Listen-and-rebuild, listening cloze, cloze radio |
 | Frequency-informed vocab selection | Nation | ✅ Coverage, chips, tilt, drill, seeding |
 | Fluency development strand | Nation | ❌ Not yet |
 | Phonological / pronunciation training | HVPT literature | ❌ Not yet |

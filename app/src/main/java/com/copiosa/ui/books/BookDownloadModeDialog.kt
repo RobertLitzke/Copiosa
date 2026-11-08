@@ -24,8 +24,8 @@ import androidx.compose.ui.unit.dp
 import com.copiosa.R
 import com.copiosa.data.generation.BookDownloadChoice
 import com.copiosa.data.generation.BookDownloadState
-import com.copiosa.data.generation.ModelOption
 import com.copiosa.data.settings.AppSettings
+import com.copiosa.domain.model.ModelOption
 import com.copiosa.domain.usage.UsageFormat
 import com.copiosa.ui.components.LabeledDropdown
 import com.copiosa.ui.components.usageCostLabel

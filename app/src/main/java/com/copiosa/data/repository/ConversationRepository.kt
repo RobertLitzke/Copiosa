@@ -22,6 +22,7 @@ import com.copiosa.data.translate.LocalTranslateResult
 import com.copiosa.data.translate.OnDeviceTranslator
 import com.copiosa.domain.model.Cefr
 import com.copiosa.domain.model.Mode
+import com.copiosa.domain.model.ModelOption
 import com.copiosa.domain.model.ProviderId
 import com.copiosa.domain.model.Role
 import com.copiosa.data.routine.TopicRepository
@@ -393,6 +394,34 @@ class ConversationRepository @Inject constructor(
         dictionary.lookup(word, settingsRepo.settings.first().targetLanguage)
 
     /**
+     * Asks the model what [selection] means where it was read — the lookup card's "Explain" in a
+     * reader, which has no chat to put the question to. [sentence] is the sentence around it, when
+     * one was captured. Returns Markdown for the card; nothing is stored, since the explanation
+     * belongs to this reading of the word rather than to the word.
+     *
+     * The main model, not the background one: it was asked for by name and is being waited on.
+     */
+    suspend fun explainSelection(selection: String, sentence: String?): String {
+        val settings = settingsRepo.settings.first()
+        val target = settings.main
+        val reply = providers.forId(target.provider).chat(
+            LlmRequest(
+                systemPrompt = prompts.selectionExplanationSystemPrompt(
+                    country = settings.defaultCountry,
+                    targetLang = settings.targetLanguage,
+                    nativeLang = settings.nativeLanguage,
+                    level = settings.defaultLevel,
+                ),
+                messages = listOf(LlmMessage(Role.USER, prompts.selectionExplanationRequest(selection, sentence))),
+                model = target.model,
+                feature = LlmFeature.EXPLAIN,
+                maxTokens = EXPLAIN_MAX_TOKENS,
+            ),
+        )
+        return reply.text.trim()
+    }
+
+    /**
      * A turn's guidance in its two halves, with the saved words it offered so the reply can record
      * them. [prompt] is the system prompt, the same for every ordinary turn of the chat; [note] is
      * what is particular to this one (see [PromptBuilder.turnNote]) and rides on the learner's
@@ -616,15 +645,18 @@ class ConversationRepository @Inject constructor(
         } else {
             // Fresh start: (re)translate the short title, then clear any stale partial body.
             if (hasTitle) {
-                // A few words of translation: the background slot's kind of call. The text's own
-                // model is the fallback, since that — not the profile's — is what the body uses.
-                val titleModel = settingsRepo.settingsFor(conversation.targetLanguage)
-                    .backgroundModelFor(conversation.provider, fallback = conversation.model)
-                val translatedTitle = provider.chatOrEmpty(
+                // A few words of translation: the background slot's kind of call, on the slot's
+                // own provider. The text's own model is the fallback, since that — not the
+                // profile's — is what the body uses.
+                val titleTarget = settingsRepo.backgroundTarget(
+                    settingsRepo.settingsFor(conversation.targetLanguage),
+                    fallback = ModelOption(conversation.provider, conversation.model),
+                )
+                val translatedTitle = providers.forId(titleTarget.provider).chatOrEmpty(
                     LlmRequest(
                         systemPrompt = textTranslationPrompt(conversation, part = 1, total = 1),
                         messages = listOf(LlmMessage(Role.USER, conversation.originalTitle!!.trim())),
-                        model = titleModel,
+                        model = titleTarget.model,
                         feature = LlmFeature.TEXT,
                         maxTokens = 256,
                     ),
@@ -777,5 +809,8 @@ class ConversationRepository @Inject constructor(
 
         /** How many of the most recent chats keep their raw model output (a debug aid); older ones lose it. */
         private const val RAW_RESPONSE_KEEP_CHATS = 30
+
+        /** Room for a reader's "Explain": a few sentences, with slack so one is never cut short. */
+        private const val EXPLAIN_MAX_TOKENS = 1024
     }
 }

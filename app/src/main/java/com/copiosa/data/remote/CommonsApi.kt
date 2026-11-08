@@ -16,16 +16,24 @@ import retrofit2.http.Query
  * the source.
  *
  * A single MediaWiki query drives the whole search: [generator=search] finds matching File: pages
- * and [prop=imageinfo] returns, per result, a scaled [iiurlwidth] thumbnail plus the full-size URL —
- * so one round-trip yields everything the picker needs.
+ * and [prop=imageinfo] returns, per result, a scaled [iiurlwidth] thumbnail — so one round-trip
+ * yields everything the picker needs. That thumbnail is also what gets attached: it is already
+ * larger than a stored card image, where the originals routinely run to several megabytes.
  */
+/**
+ * The User-Agent every Wikimedia request must carry — the API *and* the image hosts
+ * (upload/thumb.wikimedia.org), which answer OkHttp's default `okhttp/x.y` with a 403.
+ */
+const val COMMONS_USER_AGENT = "Copiosa/1.0 (language-learning app; contact ${BuildConfig.CONTACT})"
+
 interface CommonsApi {
-    @Headers("User-Agent: Copiosa/1.0 (language-learning app; contact ${BuildConfig.CONTACT})")
+    @Headers("User-Agent: $COMMONS_USER_AGENT")
     @GET("w/api.php")
     suspend fun search(
         @Query("gsrsearch") query: String,
         @Query("gsrlimit") limit: Int = 4,
-        @Query("iiurlwidth") thumbWidth: Int = 320,
+        // One of the widths Wikimedia pre-renders; any other is rounded up to the next of them.
+        @Query("iiurlwidth") thumbWidth: Int = 500,
         // Fixed request shape; callers only vary the three params above.
         @Query("action") action: String = "query",
         @Query("format") format: String = "json",
@@ -54,8 +62,6 @@ data class CommonsPage(
 
 @Serializable
 data class CommonsImageInfo(
-    /** The original full-size image URL on upload.wikimedia.org. */
-    val url: String? = null,
     /** A scaled thumbnail (width [CommonsApi.search]'s thumbWidth) — reliable and already small. */
     val thumburl: String? = null,
     /** MIME type; used to skip formats BitmapFactory can't decode (svg/tiff/pdf). */

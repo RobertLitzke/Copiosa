@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.copiosa.data.anki.AnkiMedia
 import com.copiosa.data.local.FlashcardDao
+import com.copiosa.data.remote.COMMONS_USER_AGENT
 import com.copiosa.data.remote.CommonsApi
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -19,21 +20,20 @@ import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** One pickable image: a locally-cached thumbnail to show, plus the full URL to fetch on selection. */
+/** One pickable image: a locally-cached thumbnail, both shown in the picker and attached on selection. */
 data class ImageCandidate(
     val id: String,
     val title: String?,
     val thumbnailFile: File,
-    val fullUrl: String?,
 )
 
 /**
  * Finds candidate photos for a flashcard via Wikimedia Commons (keyless image search) and attaches a
  * chosen one to a card. Search pre-downloads each thumbnail to the cache so the picker can render
  * them with the same [BitmapFactory] path the cards already use (no image-loading library). Attaching
- * downloads the full image, downscales it to a small square-ish thumbnail, and stores it in the shared
- * media store so it renders via [com.copiosa.data.local.FlashcardEntity.imageFile] and travels
- * through Anki export.
+ * downscales that same cached thumbnail — no second download — and stores it in the shared media
+ * store so it renders via [com.copiosa.data.local.FlashcardEntity.imageFile] and travels through
+ * Anki export.
  */
 @Singleton
 class ImageSearchRepository @Inject constructor(
@@ -51,7 +51,7 @@ class ImageSearchRepository @Inject constructor(
         val pages = api.search(q, count).query?.pages?.values
             ?.sortedBy { it.index }
             .orEmpty()
-        coroutineScope {
+        val attempts = coroutineScope {
             pages.map { page ->
                 async {
                     runCatching {
@@ -64,29 +64,25 @@ class ImageSearchRepository @Inject constructor(
                             id = page.title,
                             title = page.title.removePrefix("File:"),
                             thumbnailFile = dest,
-                            fullUrl = info.url,
                         )
-                    }.getOrNull()
+                    }
                 }
-            }.awaitAll().filterNotNull()
+            }.awaitAll()
         }
+        val candidates = attempts.mapNotNull { it.getOrNull() }
+        // Every thumbnail failing is a broken fetch, not an empty search — say so rather than
+        // reporting "no images" for a query Commons answered.
+        if (candidates.isEmpty()) attempts.firstNotNullOfOrNull { it.exceptionOrNull() }?.let { throw it }
+        candidates
     }
 
     /**
-     * Downloads the chosen image (full URL, falling back to the cached thumbnail on failure),
-     * downscales it to [MAX_EDGE]px, writes it as a JPEG into the media store, points the card at it,
-     * and returns the stored filename.
+     * Downscales the chosen image's cached thumbnail to [MAX_EDGE]px, writes it as a JPEG into the
+     * media store, points the card at it, and returns the stored filename.
      */
     suspend fun attachImage(cardId: Long, candidate: ImageCandidate): String = withContext(Dispatchers.IO) {
-        val bitmap = candidate.fullUrl?.let { url ->
-            runCatching {
-                val tmp = File(context.cacheDir, "$CACHE_SUBDIR/full_${System.currentTimeMillis()}.img")
-                tmp.parentFile?.mkdirs()
-                download(url, tmp)
-                decodeScaled(tmp, MAX_EDGE).also { tmp.delete() }
-            }.getOrNull()
-        } ?: decodeScaled(candidate.thumbnailFile, MAX_EDGE)
-        ?: throw IOException("Could not decode the selected image")
+        val bitmap = decodeScaled(candidate.thumbnailFile, MAX_EDGE)
+            ?: throw IOException("Could not decode the selected image")
 
         val name = "la_img_${cardId}_${System.currentTimeMillis()}.jpg"
         val dest = AnkiMedia.file(context, name)
@@ -98,7 +94,7 @@ class ImageSearchRepository @Inject constructor(
     }
 
     private fun download(url: String, dest: File) {
-        val request = Request.Builder().url(url).build()
+        val request = Request.Builder().url(url).header("User-Agent", COMMONS_USER_AGENT).build()
         http.newCall(request).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
             val body = resp.body ?: throw IOException("Empty response body")

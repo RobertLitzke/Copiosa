@@ -46,6 +46,7 @@ import com.copiosa.R
 import com.copiosa.data.settings.AppSettings
 import com.copiosa.data.tts.SupertonicVoices
 import com.copiosa.data.tts.TtsModelState
+import com.copiosa.domain.model.ModelOption
 import com.copiosa.domain.model.OpenRouterModel
 import com.copiosa.domain.model.OpenRouterModels
 import com.copiosa.domain.model.ProviderId
@@ -73,7 +74,6 @@ internal fun ModelsTab(
     // what you're editing — the "Use …" button is what makes a provider active.
     var selected by remember(settings.provider) { mutableStateOf(settings.provider) }
 
-    SectionLabel(stringResource(R.string.settings_provider))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ProviderId.entries.forEach { p ->
             val isActive = settings.provider == p
@@ -138,6 +138,7 @@ internal fun ModelsTab(
             )
             BackgroundModelPicker(
                 settings = settings,
+                keys = keys,
                 onSelect = viewModel::setBackgroundModel,
                 modifier = Modifier.padding(top = 12.dp),
             )
@@ -181,30 +182,37 @@ internal fun ModelsTab(
 }
 
 /**
- * Which model does the work nobody is waiting on, for the provider in use. The first entry follows
- * the main model, and is what an untouched profile has; the rest are that provider's own list — the
- * fixed Gemini set, or the OpenRouter roster above, which is where a cheaper id gets added.
+ * Which model does the work nobody is waiting on. The first entry follows the main model, and is
+ * what an untouched profile has; the rest are every model of every provider there is a key for —
+ * the fixed Gemini set and the OpenRouter roster above, which is where a cheaper id gets added —
+ * whichever of them the main model is on.
  *
  * Unlike the provider card this applies on selection: there is no key or roster edit to stage with it.
  */
 @Composable
 private fun BackgroundModelPicker(
     settings: AppSettings,
-    onSelect: (String) -> Unit,
+    keys: KeyPresence,
+    onSelect: (ModelOption?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val models = when (settings.provider) {
-        ProviderId.GEMINI -> AppSettings.GEMINI_MODELS
-        ProviderId.OPENROUTER -> settings.openRouterModels.map { it.id }
+    val options = buildList<ModelOption?> {
+        add(null)
+        if (keys.gemini) AppSettings.GEMINI_MODELS.forEach { add(ModelOption(ProviderId.GEMINI, it)) }
+        if (keys.openRouter) settings.openRouterModels.forEach { add(ModelOption(ProviderId.OPENROUTER, it.id)) }
+        // Never show a slot as something it isn't: its provider's key can have gone since it was set.
+        if (settings.backgroundChoice !in this) add(settings.backgroundChoice)
     }
     // Precomputed because optionLabel runs outside composition (can't call stringResource).
     val sameAsMain = stringResource(R.string.settings_background_model_same, settings.label(settings.activeModel))
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         LabeledDropdown(
             label = stringResource(R.string.settings_background_model),
-            options = listOf("") + models,
-            selected = settings.backgroundChoiceFor(settings.provider),
-            optionLabel = { if (it.isEmpty()) sameAsMain else settings.label(it) },
+            options = options,
+            selected = settings.backgroundChoice,
+            optionLabel = {
+                if (it == null) sameAsMain else "${settings.label(it.model)} · ${it.provider.displayLabel()}"
+            },
             onSelect = onSelect,
         )
         Text(
@@ -376,11 +384,6 @@ private fun OpenRouterRoster(
                 }
             }
         }
-        Text(
-            stringResource(R.string.settings_openrouter_models_desc),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         OutlinedButton(onClick = onAdd) {
             Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
             Text(

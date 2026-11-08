@@ -26,6 +26,13 @@ class ClozeMineContext(
     val functionWords: Set<String> = emptySet(),
     /** How many sentences the bank already holds for this language, against [BANK_MAX_PER_LANGUAGE]. */
     val bankSize: Int,
+    /**
+     * Cards that have stopped needing sentence practice — mature and not due for a while, by
+     * [ClozeSelector.isSettled]. Nothing new is mined for them, and their sentences are the ones a
+     * full bank rotates out; using one line for both is what stops a sentence being evicted and
+     * mined straight back.
+     */
+    val settledCards: Set<Long> = emptySet(),
 ) {
     /** Every form the learner has a card for; the gate's "can they read this" set. */
     val knownForms: Set<String> get() = formToCard.keys
@@ -40,18 +47,26 @@ class ClozeMineContext(
         out
     }
 
-    /** Whether [lemma] has room for another sentence. */
-    fun hasRoomFor(lemma: String): Boolean =
-        (banked[lemma] ?: 0) < PER_LEMMA_CAP && bankSize < BANK_MAX_PER_LANGUAGE
+    /**
+     * Whether [lemma] has room for another sentence. Only the per-word cap: whether the *bank* has
+     * room is the repository's question, because a full bank makes room by rotating settled words out.
+     */
+    fun hasRoomFor(lemma: String): Boolean = (banked[lemma] ?: 0) < PER_LEMMA_CAP
+
+    /** Whether there is any point mining a sentence for [cardId] right now. */
+    fun wantsSentencesFor(cardId: Long?): Boolean = cardId == null || cardId !in settledCards
 
     companion object {
         /**
-         * Sentences per word. More than a few for one word crowds a sitting with near-repeats, and
-         * — with the nudge — would let one word's sentences dominate what the deck sees.
+         * Sentences per word. A few, so a word is not always met in the one sentence that can be
+         * learned by heart; no more, or one word's sentences crowd a sitting with near-repeats.
          */
         const val PER_LEMMA_CAP = 3
 
-        /** A ceiling so background mining can't grow the database without bound. */
-        const val BANK_MAX_PER_LANGUAGE = 1_500
+        /**
+         * A ceiling so background mining can't grow the database without bound. Reaching it does not
+         * stop the miners — see `ClozeRepository.mine`, which rotates settled words' sentences out.
+         */
+        const val BANK_MAX_PER_LANGUAGE = 2_500
     }
 }

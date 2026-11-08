@@ -35,7 +35,10 @@ enum class LlmFeature {
     VOCAB,
 
     /** Drafting cards from a typed list. */
-    BULK_ADD;
+    BULK_ADD,
+
+    /** An "Explain" asked from a reader's lookup card — a text, a book, a routine's reading step. */
+    EXPLAIN;
 
     companion object {
         fun fromName(name: String): LlmFeature? = entries.firstOrNull { it.name == name }

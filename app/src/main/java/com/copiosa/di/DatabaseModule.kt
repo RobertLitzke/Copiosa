@@ -1097,6 +1097,58 @@ private val MIGRATION_45_46 = object : Migration(45, 46) {
     }
 }
 
+/**
+ * 46 -> 47: a playlist row says what its text is.
+ *
+ * Until now every `audio_items` row was prose to be read through. A cloze radio track is a script —
+ * sentences with their translations, spoken in two languages with pauses between — and the render
+ * queue needs to tell the two apart. `kind` is a plain TEXT slug, as on `book_paragraphs`, so the
+ * next kind is not another migration.
+ *
+ * The default is the old behaviour, so existing rows need no backfill.
+ *
+ * The same step gives a banked cloze sentence two flags. `pinned` is the learner keeping one: it is
+ * favoured in a sitting and exempt from the bank's rotation. `machineTranslated` marks a translation
+ * the on-device translator supplied, so the background model pass knows it may replace it. Both
+ * default to off, which is what every existing row is.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration46To47Test`.
+ */
+internal val MIGRATION_46_47_SQL = listOf(
+    "ALTER TABLE `audio_items` ADD COLUMN `kind` TEXT NOT NULL DEFAULT 'ARTICLE'",
+    "ALTER TABLE `cloze_sentences` ADD COLUMN `pinned` INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE `cloze_sentences` ADD COLUMN `machineTranslated` INTEGER NOT NULL DEFAULT 0",
+)
+
+private val MIGRATION_46_47 = object : Migration(46, 47) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_46_47_SQL.forEach(db::execSQL)
+    }
+}
+
+/**
+ * 47 -> 48: repairs the cached highlight forms of terms that carry a hint in brackets.
+ *
+ * A note saved as "pasa (fruta)" cached the literal string "pasa (fruta" as its only form — the
+ * normalizer trimmed the closing bracket and nothing else — so the word never lit up in a text.
+ * HighlightTargetProvider now drops the hint before computing forms, but the backfill only visits
+ * NULL rows, so the bad ones are cleared here. A stored form containing an opening bracket can only
+ * have come from such a term (a form is a single word), so that is what selects them.
+ *
+ * Exposed as a statement list so a JVM test can replay it against plain SQLite — see
+ * `Migration47To48Test`.
+ */
+internal val MIGRATION_47_48_SQL = listOf(
+    "UPDATE notes SET inflectedForms = NULL WHERE inflectedForms LIKE '%(%'",
+)
+
+private val MIGRATION_47_48 = object : Migration(47, 48) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        MIGRATION_47_48_SQL.forEach(db::execSQL)
+    }
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
@@ -1119,7 +1171,7 @@ object DatabaseModule {
                 MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36,
                 MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40,
                 MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45,
-                MIGRATION_45_46,
+                MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48,
             )
             .build()
     }

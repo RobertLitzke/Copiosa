@@ -1,6 +1,8 @@
 package com.copiosa.ui.components
 
 import com.copiosa.data.local.FlashcardEntity
+import com.copiosa.data.remote.LlmError
+import com.copiosa.data.remote.LlmException
 import com.copiosa.data.repository.ConversationRepository
 import com.copiosa.data.repository.FlashcardRepository
 import com.copiosa.data.translate.DictionaryDownload
@@ -12,10 +14,12 @@ import com.copiosa.domain.highlight.targetTerm
 import com.copiosa.domain.model.CardKind
 import com.copiosa.domain.srs.ReviewWindows
 import com.copiosa.domain.vocab.WordSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +46,13 @@ data class TranslateState(
     val anchorY: Float = 0f,
     /** The matching saved flashcard when this word/phrase is already in the user's vocabulary. */
     val savedCard: FlashcardEntity? = null,
+    /** True when [savedCard] was found through its cached forms rather than its front. */
+    val savedByForm: Boolean = false,
+    /**
+     * A saved card whose forms include the selection but which the dictionary says is another word
+     * (*tratados* is treaties, not *tratar*). Offered as a link beside the entries, not in their place.
+     */
+    val relatedCard: FlashcardEntity? = null,
     /** Base form to offer on save when the selection is a conjugation/inflection (e.g. comía → comer). */
     val saveLemma: String? = null,
     /** Part of speech from the dictionary lookup, stored on the saved card. */
@@ -52,13 +63,20 @@ data class TranslateState(
      * word is the common case, so the radio buttons stay out of the way until a save is actually meant.
      */
     val picking: Boolean = false,
+    /** The model's account of the selection where it was read, once "Explain" has been asked for. */
+    val explanation: String? = null,
+    /** True while that request is in flight. */
+    val explaining: Boolean = false,
+    /** Why the last "Explain" failed; cleared when it is asked for again. */
+    val explainError: LlmError? = null,
 )
 
 /**
  * The selectable reader's tap/drag-to-translate + define + save-to-vocabulary engine, shared by the
  * Texts reader, chat replies, and a routine's reading step so all behave identically. It owns the
  * transient translation-card state ([translate]), exposes saved words as [highlightTargets] for
- * tinting, and passively reviews saved words that turn up in the body being read.
+ * tinting, passively reviews saved words that turn up in the body being read, and answers the
+ * card's "Explain" ([explain]) for the readers that have no chat to ask in.
  *
  * Constructed by the owning ViewModel with its [scope]; [source] is stamped on saved cards (a
  * provider, not a value, because a chat's id changes when a draft becomes real), [readingText] is
@@ -102,6 +120,9 @@ class ReadingSelectionController(
 
     // The sentence the current selection came from, captured so a saved card keeps its context.
     private var selectionSentence: String? = null
+
+    // The in-flight "Explain", so dismissing the card or moving the selection stops paying for it.
+    private var explainJob: Job? = null
 
     init {
         // Rebuild highlight targets from the saved deck whenever it changes (fast: reads cached forms).
@@ -153,19 +174,33 @@ class ReadingSelectionController(
      */
     fun onSelectionTranslate(text: String, anchorY: Float, sourceText: String) {
         val normalized = WordColorizer.normalize(text)
-        // Headword first, then any inflected form (so tapping "gatos" still resolves to "gato").
-        val saved = allCards.value.firstOrNull { WordColorizer.normalize(it.targetTerm) == normalized }
+        // Headword first, then any inflected form (so tapping "gatos" still resolves to "gato"). A
+        // forms match is provisional: the dictionary pass below drops it when the selection is
+        // another word spelled like one of the card's forms.
+        val byFront = cardWithTerm(text)
+        val saved = byFront
             ?: allCards.value.firstOrNull {
                 normalized in HighlightTargetProvider.decode(it.inflectedForms, it.targetTerm)
             }
         selectionSentence = sentenceAround(sourceText, text)
-        _translate.value = TranslateState(original = text, loading = true, anchorY = anchorY, savedCard = saved)
+        explainJob?.cancel()
+        _translate.value = TranslateState(
+            original = text,
+            loading = true,
+            anchorY = anchorY,
+            savedCard = saved,
+            savedByForm = byFront == null && saved != null,
+        )
 
         // Shared with the dictionary pass below, which needs to know how the translation turned out.
         val translated = scope.async { translateOrNull(text) }
         scope.launch {
             val result = translated.await()
-            update(text) { it.copy(translation = result, baseTranslation = result, loading = false) }
+            update(text) {
+                // Not over a base form's meaning that got here first (see [translateBaseForm]).
+                val shown = if (it.translationOf == null) result else it.translation
+                it.copy(translation = shown, baseTranslation = result, loading = false)
+            }
         }
 
         val word = text.trim()
@@ -178,27 +213,50 @@ class ReadingSelectionController(
                 }
                 update(text) { it.copy(definition = DefinitionView.Loading) }
                 val result = conversationRepo.defineSelection(text)
-                val (lemma, pos) = lemmaSuggestion(text, result)
-                update(text) { it.copy(definition = result.toView(), saveLemma = lemma, savePos = pos) }
-                if (lemma != null) translateLemmaInstead(text, lemma, translated)
+                val entries = (result as? DictionaryResult.Found)?.entries.orEmpty()
+                val (lemma, pos) = SaveHeadword.suggest(text, entries)
+                update(text) {
+                    val saved = it.savedCard
+                    val misread = saved != null && it.savedByForm &&
+                        !SaveHeadword.formMatchHolds(saved.targetTerm, text, lemma, entries)
+                    it.copy(
+                        definition = result.toView(),
+                        saveLemma = lemma,
+                        savePos = pos,
+                        savedCard = if (misread) null else saved,
+                        relatedCard = if (misread) saved else null,
+                    )
+                }
+                if (lemma != null) translateBaseForm(text, lemma, translated)
             }
         }
     }
 
     /**
-     * The on-device translator hands back a form it doesn't know untouched ("maceran" → "maceran"),
-     * which reads as a card that simply failed. A rare conjugation is exactly where it gives up, so
-     * when the dictionary has resolved the form to a lemma, translate that instead and say so.
+     * The card is offering to save [lemma] rather than the selection, so the meaning it shows — which
+     * is the back a save writes — has to be [lemma]'s. Left as the translation of the form in the
+     * sentence, "madrigueras" is saved as *madriguera* / "burrows" and "catapultó" as *catapultar* /
+     * "catapulted": a front and a back that disagree in number or tense.
+     *
+     * The dictionary's own English for [lemma] already is that meaning, and wins at save time. This
+     * covers the headwords it has none for, by translating the base form itself and saying so. When
+     * that fails too — the translator hands back a word it doesn't know untouched — the suggestion
+     * is withdrawn instead, so the save is the selection as written beside its own translation.
+     * Either way the two sides are forms of each other.
      */
-    private suspend fun translateLemmaInstead(original: String, lemma: String, primary: Deferred<String?>) {
-        if (!primary.await().isMissingFor(original)) return
-        val fromLemma = translateOrNull(lemma) ?: return
-        // No better than before: a lemma that also comes back untouched is nothing worth showing.
-        if (fromLemma.isMissingFor(lemma)) return
+    private suspend fun translateBaseForm(original: String, lemma: String, primary: Deferred<String?>) {
+        // After the selection's own translation has landed, so this one is not overwritten by it.
+        primary.await()
+        val state = _translate.value?.takeIf { it.original == original && it.saveLemma == lemma } ?: return
+        if (dictionaryBack(state) != null) return
+        val fromLemma = translateOrNull(lemma)?.takeIf { !it.isMissingFor(lemma) }
         update(original) {
-            // The reader may have picked a different entry while this was in flight; that choice wins.
-            if (it.saveLemma != lemma) it
-            else it.copy(translation = fromLemma, translationOf = lemma, loading = false)
+            when {
+                // The reader may have picked a different entry while this was in flight; that choice wins.
+                it.saveLemma != lemma -> it
+                fromLemma != null -> it.copy(translation = fromLemma, translationOf = lemma, loading = false)
+                else -> it.copy(saveLemma = null)
+            }
         }
     }
 
@@ -207,9 +265,9 @@ class ReadingSelectionController(
      * itself, to save it as written), [pos] its part of speech.
      *
      * The lookup routinely resolves one token to several headwords ("placas" is both a form of the noun
-     * *placa* and of the verb *placar*); [lemmaSuggestion] can only guess, so the card lets the reader
-     * tap the one they meant. The shown meaning follows the choice, so the saved back is the meaning of
-     * the headword on the front rather than of whichever entry we guessed first.
+     * *placa* and of the verb *placar*); [SaveHeadword.suggest] can only guess, so the card lets the
+     * reader tap the one they meant. The shown meaning follows the choice, so the saved back is the
+     * meaning of the headword on the front rather than of whichever entry we guessed first.
      */
     fun selectSaveEntry(lemma: String, pos: String?) {
         val t = _translate.value ?: return
@@ -224,11 +282,15 @@ class ReadingSelectionController(
         scope.launch {
             val fromLemma = translateOrNull(lemma)?.takeIf { !it.isMissingFor(lemma) }
             update(original) {
-                if (it.saveLemma != lemma) it // a later tap won the race
-                else it.copy(
-                    translation = fromLemma ?: it.baseTranslation,
-                    translationOf = lemma.takeIf { _ -> fromLemma != null },
-                )
+                when {
+                    it.saveLemma != lemma -> it // a later tap won the race
+                    fromLemma != null -> it.copy(translation = fromLemma, translationOf = lemma)
+                    // The dictionary's English is this headword's meaning, and is what gets saved.
+                    dictionaryBack(it) != null -> it.copy(translation = it.baseTranslation, translationOf = null)
+                    // Nothing says what this headword means, and the selection's own translation is
+                    // not it: fall back to the selection as written rather than pair the two.
+                    else -> it.copy(saveLemma = null, translation = it.baseTranslation, translationOf = null)
+                }
             }
         }
     }
@@ -244,30 +306,10 @@ class ReadingSelectionController(
     private fun String?.isMissingFor(word: String): Boolean =
         this == null || WordColorizer.normalize(this) == WordColorizer.normalize(word)
 
-    /** Base form to offer on save (when the selection is an inflection of a different lemma) + POS. */
-    private fun lemmaSuggestion(word: String, result: DictionaryResult): Pair<String?, String?> {
-        val entries = (result as? DictionaryResult.Found)?.entries ?: return null to null
-        val inflection = entries.firstOrNull { it.inflectionOf != null && it.pos?.contains("verb", true) == true }
-            ?: entries.firstOrNull { it.inflectionOf != null }
-        val lemma = inflection?.lemma?.takeIf { !it.equals(word.trim(), ignoreCase = true) }
-        return lemma to (inflection?.pos ?: entries.firstOrNull()?.pos)
-    }
-
-    /**
-     * The picked entry's English meanings as a card back, or null when there are none.
-     *
-     * Capped: a back is a prompt to recall, and four comma-separated meanings is a paragraph to
-     * memorise. The rest stay in the dictionary, where they can be looked up again.
-     */
+    /** The English meanings of the headword a save would use, as its back; see [SaveHeadword.englishBack]. */
     private fun dictionaryBack(t: TranslateState): String? {
         val entries = (t.definition as? DefinitionView.Ready)?.entries ?: return null
-        val lemma = t.saveLemma ?: t.original
-        val entry = entries.firstOrNull { it.lemma.equals(lemma, ignoreCase = true) && it.pos == t.savePos }
-            ?: entries.firstOrNull { it.lemma.equals(lemma, ignoreCase = true) }
-            ?: return null
-        return entry.englishDefinitions.take(MAX_SAVED_MEANINGS)
-            .joinToString("; ")
-            .ifBlank { null }
+        return SaveHeadword.englishBack(entries, t.saveLemma ?: t.original, t.savePos)
     }
 
     /**
@@ -298,7 +340,38 @@ class ReadingSelectionController(
         }
     }
 
-    fun dismissTranslate() { _translate.value = null }
+    /**
+     * Asks the model what the selection means in the sentence it was read in, and shows the answer in
+     * the card. This is "Explain" for the readers that have no chat to send the question to — a
+     * text, a book, a routine's reading step; chat sends a turn instead, so the answer joins the
+     * conversation. Nothing is saved: the card's own explanation is written for the word in general
+     * when it is saved, and this one is about a single sentence.
+     */
+    fun explain() {
+        val t = _translate.value ?: return
+        if (t.explaining) return
+        val original = t.original
+        val sentence = selectionSentence
+        _translate.value = t.copy(explaining = true, explainError = null)
+        explainJob = scope.launch {
+            try {
+                val explanation = conversationRepo.explainSelection(original, sentence)
+                update(original) { it.copy(explanation = explanation, explaining = false) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: LlmException) {
+                update(original) { it.copy(explaining = false, explainError = e.error) }
+            } catch (e: Exception) {
+                val error = LlmError.Unknown(e.message ?: "error")
+                update(original) { it.copy(explaining = false, explainError = error) }
+            }
+        }
+    }
+
+    fun dismissTranslate() {
+        explainJob?.cancel()
+        _translate.value = null
+    }
 
     fun saveCurrentTranslation(headword: String? = null) {
         val t = _translate.value ?: return
@@ -314,12 +387,21 @@ class ReadingSelectionController(
             return
         }
         val term = headword?.takeIf { it.isNotBlank() } ?: t.original
+        // The selection was checked against the deck when the card opened, but the base form or the
+        // headword picked since may be a word already saved under another form's lookup (*pateó* ->
+        // *patear*, with *pateó* missing from the saved card's forms). Show that note rather than add
+        // a second one beside it.
+        cardWithTerm(term)?.let { existing ->
+            _translate.value = t.copy(savedCard = existing, picking = false)
+            return
+        }
         val kind = if (term.trim().any { it.isWhitespace() }) CardKind.PHRASE else CardKind.VOCAB
         val pos = t.savePos
         val sentence = selectionSentence
         // Dismiss the card and confirm immediately, before the (first-time slow) dictionary-backed save
         // runs — otherwise the popup lingers with no feedback and a second tap saves a duplicate. This
         // also guards re-entrancy: a second tap now hits the `_translate.value == null` early-return above.
+        explainJob?.cancel()
         _translate.value = null
         _savedNotice.value = true
         scope.launch {
@@ -340,6 +422,12 @@ class ReadingSelectionController(
     }
 
     fun consumeSavedNotice() { _savedNotice.value = false }
+
+    /** The saved card whose front is [term], compared as [WordColorizer.normalize] compares words. */
+    private fun cardWithTerm(term: String): FlashcardEntity? {
+        val normalized = WordColorizer.normalize(term)
+        return allCards.value.firstOrNull { WordColorizer.normalize(it.targetTerm) == normalized }
+    }
 
     private fun update(original: String, transform: (TranslateState) -> TranslateState) {
         val current = _translate.value ?: return
@@ -368,8 +456,5 @@ class ReadingSelectionController(
 
     private companion object {
         val WORD_REGEX = Regex("[\\p{L}\\p{N}]+")
-
-        /** English meanings kept on a saved card's back; the rest are a lookup, not a thing to recall. */
-        const val MAX_SAVED_MEANINGS = 3
     }
 }

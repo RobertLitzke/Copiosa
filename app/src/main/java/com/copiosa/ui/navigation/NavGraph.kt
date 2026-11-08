@@ -67,6 +67,7 @@ import com.copiosa.ui.home.HomeScreen
 import com.copiosa.ui.library.LibraryFilter
 import com.copiosa.ui.audio.AudioTagScreen
 import com.copiosa.ui.library.LibraryScreen
+import com.copiosa.ui.cloze.ClozeBrowseScreen
 import com.copiosa.ui.cloze.ClozeScreen
 import com.copiosa.ui.listening.ListenRebuildScreen
 import com.copiosa.ui.conjugation.ConjugationDrillScreen
@@ -308,6 +309,7 @@ fun CopiosaNavGraph(launchActions: Flow<LaunchAction> = emptyFlow()) {
                 ReviewScreen(
                     onBack = { navController.popBackStack() },
                     onOpenDetail = { id -> navController.navigate(Routes.vocabDetail(id)) },
+                    onPractiseInSentences = { ids -> navController.navigate(Routes.clozeFor(ids)) },
                 )
             }
             composable(
@@ -319,6 +321,7 @@ fun CopiosaNavGraph(launchActions: Flow<LaunchAction> = emptyFlow()) {
                     onOpenConversation = { id -> navController.navigate(Routes.conversation(id)) },
                     onOpenText = { id -> navController.navigate(Routes.textReading(id)) },
                     onOpenBook = { id -> navController.navigate(Routes.bookReading(id)) },
+                    onPractiseInSentences = { id -> navController.navigate(Routes.clozeFor(listOf(id))) },
                 )
             }
             composable(Routes.ROUTINES) {
@@ -364,8 +367,24 @@ fun CopiosaNavGraph(launchActions: Flow<LaunchAction> = emptyFlow()) {
             ) {
                 QuizPoolScreen(onBack = { navController.popBackStack() })
             }
-            composable(Routes.CLOZE) {
-                ClozeScreen(onBack = { navController.popBackStack() })
+            composable(
+                route = Routes.CLOZE_ROUTE,
+                arguments = listOf(
+                    navArgument("focus") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) {
+                ClozeScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenAudioTag = { tag -> navController.navigate(Routes.audioTag(tag)) },
+                    onBrowse = { navController.navigate(Routes.CLOZE_BROWSE) },
+                )
+            }
+            composable(Routes.CLOZE_BROWSE) {
+                ClozeBrowseScreen(onBack = { navController.popBackStack() })
             }
             composable(Routes.LISTEN_REBUILD) {
                 ListenRebuildScreen(

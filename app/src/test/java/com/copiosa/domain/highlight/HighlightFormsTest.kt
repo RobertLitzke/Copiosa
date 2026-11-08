@@ -24,6 +24,19 @@ class HighlightFormsTest {
         assertEquals(setOf("gato", "gatos"), decoded)
     }
 
+    @Test fun `decode drops a trailing bracketed hint from the headword`() {
+        // "pasa (fruta)" used to cache the literal "pasa (fruta", which no text token can equal.
+        assertEquals(setOf("pasa"), HighlightTargetProvider.decode(null, "pasa (fruta)"))
+        assertEquals(setOf("callejero"), HighlightTargetProvider.decode(null, " callejero (papel) "))
+    }
+
+    @Test fun `stripTrailingHint trims whitespace and keeps a hint-only term`() {
+        assertEquals("pasa", stripTrailingHint("  pasa  (fruta)  "))
+        assertEquals("dar la lata", stripTrailingHint("dar la lata (coloq.)"))
+        assertEquals("gato", stripTrailingHint(" gato "))
+        assertEquals("(papel)", stripTrailingHint("(papel)"))
+    }
+
     @Test fun `encode skips blank forms`() {
         assertTrue(!HighlightTargetProvider.encode(setOf("vivir", "")).contains(";;"))
     }

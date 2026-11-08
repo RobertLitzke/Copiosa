@@ -2,6 +2,7 @@ package com.copiosa.data.settings
 
 import com.copiosa.domain.model.BookDownloadMode
 import com.copiosa.domain.model.Cefr
+import com.copiosa.domain.model.ModelOption
 import com.copiosa.domain.model.OpenRouterModel
 import com.copiosa.domain.model.Persona
 import com.copiosa.domain.model.ProviderId
@@ -27,13 +28,15 @@ data class AppSettings(
     val openRouterModels: List<OpenRouterModel> = listOf(OpenRouterModel(DEFAULT_OPENROUTER_MODEL)),
     /**
      * The model for work nobody is waiting on — card enrichment, the cloze bank's upkeep, topic
-     * suggestions, title translations — one per provider, like the main model. Blank means "the
-     * same as the main model", which is how every profile starts: these calls are short and
-     * structured, so a cheaper model does them as well, but only the learner knows which one that is.
+     * suggestions, title translations. Null means "the same as the main model", which is how every
+     * profile starts: these calls are short and structured, so a cheaper model does them as well,
+     * but only the learner knows which one that is.
+     *
+     * It names its own provider, independent of [provider]: the cheap model is as likely to be on
+     * the other key as on this one. When set, its model is always one its provider's list offers
+     * ([GEMINI_MODELS] or [openRouterModels]).
      */
-    val geminiBackgroundModel: String = "",
-    /** As [geminiBackgroundModel]; when set, always one of [openRouterModels]. */
-    val openRouterBackgroundModel: String = "",
+    val backgroundChoice: ModelOption? = null,
     val nativeLanguage: String = "en",
     val targetLanguage: String = "es",
     val defaultLevel: Cefr = Cefr.B2,
@@ -121,22 +124,23 @@ data class AppSettings(
     /** The model string to send for the currently selected provider. */
     val activeModel: String get() = modelFor(provider)
 
-    /** The background slot as stored for [p]: blank when it follows the main model. */
-    fun backgroundChoiceFor(p: ProviderId): String = when (p) {
-        ProviderId.GEMINI -> geminiBackgroundModel
-        ProviderId.OPENROUTER -> openRouterBackgroundModel
-    }
+    /** The main model: the selected provider and its model. */
+    val main: ModelOption get() = ModelOption(provider, activeModel)
 
     /**
-     * The model background work on [p] should use: the slot when it is filled, otherwise [fallback].
-     * The fallback is a parameter because a book or a text carries its own model, and that — not
-     * the profile's — is what its title should fall back to.
+     * Where background work should go: the slot when it is filled, otherwise [fallback]. The
+     * fallback is a parameter because a book or a text carries its own model, and that — not the
+     * profile's — is what its title should fall back to.
+     *
+     * Says nothing about keys; a call site wants [SettingsRepository.backgroundTarget], which does.
      */
-    fun backgroundModelFor(p: ProviderId, fallback: String = modelFor(p)): String =
-        backgroundChoiceFor(p).ifBlank { fallback }
+    fun backgroundFor(fallback: ModelOption = main): ModelOption = backgroundChoice ?: fallback
 
-    /** The background model for the currently selected provider. */
-    val backgroundModel: String get() = backgroundModelFor(provider)
+    /** Whether [option] is something its provider's picker offers, so it can be sent work. */
+    fun offers(option: ModelOption): Boolean = when (option.provider) {
+        ProviderId.GEMINI -> option.model in GEMINI_MODELS
+        ProviderId.OPENROUTER -> openRouterModels.any { it.id == option.model }
+    }
 
     /**
      * How [model] should be named in the UI: the nickname the learner gave it, if any, else the

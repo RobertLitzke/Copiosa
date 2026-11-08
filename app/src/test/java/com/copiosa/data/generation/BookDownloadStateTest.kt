@@ -1,6 +1,7 @@
 package com.copiosa.data.generation
 
 import com.copiosa.domain.model.BookDownloadMode
+import com.copiosa.domain.model.ModelOption
 import com.copiosa.domain.model.ProviderId
 import org.junit.Assert.assertEquals
 import org.junit.Test

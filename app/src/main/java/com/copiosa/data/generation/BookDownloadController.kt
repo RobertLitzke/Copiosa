@@ -5,14 +5,12 @@ import com.copiosa.data.settings.AppSettings
 import com.copiosa.data.settings.SettingsRepository
 import com.copiosa.data.usage.LlmUsageRepository
 import com.copiosa.domain.model.BookDownloadMode
+import com.copiosa.domain.model.ModelOption
 import com.copiosa.domain.model.ProviderId
 import com.copiosa.domain.usage.BookSpend
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
-
-/** One selectable model in the download dialog: which provider it goes to, and its model string. */
-data class ModelOption(val provider: ProviderId, val model: String)
 
 /** What the download-mode dialog needs to draw itself for one book. */
 data class BookDownloadState(

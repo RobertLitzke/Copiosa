@@ -26,8 +26,10 @@ class MaintenanceRunner @Inject constructor(
         val active = settings.activeTag()
         for (tag in settings.allTags()) {
             val profile = settings.settingsFor(tag)
-            // Evaluated once per profile, never per task: one setting, one key lookup.
-            val llmAllowed = profile.backgroundLlmTasks && settings.hasApiKey(profile.provider)
+            // Evaluated once per profile, never per task. Either key will do: the background slot
+            // can sit on the other provider, and a task whose own key is missing fails on its own.
+            val llmAllowed = profile.backgroundLlmTasks &&
+                (settings.hasApiKey(profile.provider) || settings.hasApiKey(profile.backgroundFor().provider))
 
             for (task in tasks.all) {
                 if (task.scope == TaskScope.ACTIVE_PROFILE && tag != active) continue

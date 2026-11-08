@@ -7,6 +7,7 @@ import com.copiosa.data.local.FlashcardEntity
 import com.copiosa.data.local.cardDirection
 import com.copiosa.data.local.noteKey
 import com.copiosa.data.local.ReviewLogDao
+import com.copiosa.data.local.ReviewLogEntity
 import com.copiosa.data.remote.JsonShape
 import com.copiosa.data.remote.LlmMessage
 import com.copiosa.data.remote.LlmRequest
@@ -268,7 +269,11 @@ class FlashcardRepository @Inject constructor(
     private suspend fun enrichBatch(ids: List<Long>): Boolean {
         val settings = settingsRepo.settings.first()
         // The same budget gate the background maintenance runner applies before spending a call.
-        if (!settings.backgroundLlmTasks || !settingsRepo.hasApiKey(settings.provider)) return false
+        if (!settings.backgroundLlmTasks ||
+            !settingsRepo.hasApiKey(settingsRepo.backgroundTarget(settings).provider)
+        ) {
+            return false
+        }
         // Re-read rather than trusting the queued snapshot: a card may have been deleted since, or
         // already enriched by the user tapping "explain" while the debounce was running.
         val cards = ids.mapNotNull { dao.getById(it) }.filter { it.explanation.isNullOrBlank() }
@@ -531,6 +536,39 @@ class FlashcardRepository @Inject constructor(
      */
     suspend fun setSuspended(id: Long, suspended: Boolean) = dao.setSuspended(id, suspended)
 
+    /** Every graded review of card [id], newest first. */
+    fun observeReviews(id: Long): Flow<List<ReviewLogEntity>> = reviewLogDao.observeForCard(id)
+
+    /**
+     * Starts one direction of a word over, as a new card due now (Anki's "forget"). The lapse and
+     * repetition counts go back to zero with the schedule — a card started over that still counted
+     * as a leech would have been started over in name only. The review log is kept: what happened
+     * happened, and it is the log an export and a future parameter fit read.
+     */
+    suspend fun resetSchedule(id: Long, now: Long = System.currentTimeMillis()) {
+        val card = dao.getById(id) ?: return
+        dao.updateSchedule(
+            card.copy(
+                state = FlashcardState.NEW,
+                stability = null,
+                difficulty = null,
+                fsrsStep = null,
+                intervalDays = 0.0,
+                repetitions = 0,
+                lapses = 0,
+                lastReviewedAt = null,
+                dueAt = now,
+            ),
+        )
+    }
+
+    /**
+     * Moves one direction's next review to [dueAt] and changes nothing else. FSRS grades the next
+     * answer on the time actually elapsed since the last review, so the interval needs no fixing up
+     * to match.
+     */
+    suspend fun setDueDate(id: Long, dueAt: Long) = dao.setDueAt(id, dueAt)
+
     /** Freezes/unfreezes every direction of the note card [id] belongs to: the word set aside whole. */
     suspend fun setNoteSuspended(id: Long, suspended: Boolean) = dao.setNoteSuspended(id, suspended)
 
@@ -624,13 +662,15 @@ class FlashcardRepository @Inject constructor(
 
     /**
      * Builds and sends one enrichment request for [cards], returning the parsed results.
-     * [background] sends it to the profile's background model rather than its main one.
+     * [background] sends it to the profile's background model — and that model's provider — rather
+     * than its main one.
      */
     private suspend fun requestExplanations(
         cards: List<FlashcardEntity>,
         background: Boolean = true,
     ): List<VocabExplanationDto> {
         val settings = settingsRepo.settings.first()
+        val target = if (background) settingsRepo.backgroundTarget(settings) else settings.main
         val items = cards.map {
             VocabRequestItem(
                 id = it.id,
@@ -645,11 +685,11 @@ class FlashcardRepository @Inject constructor(
             nativeLang = settings.nativeLanguage,
             level = settings.defaultLevel,
         )
-        val response = providers.active().chat(
+        val response = providers.forId(target.provider).chat(
             LlmRequest(
                 systemPrompt = system,
                 messages = listOf(LlmMessage(Role.USER, VocabExplanationParser.encodeRequest(items))),
-                model = if (background) settings.backgroundModel else settings.activeModel,
+                model = target.model,
                 feature = LlmFeature.VOCAB,
                 maxTokens = (cards.size * 280).coerceIn(512, 4096),
                 json = JsonShape.ARRAY,

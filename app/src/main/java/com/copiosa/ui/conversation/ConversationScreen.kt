@@ -115,6 +115,7 @@ import com.copiosa.ui.components.SectionLabel
 import com.copiosa.ui.components.TrackFocusTime
 import com.copiosa.ui.components.SelectableMessage
 import com.copiosa.ui.components.TranslationCard
+import com.copiosa.ui.audio.PronounceButton
 import com.copiosa.ui.audio.TtsDownloadPrompt
 import com.copiosa.ui.components.WordColorizer
 import com.copiosa.ui.components.llmErrorText
@@ -290,6 +291,7 @@ fun ConversationScreen(
                             onSelected = viewModel::onSelectionTranslate,
                             onCleared = viewModel::dismissTranslate,
                             onSendToAudio = { audioGate.request { notifyAudio(viewModel.sendToAudio(message.id)) } },
+                            language = config.targetLanguage,
                         )
                     }
                 }
@@ -613,6 +615,7 @@ private fun MessageBubble(
     onSelected: (Long, String, Float) -> Unit,
     onCleared: () -> Unit,
     onSendToAudio: () -> Unit,
+    language: String,
 ) {
     if (message.role == Role.USER) {
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -640,23 +643,29 @@ private fun MessageBubble(
                 onSelected = { text, anchorY -> onSelected(message.id, text, anchorY) },
                 onCleared = onCleared,
             )
-            AssistantActionRow(message = message, onSendToAudio = onSendToAudio)
+            AssistantActionRow(message = message, language = language, onSendToAudio = onSendToAudio)
         }
     }
 }
 
 /**
- * The action row under an assistant reply: headphones (queue to on-device TTS in the Audio tab),
- * a pill showing the level this reply was generated at, and an overflow revealing the rest of that
+ * The action row under an assistant reply: play (read it aloud now, in [language]), headphones
+ * (queue to on-device TTS in the Audio tab), a pill showing the level this reply was generated at, and an overflow revealing the rest of that
  * reply's settings and target-word debug info. Shared by the stock and persona chat layouts.
  */
 @Composable
-internal fun AssistantActionRow(message: MessageEntity, onSendToAudio: () -> Unit) {
+internal fun AssistantActionRow(message: MessageEntity, language: String, onSendToAudio: () -> Unit) {
     var showMeta by remember { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        PronounceButton(
+            text = message.content,
+            langCode = language,
+            iconSize = 18.dp,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         IconButton(onClick = onSendToAudio, modifier = Modifier.size(36.dp)) {
             Icon(
                 Icons.Filled.Headphones,

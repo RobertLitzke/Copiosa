@@ -6,7 +6,6 @@ import com.copiosa.data.cloze.sources.LlmClozeSource
 import com.copiosa.data.maintenance.MaintenanceTask
 import com.copiosa.data.maintenance.TaskContext
 import com.copiosa.data.maintenance.TaskScope
-import com.copiosa.domain.cloze.ClozeMineContext
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -46,7 +45,6 @@ class ClozeGenerateTask @Inject constructor(
 
         val mineContext = cloze.buildContext(ctx.profileTag)
         if (mineContext.formToCard.isEmpty()) return
-        if (mineContext.bankSize >= ClozeMineContext.BANK_MAX_PER_LANGUAGE) return
 
         cloze.mine(
             sources = listOf(llmSource),

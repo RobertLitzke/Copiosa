@@ -29,3 +29,19 @@ data class HighlightTarget(
  * [com.copiosa.ui.components.WordColorizer.normalize] delegates here.
  */
 fun normalizeWord(word: String): String = word.lowercase().trim { !it.isLetterOrDigit() }
+
+private val TRAILING_HINT = Regex("\\s*\\([^)]*\\)\\s*$")
+
+/**
+ * The term without a trailing disambiguating hint in brackets, and without surrounding whitespace:
+ * "callejero (papel)" is the word "callejero" plus a hint for the learner, and only the word ever
+ * appears in running text. A term that is nothing but a hint is returned as it stands (trimmed) so a
+ * card never ends up with no headword at all.
+ */
+fun stripTrailingHint(term: String): String {
+    val stripped = term.replace(TRAILING_HINT, "").trim()
+    return stripped.ifEmpty { term.trim() }
+}
+
+/** [normalizeWord] of a card term after its bracketed hint is dropped — the key a card highlights by. */
+fun normalizeHeadword(term: String): String = normalizeWord(stripTrailingHint(term))

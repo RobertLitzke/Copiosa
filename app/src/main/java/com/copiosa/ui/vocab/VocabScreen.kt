@@ -274,6 +274,7 @@ fun VocabScreen(
             onStatus = viewModel::setStatus,
             onPartOfSpeech = viewModel::setPartOfSpeech,
             onExplained = viewModel::setExplained,
+            onLeechesOnly = viewModel::setLeechesOnly,
             onReset = viewModel::clearFilters,
             onDismiss = { sortFilterOpen = false },
         )
@@ -606,6 +607,7 @@ private fun SortFilterSheet(
     onStatus: (CardStatus?) -> Unit,
     onPartOfSpeech: (String?) -> Unit,
     onExplained: (ExplainedFilter) -> Unit,
+    onLeechesOnly: (Boolean) -> Unit,
     onReset: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -636,6 +638,19 @@ private fun SortFilterSheet(
                         selected = filter.status == status,
                         onClick = { onStatus(if (filter.status == status) null else status) },
                         label = { Text(status.label()) },
+                    )
+                }
+            }
+
+            // Not a status: a leech is a word at any of the stages above that keeps falling back.
+            SheetLabel(R.string.filter_leeches)
+            ChipRow {
+                item { FilterChip(!filter.leechesOnly, { onLeechesOnly(false) }, { Text(stringResource(R.string.filter_any)) }) }
+                item {
+                    FilterChip(
+                        selected = filter.leechesOnly,
+                        onClick = { onLeechesOnly(!filter.leechesOnly) },
+                        label = { Text(stringResource(R.string.filter_leeches_only)) },
                     )
                 }
             }

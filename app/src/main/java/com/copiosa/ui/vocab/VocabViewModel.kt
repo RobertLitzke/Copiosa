@@ -223,11 +223,20 @@ class VocabViewModel @Inject constructor(
     val partsOfSpeech: StateFlow<List<String>> =
         all.map(::partsOfSpeechIn).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * The words with a direction that keeps being forgotten. Read off every card rather than off
+     * [all], whose rows are lead cards only — the direction in trouble is often the other one.
+     */
+    private val leechNotes: StateFlow<Set<Long>> =
+        repo.observeAll().map(::leechNotesIn)
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
     /** The list as shown: [all] narrowed by [filter], ordered by [sort] — see [listVocab]. */
     val filtered: StateFlow<List<FlashcardEntity>> =
-        combine(all, _filter, _sort, ranks) { cards, filter, sort, ranks ->
+        combine(all, _filter, _sort, ranks, leechNotes) { cards, filter, sort, ranks, leeches ->
             val collator = Collator.getInstance(Locale.forLanguageTag(cards.firstOrNull()?.targetLanguage ?: "es"))
-            listVocab(cards, filter, sort, System.currentTimeMillis(), ranks, collator)
+            listVocab(cards, filter, sort, System.currentTimeMillis(), ranks, collator, leeches)
         }
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -248,6 +257,8 @@ class VocabViewModel @Inject constructor(
     fun setPartOfSpeech(pos: String?) = _filter.update { it.copy(partOfSpeech = pos) }
 
     fun setExplained(explained: ExplainedFilter) = _filter.update { it.copy(explained = explained) }
+
+    fun setLeechesOnly(leechesOnly: Boolean) = _filter.update { it.copy(leechesOnly = leechesOnly) }
 
     fun setSort(sort: VocabSort) { _sort.value = sort }
 

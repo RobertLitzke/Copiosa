@@ -9,13 +9,16 @@ import com.copiosa.data.repository.ImageCandidate
 import com.copiosa.data.repository.ImageSearchRepository
 import com.copiosa.domain.model.FlashcardState
 import com.copiosa.domain.model.ReviewRating
+import com.copiosa.domain.srs.Leech
 import com.copiosa.domain.srs.SpacedRepetitionScheduler
+import com.copiosa.domain.srs.isLeech
 import com.copiosa.domain.vocab.AltForms
 import com.copiosa.domain.vocab.BackNoteSplitter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -52,6 +55,12 @@ data class ReviewSessionState(
      */
     val nextSessionSizes: List<Int> = emptyList(),
 )
+
+/**
+ * A word that has just been forgotten often enough to be worth a second look. Shown once, above the
+ * next card, and gone at the next grade — it points at the word's own screen and asks for nothing.
+ */
+data class LeechNotice(val cardId: Long, val word: String, val lapses: Int)
 
 /**
  * The follow-on sessions worth offering once one of [sessionSize] cards ends with [due] still
@@ -103,6 +112,8 @@ data class ReviewSessionSummary(
     val intervalCounts: Map<IntervalBucket, Int>,
     /** Distinct cards whose *first* grade this session was anything but "Again". */
     val firstTryCorrect: Int,
+    /** Cards graded "Again" at any point this session, in the order first missed. */
+    val missedCards: List<Long> = emptyList(),
 ) {
     val firstTryPercent: Int
         get() = if (cards == 0) 0 else Math.round(firstTryCorrect * 100f / cards)
@@ -164,6 +175,13 @@ class ReviewViewModel @Inject constructor(
     // an edit/delete — those invalidate taking a grade back, not the fact that it happened.
     private val results = MutableStateFlow<List<GradeRecord>>(emptyList())
 
+    private val _leechNotice = MutableStateFlow<LeechNotice?>(null)
+
+    /** Set when the last grade tipped a card into being a leech (or further in); see [Leech.crossedInto]. */
+    val leechNotice: StateFlow<LeechNotice?> = _leechNotice.asStateFlow()
+
+    fun dismissLeechNotice() { _leechNotice.value = null }
+
     val state: StateFlow<ReviewSessionState> =
         combine(session, index, loading, undoDepth, builtEmpty) { cards, i, isLoading, undoable, empty ->
             val current = cards.getOrNull(i)
@@ -206,6 +224,7 @@ class ReviewViewModel @Inject constructor(
             ratingCounts = graded.groupingBy { it.rating }.eachCount(),
             intervalCounts = distinct.groupingBy { it.bucket }.eachCount(),
             firstTryCorrect = distinct.count { it.rating != ReviewRating.AGAIN },
+            missedCards = graded.filter { it.rating == ReviewRating.AGAIN }.map { it.cardId }.distinct(),
         )
     }
 
@@ -261,6 +280,8 @@ class ReviewViewModel @Inject constructor(
     fun rate(rating: ReviewRating) {
         val i = index.value
         val card = session.value.getOrNull(i) ?: return
+        // A notice is about the grade before this one; the next grade is the learner moving on.
+        _leechNotice.value = null
         viewModelScope.launch {
             val fresh = repo.getCard(card.id) ?: card
             val logId = repo.review(fresh, rating)
@@ -282,6 +303,9 @@ class ReviewViewModel @Inject constructor(
                 session.value = session.value.mapIndexed { idx, c ->
                     if (idx > i && c.id == fresh.id) graded else c
                 }
+                if (graded.isLeech && Leech.crossedInto(fresh.lapses, graded.lapses)) {
+                    _leechNotice.value = LeechNotice(graded.id, graded.front, graded.lapses)
+                }
             }
         }
         if (rating == ReviewRating.AGAIN) {
@@ -295,6 +319,7 @@ class ReviewViewModel @Inject constructor(
      * entry, removes an "Again" re-queue duplicate, and steps the session back to that card.
      */
     fun undo() {
+        _leechNotice.value = null
         viewModelScope.launch {
             val entry = undoStack.removeLastOrNull() ?: return@launch
             undoDepth.value = undoStack.size

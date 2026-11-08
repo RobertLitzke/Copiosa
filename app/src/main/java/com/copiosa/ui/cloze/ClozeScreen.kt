@@ -1,5 +1,6 @@
 package com.copiosa.ui.cloze
 
+import android.text.format.DateUtils
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,11 +17,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.outlined.AltRoute
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -37,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -45,9 +50,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.copiosa.R
 import com.copiosa.data.cloze.ClozeMineResult
 import com.copiosa.data.local.ClozeSentenceEntity
+import com.copiosa.data.tts.TtsModelState
 import com.copiosa.domain.cloze.ClozeReject
 import com.copiosa.domain.model.Cloze
 import com.copiosa.domain.stats.FocusActivityType
+import com.copiosa.ui.audio.TtsDownloadPrompt
 import com.copiosa.ui.components.ScreenHeader
 import com.copiosa.ui.components.SectionLabel
 import com.copiosa.ui.components.TrackFocusTime
@@ -63,15 +70,30 @@ import com.copiosa.ui.routines.activities.MultipleChoiceActivity
 @Composable
 fun ClozeScreen(
     onBack: () -> Unit,
+    /** Opens an audio folder by its tag — where a radio track made here turns up. */
+    onOpenAudioTag: (String) -> Unit,
+    /** Opens the bank as a list to search and tidy. */
+    onBrowse: () -> Unit,
     viewModel: ClozeViewModel = hiltViewModel(),
 ) {
     val home by viewModel.home.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
+    val reading by viewModel.reading.collectAsStateWithLifecycle()
     val active = session
-    val running = active != null && !active.finished
+    val passages = reading
+    val running = (active != null && !active.finished) || (passages != null && !passages.finished)
 
     // Only a sitting in flight counts as study time; browsing the setup pane doesn't.
     TrackFocusTime(FocusActivityType.CLOZE, enabled = running)
+
+    val report: @Composable (Int) -> Unit = { index ->
+        ReportMenu(
+            // Keyed on the item so the "reported" acknowledgement doesn't carry over.
+            key = index,
+            onAmbiguous = { viewModel.flagAmbiguous(index) },
+            onWrong = { viewModel.flagWrong(index) },
+        )
+    }
 
     Column(Modifier.fillMaxSize()) {
         // A sitting brings its own header — one that counts questions and offers a way past the
@@ -82,20 +104,61 @@ fun ClozeScreen(
 
         when {
             home.loading -> Unit
+            passages != null -> {
+                val passage = passages.current
+                if (passage == null) {
+                    ScoreResultsPane(
+                        correct = passages.correct,
+                        answered = passages.blanks,
+                        missed = emptyList(),
+                        onAgain = { viewModel.dismissReading(); viewModel.startReading() },
+                        onDone = viewModel::dismissReading,
+                    )
+                } else {
+                    ClozeReadingActivity(
+                        passage = passage,
+                        index = passages.index,
+                        total = passages.passages.size,
+                        title = stringResource(R.string.cloze_reading_title),
+                        onExit = onBack,
+                        onChecked = viewModel::onPassageChecked,
+                        onContinue = viewModel::nextPassage,
+                    )
+                }
+            }
             active == null -> SetupPane(
                 home = home,
                 onStock = viewModel::stock,
-                onStart = viewModel::startSession,
+                onStart = viewModel::start,
+                onRead = viewModel::startReading,
+                onBrowse = onBrowse,
+                onDownloadVoice = viewModel::downloadVoice,
+                onMakeRadio = viewModel::makeRadio,
+                onOpenAudioTag = onOpenAudioTag,
                 onUnflag = viewModel::unflag,
                 onDeleteFlagged = viewModel::deleteFlagged,
             )
-            active.finished -> ResultsPane(
-                session = active,
-                onAgain = { viewModel.dismissSession(); viewModel.startSession() },
+            active.finished -> ScoreResultsPane(
+                correct = active.correct,
+                answered = active.answered,
+                missed = active.missed,
+                // Another of the same kind: a listening sitting is followed by a listening one.
+                onAgain = viewModel::again,
                 onDone = viewModel::dismissSession,
             )
+            active.mode == ClozeMode.TYPED -> TypedClozeActivity(
+                items = active.items,
+                onAnswer = viewModel::onAnswer,
+                onComplete = viewModel::onSessionComplete,
+                title = stringResource(R.string.cloze_title),
+                onExit = onBack,
+                afterReveal = report,
+            )
             else -> MultipleChoiceActivity(
-                prompt = stringResource(R.string.cloze_prompt),
+                prompt = stringResource(
+                    if (active.audio != null) R.string.cloze_listen_prompt else R.string.cloze_prompt,
+                ),
+                audio = active.audio,
                 items = active.items.map {
                     ChoiceItem(
                         sentence = it.prompt,
@@ -110,15 +173,10 @@ fun ClozeScreen(
                 },
                 onAnswer = viewModel::onAnswer,
                 onComplete = viewModel::onSessionComplete,
-                afterReveal = { index ->
-                    ReportMenu(
-                        // Keyed on the item so the "reported" acknowledgement doesn't carry over.
-                        key = index,
-                        onAmbiguous = { viewModel.flagAmbiguous(index) },
-                        onWrong = { viewModel.flagWrong(index) },
-                    )
-                },
-                title = stringResource(R.string.cloze_title),
+                afterReveal = report,
+                title = stringResource(
+                    if (active.mode == ClozeMode.TRACK) R.string.cloze_track_title else R.string.cloze_title,
+                ),
                 onExit = onBack,
                 allowSkip = true,
                 allowAgainLater = true,
@@ -183,10 +241,16 @@ private fun ReportMenu(key: Int, onAmbiguous: () -> Unit, onWrong: () -> Unit) {
 private fun SetupPane(
     home: ClozeHomeUi,
     onStock: () -> Unit,
-    onStart: () -> Unit,
+    onStart: (ClozeMode) -> Unit,
+    onRead: () -> Unit,
+    onBrowse: () -> Unit,
+    onDownloadVoice: () -> Unit,
+    onMakeRadio: (withTranslation: Boolean, title: String, tag: String) -> Unit,
+    onOpenAudioTag: (String) -> Unit,
     onUnflag: (Long) -> Unit,
     onDeleteFlagged: (Long) -> Unit,
 ) {
+    var askVoice by remember { mutableStateOf(false) }
     Column(
         Modifier
             .fillMaxSize()
@@ -210,9 +274,16 @@ private fun SetupPane(
         }
 
         if (home.canStart) {
-            Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { onStart(ClozeMode.CHOICE) }, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.cloze_start))
             }
+            // The same words, asked harder: nothing to pick from.
+            OutlinedButton(onClick = { onStart(ClozeMode.TYPED) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.Keyboard, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.cloze_type))
+            }
+            ListenButton(home = home, onListen = { onStart(ClozeMode.LISTEN) }, onAskVoice = { askVoice = true })
             if (home.noneUsable) {
                 Text(
                     stringResource(R.string.cloze_none_usable),
@@ -220,6 +291,35 @@ private fun SetupPane(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+
+            Spacer(Modifier.height(8.dp))
+            SectionLabel(stringResource(R.string.cloze_more_section))
+            OutlinedButton(onClick = onRead, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.cloze_reading_start))
+            }
+            if (home.noPassages) {
+                Text(
+                    stringResource(R.string.cloze_reading_none),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            home.track?.let { track ->
+                OutlinedButton(
+                    onClick = { onStart(ClozeMode.TRACK) },
+                    enabled = track.banked > track.passed,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.cloze_track_start))
+                }
+                Text(
+                    stringResource(R.string.cloze_track_progress, track.passed, track.total, track.banked),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            SectionLabel(stringResource(R.string.cloze_bank_section))
         }
 
         // The bank is stocked in the background too, but a first visit must not show an empty screen.
@@ -241,6 +341,15 @@ private fun SetupPane(
 
         home.lastStock?.let { StockOutcome(it) }
 
+        if (home.canStart) {
+            TextButton(onClick = onBrowse) { Text(stringResource(R.string.cloze_browse_open)) }
+        }
+
+        // Only once there is a voice to make it with; the Listen button above is the way to get one.
+        if (home.canStart && home.voiceReady) {
+            RadioSection(home = home, onMakeRadio = onMakeRadio, onOpenAudioTag = onOpenAudioTag)
+        }
+
         if (home.flagged.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             SectionLabel(stringResource(R.string.cloze_flagged_section))
@@ -249,6 +358,101 @@ private fun SetupPane(
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (askVoice) {
+        TtsDownloadPrompt(
+            onConfirm = { askVoice = false; onDownloadVoice() },
+            onDismiss = { askVoice = false },
+        )
+    }
+}
+
+/**
+ * The way into a listening sitting — the same sentences, heard before they are seen. Without the
+ * voice it is still shown, as the offer to fetch it: a mode that is simply absent can't be found.
+ */
+@Composable
+private fun ListenButton(home: ClozeHomeUi, onListen: () -> Unit, onAskVoice: () -> Unit) {
+    when {
+        home.voice is TtsModelState.Downloading -> Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(12.dp))
+            Text(stringResource(R.string.quiz_model_downloading), style = MaterialTheme.typography.bodyMedium)
+        }
+        !home.voiceReady -> OutlinedButton(onClick = onAskVoice, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.cloze_listen_needs_voice))
+        }
+        else -> OutlinedButton(
+            onClick = onListen,
+            enabled = !home.preparingListen,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (home.preparingListen) {
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                stringResource(if (home.preparingListen) R.string.rebuild_preparing else R.string.cloze_listen),
+            )
+        }
+    }
+}
+
+/**
+ * Radio: the bank as something to listen to with hands and eyes elsewhere. It makes an ordinary
+ * playlist track rather than playing anything here, so it plays in the background, resumes, and
+ * obeys the speed setting like every other track — and this screen only has to say where it went.
+ */
+@Composable
+private fun RadioSection(
+    home: ClozeHomeUi,
+    onMakeRadio: (withTranslation: Boolean, title: String, tag: String) -> Unit,
+    onOpenAudioTag: (String) -> Unit,
+) {
+    var withTranslation by remember { mutableStateOf(true) }
+    val tag = stringResource(R.string.cloze_radio_tag)
+    val context = LocalContext.current
+
+    Spacer(Modifier.height(8.dp))
+    SectionLabel(stringResource(R.string.cloze_radio_section))
+    Text(
+        stringResource(R.string.cloze_radio_explainer),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = withTranslation, onCheckedChange = { withTranslation = it })
+        Text(stringResource(R.string.cloze_radio_with_translation), style = MaterialTheme.typography.bodyMedium)
+    }
+    OutlinedButton(
+        onClick = {
+            // Dated to the minute, so two tracks made on one day are told apart in the folder.
+            val stamp = DateUtils.formatDateTime(
+                context,
+                System.currentTimeMillis(),
+                DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_MONTH,
+            )
+            onMakeRadio(withTranslation, context.getString(R.string.cloze_radio_title, stamp), tag)
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(stringResource(R.string.cloze_radio_make))
+    }
+    home.radioQueued?.let { queued ->
+        Text(
+            if (queued > 0) stringResource(R.string.cloze_radio_queued, queued)
+            else stringResource(R.string.cloze_radio_none),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (queued > 0) {
+            TextButton(onClick = { onOpenAudioTag(tag) }) { Text(stringResource(R.string.cloze_radio_open)) }
+        }
     }
 }
 
@@ -303,7 +507,13 @@ private fun FlaggedRow(row: ClozeSentenceEntity, onUnflag: () -> Unit, onDelete:
 }
 
 @Composable
-private fun ResultsPane(session: ClozeSessionUi, onAgain: () -> Unit, onDone: () -> Unit) {
+private fun ScoreResultsPane(
+    correct: Int,
+    answered: Int,
+    missed: List<String>,
+    onAgain: () -> Unit,
+    onDone: () -> Unit,
+) {
     Column(
         Modifier
             .fillMaxSize()
@@ -312,13 +522,13 @@ private fun ResultsPane(session: ClozeSessionUi, onAgain: () -> Unit, onDone: ()
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            stringResource(R.string.cloze_results_score, session.correct, session.answered),
+            stringResource(R.string.cloze_results_score, correct, answered),
             style = MaterialTheme.typography.headlineSmall,
         )
-        if (session.missed.isNotEmpty()) {
+        if (missed.isNotEmpty()) {
             SectionLabel(stringResource(R.string.cloze_results_missed))
             Text(
-                session.missed.joinToString(", "),
+                missed.joinToString(", "),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.copiosa.domain.listening.RadioScript
 import com.copiosa.domain.model.AudioStatus
 import com.copiosa.domain.model.BookDirection
 import com.copiosa.domain.model.BookDownloadMode
@@ -154,6 +155,10 @@ data class AudioItemEntity(
     val sourceChapterIndex: Int? = null,
     // Resume point in ms, for tracks too long to restart from the top. Zeroed when marked played.
     val positionMs: Long = 0,
+    // What [text] is, and so how it is spoken: "ARTICLE" is prose read through; "RADIO" is a script
+    // of sentences with their translations (see RadioScript). A plain slug, as on book_paragraphs,
+    // so a new kind needs no migration and an unknown one is simply read as prose.
+    val kind: String = RadioScript.KIND_ARTICLE,
 )
 
 /**
@@ -252,6 +257,11 @@ data class ClozeSentenceEntity(
     val ankiNoteGuid: String? = null,
     val ankiOrd: Int? = null,
     val createdAt: Long,
+    // Kept by the learner: favoured when a sitting is composed and never rotated out of the bank.
+    val pinned: Boolean = false,
+    // The translation came from the on-device translator rather than a source or a model. Good enough
+    // to read, and the marker that lets the background model pass replace it with a better one.
+    val machineTranslated: Boolean = false,
 )
 
 /**

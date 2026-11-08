@@ -1,6 +1,7 @@
 package com.copiosa.data.maintenance
 
 import com.copiosa.data.settings.AppSettings
+import com.copiosa.domain.model.ModelOption
 import com.copiosa.domain.model.ProviderId
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -42,13 +43,19 @@ class MaintenanceRunnerTest {
         private val tags: List<String> = listOf("es"),
         private val backgroundLlmTasks: Boolean = true,
         private val hasKey: Boolean = true,
+        private val background: ModelOption? = null,
+        /** When set, the only providers with a key; [hasKey] is then ignored. */
+        private val keyed: Set<ProviderId>? = null,
     ) : ProfileSettingsSource {
         override suspend fun activeTag() = active
         override suspend fun allTags() = tags
-        override suspend fun settingsFor(tag: String) =
-            AppSettings(targetLanguage = tag, backgroundLlmTasks = backgroundLlmTasks)
+        override suspend fun settingsFor(tag: String) = AppSettings(
+            targetLanguage = tag,
+            backgroundLlmTasks = backgroundLlmTasks,
+            backgroundChoice = background,
+        )
 
-        override fun hasApiKey(provider: ProviderId) = hasKey
+        override fun hasApiKey(provider: ProviderId) = keyed?.contains(provider) ?: hasKey
     }
 
     private fun runner(
@@ -91,6 +98,19 @@ class MaintenanceRunnerTest {
         runner(listOf(remote), FakeSettings(backgroundLlmTasks = true, hasKey = false)).runAll(now)
 
         assertTrue(remote.ranFor.isEmpty())
+    }
+
+    @Test
+    fun `llm tasks run when only the background model's provider has a key`() = runTest {
+        // The profile's main provider is Gemini; the slot is on OpenRouter, which is the keyed one.
+        val remote = FakeTask("remote", needsLlm = true)
+        val settings = FakeSettings(
+            background = ModelOption(ProviderId.OPENROUTER, "openai/gpt-4o-mini"),
+            keyed = setOf(ProviderId.OPENROUTER),
+        )
+        runner(listOf(remote), settings).runAll(now)
+
+        assertEquals(listOf("es"), remote.ranFor)
     }
 
     @Test

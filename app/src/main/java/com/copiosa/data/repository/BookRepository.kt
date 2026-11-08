@@ -26,6 +26,7 @@ import com.copiosa.domain.book.speechTextOf
 import com.copiosa.domain.book.targetText
 import com.copiosa.domain.model.BookDirection
 import com.copiosa.domain.model.BookDownloadMode
+import com.copiosa.domain.model.ModelOption
 import com.copiosa.domain.model.ProviderId
 import com.copiosa.domain.model.Role
 import com.copiosa.domain.prompt.BookSectionAligner
@@ -177,11 +178,14 @@ class BookRepository @Inject constructor(
             book.title == book.originalTitle &&
             book.originalTitle.isNotBlank()
         if (section == 0 && translateTitle) {
-            // A few words of translation: the background slot's kind of call. The book's own model
-            // is the fallback, since that — not the profile's — is what its sections use.
-            val titleModel = settingsRepo.settingsFor(book.targetLanguage)
-                .backgroundModelFor(book.provider, fallback = book.model)
-            val translatedTitle = provider.chatOrEmpty(
+            // A few words of translation: the background slot's kind of call, on the slot's own
+            // provider. The book's own model is the fallback, since that — not the profile's — is
+            // what its sections use.
+            val titleTarget = settingsRepo.backgroundTarget(
+                settingsRepo.settingsFor(book.targetLanguage),
+                fallback = ModelOption(book.provider, book.model),
+            )
+            val translatedTitle = providers.forId(titleTarget.provider).chatOrEmpty(
                 LlmRequest(
                     systemPrompt = prompts.textTranslationSystemPrompt(
                         country = book.country,
@@ -190,7 +194,7 @@ class BookRepository @Inject constructor(
                         level = book.level,
                     ),
                     messages = listOf(LlmMessage(Role.USER, book.originalTitle.trim())),
-                    model = titleModel,
+                    model = titleTarget.model,
                     feature = LlmFeature.BOOK,
                     bookId = bookId,
                     maxTokens = 256,

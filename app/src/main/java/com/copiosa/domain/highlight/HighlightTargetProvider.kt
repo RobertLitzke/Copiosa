@@ -70,15 +70,17 @@ class HighlightTargetProvider @Inject constructor(
         // Expand per language so each card's inflections come from its own pack.
         for ((lang, group) in cards.groupBy { it.targetLanguage }) {
             // Only single-word headwords can be inflection-expanded; multi-word phrases stay exact.
-            val expandable = group.filterNot { it.targetTerm.trim().any(Char::isWhitespace) }
-                .associate { it.targetTerm to posFilter(it.partOfSpeech, it.gender) }
+            // The bracketed hint ("pasa (fruta)") is not part of the word, so it neither blocks
+            // expansion nor goes into the lookup.
+            val expandable = group.filterNot { stripTrailingHint(it.targetTerm).any(Char::isWhitespace) }
+                .associate { stripTrailingHint(it.targetTerm) to posFilter(it.partOfSpeech, it.gender) }
             val expansions = if (expandable.isNotEmpty() && dictionary.isDownloaded(lang)) {
                 dictionary.inflectedFormsFor(expandable, lang)
             } else {
                 emptyMap()
             }
             for (card in group) {
-                val term = card.targetTerm
+                val term = stripTrailingHint(card.targetTerm)
                 out[card.id] = normalizedExpansion(term, expansions[term])
             }
         }
@@ -95,11 +97,12 @@ class HighlightTargetProvider @Inject constructor(
         partOfSpeech: String? = null,
         gender: String? = null,
     ): Set<String> {
-        val key = normalizeWord(term)
+        val word = stripTrailingHint(term)
+        val key = normalizeWord(word)
         if (key.isEmpty()) return emptySet()
-        if (term.trim().any(Char::isWhitespace) || !dictionary.isDownloaded(lang)) return setOf(key)
-        val expansions = dictionary.inflectedFormsFor(mapOf(term to posFilter(partOfSpeech, gender)), lang)
-        return normalizedExpansion(term, expansions[term])
+        if (word.any(Char::isWhitespace) || !dictionary.isDownloaded(lang)) return setOf(key)
+        val expansions = dictionary.inflectedFormsFor(mapOf(word to posFilter(partOfSpeech, gender)), lang)
+        return normalizedExpansion(word, expansions[word])
     }
 
     /**
@@ -156,7 +159,7 @@ class HighlightTargetProvider @Inject constructor(
          * set, always including the card's own [headword] (so an un-backfilled card still matches itself).
          */
         fun decode(stored: String?, headword: String): Set<String> {
-            val key = normalizeWord(headword)
+            val key = normalizeHeadword(headword)
             val out = if (key.isEmpty()) mutableSetOf<String>() else mutableSetOf(key)
             stored?.split(FORM_SEPARATOR)?.forEach { f ->
                 normalizeWord(f).takeIf(String::isNotEmpty)?.let { out.add(it) }

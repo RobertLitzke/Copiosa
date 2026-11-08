@@ -103,8 +103,9 @@ fun ConfirmDeleteDialog(
 
 /**
  * The floating lookup card for the reader's current selection, wired to its [selection] controller.
- * Chat overrides [onSave] and [onDismiss] to clear its own bookkeeping as well, and turns on
- * [canExplain]; the text and book readers take the defaults.
+ * Chat overrides [onSave] and [onDismiss] to clear its own bookkeeping as well, and [onExplain] to
+ * ask in the conversation (which a draft cannot, hence [canExplain]); the text, book and routine
+ * readers take the defaults, where "Explain" is answered in the card itself.
  */
 @Composable
 fun ReaderTranslationCard(
@@ -113,8 +114,8 @@ fun ReaderTranslationCard(
     onOpenVocab: (Long) -> Unit,
     onSave: (headword: String) -> Unit = { selection.saveCurrentTranslation(it) },
     onDismiss: () -> Unit = selection::dismissTranslate,
-    canExplain: Boolean = false,
-    onExplain: () -> Unit = {},
+    canExplain: Boolean = true,
+    onExplain: () -> Unit = selection::explain,
     onSendToAudio: (() -> Unit)? = null,
 ) {
     TranslationCard(
@@ -135,7 +136,12 @@ fun ReaderTranslationCard(
         onDownloadDictionary = selection::downloadDictionary,
         onOpenSaved = { state.savedCard?.let { onOpenVocab(it.id) } },
         onDismiss = onDismiss,
+        relatedCard = state.relatedCard,
+        onOpenRelated = { state.relatedCard?.let { onOpenVocab(it.id) } },
         onSendToAudio = onSendToAudio,
+        explanation = state.explanation,
+        explaining = state.explaining,
+        explainError = state.explainError,
     )
 }
 

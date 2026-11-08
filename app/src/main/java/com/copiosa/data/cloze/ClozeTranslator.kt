@@ -40,10 +40,11 @@ class ClozeTranslator @Inject constructor(
         if (pending.isEmpty()) return 0
 
         val settings = settingsRepo.settings.first()
+        val target = settingsRepo.backgroundTarget(settings)
         // The learner's own language is what a translation is *for*, so it comes from the profile
         // rather than the sentence: a bank row records the language it teaches, not the one it explains in.
         val response = tryLlm {
-            providers.active().chat(
+            providers.forId(target.provider).chat(
                 LlmRequest(
                     systemPrompt = ClozePrompts.translation(lang, settings.nativeLanguage),
                     messages = listOf(
@@ -56,7 +57,7 @@ class ClozeTranslator @Inject constructor(
                             ),
                         ),
                     ),
-                    model = settings.backgroundModel,
+                    model = target.model,
                     feature = LlmFeature.CLOZE_BANK,
                     maxTokens = (pending.size * TOKENS_PER_ITEM).coerceIn(512, 4096),
                     json = JsonShape.ARRAY,

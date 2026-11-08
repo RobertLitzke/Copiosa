@@ -31,6 +31,13 @@ object Routes {
     const val RAPID_FIRE_POOL = "routines/rapidfire/pool?type={type}"
     const val CONJUGATION_DRILL = "routines/conjugation"
     const val CLOZE = "routines/cloze"
+
+    /**
+     * The cloze screen as registered: [CLOZE] plus an optional comma-separated list of card ids to
+     * practise first. A bare [CLOZE] still navigates here — the argument is optional.
+     */
+    const val CLOZE_ROUTE = "routines/cloze?focus={focus}"
+    const val CLOZE_BROWSE = "routines/cloze/browse"
     const val LISTEN_REBUILD = "routines/rebuild"
 
     /** The tense-course hub: every authored course for the profile's language. */
@@ -74,6 +81,9 @@ object Routes {
     fun bookReading(id: Long) = "book/$id"
     fun audioTag(tag: String) = "audio/tag/${Uri.encode(tag)}"
     fun vocabDetail(cardId: Long) = "vocab/card/$cardId"
+
+    /** The cloze screen, opened straight into a sitting on these cards' words. */
+    fun clozeFor(cardIds: List<Long>) = "routines/cloze?focus=" + cardIds.joinToString(",")
 
     /** A reference topic, optionally opened on one item — see [REFERENCE_TOPIC]. */
     fun referenceTopic(topic: ReferenceTopic, focus: String? = null) =

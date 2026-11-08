@@ -1,5 +1,6 @@
 package com.copiosa.data.tts
 
+import com.copiosa.domain.listening.RadioLine
 import com.copiosa.domain.text.Sentences
 import com.k2fsa.sherpa.onnx.GenerationConfig
 import com.k2fsa.sherpa.onnx.OfflineTts
@@ -8,6 +9,9 @@ import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsSupertonicModelConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -25,6 +29,9 @@ object SupertonicVoices {
 
     fun name(sid: Int): String? = NAMES.getOrNull(sid)
 }
+
+/** A stretch of mono float PCM at [sampleRate], as [TtsEngine.speech] hands it out. */
+class SpeechChunk(val samples: FloatArray, val sampleRate: Int)
 
 /**
  * Thin wrapper over sherpa-onnx's [OfflineTts] configured for the Supertonic 3 model. The native
@@ -64,6 +71,26 @@ class TtsEngine @Inject constructor(
             }
         }
     }
+
+    /**
+     * [text] as speech to be played now rather than kept: each sentence is emitted the moment it is
+     * synthesized, so the first can be playing while the rest of a long reply is still being
+     * rendered. Paced like [synthesizeToFile] — the gap between sentences arrives as a chunk of
+     * silence, so a player only has to play what it is given, in order.
+     *
+     * Cold: nothing is synthesized until it is collected, and cancelling the collector stops it at
+     * the next sentence. Put a small `buffer` after it to bound how far synthesis runs ahead.
+     */
+    fun speech(text: String, langCode: String, sid: Int, speed: Float = 1.0f): Flow<SpeechChunk> = flow {
+        val tts = engine()
+        val lang = normalizeLang(langCode)
+        val sampleRate = tts.sampleRate()
+        for ((idx, sentence) in Sentences.split(text).withIndex()) {
+            val samples = tts.generateWithConfig(sentence, genConfig(sid, lang, speed)).samples
+            if (idx > 0) emit(SpeechChunk(silence(sampleRate, SENTENCE_GAP_SEC), sampleRate))
+            emit(SpeechChunk(samples, sampleRate))
+        }
+    }.flowOn(Dispatchers.Default)
 
     /**
      * Renders a full playlist "article": an emphasized spoken [title] (slightly louder and slower so
@@ -109,6 +136,49 @@ class TtsEngine @Inject constructor(
                 if (idx > 0) encoder.write(silence(sampleRate, SENTENCE_GAP_SEC))
                 encoder.write(tts.generateWithConfig(sentence, genConfig(sid, lang, speed)).samples)
                 onProgress?.invoke((idx + 1).toFloat() / sentences.size)
+            }
+            encoder.write(silence(sampleRate, CHIME_GAP_SEC))
+            encoder.write(chime(sampleRate))
+        }
+    }
+
+    /**
+     * Renders a cloze radio track: each of [lines] spoken in [targetLang], then its meaning in
+     * [nativeLang] (when it has one), then spoken again — with room after the first hearing to work
+     * it out before being told. Ends on the same chime an article does. Returns the duration in ms.
+     *
+     * The translation is given a different voice ([nativeSid]) so the two languages can be told apart
+     * with eyes on the road. A line with no translation keeps the same shape with silence in the
+     * middle, so the second hearing still comes after a pause to think.
+     */
+    suspend fun synthesizeRadio(
+        lines: List<RadioLine>,
+        targetLang: String,
+        nativeLang: String,
+        sid: Int,
+        nativeSid: Int,
+        outFile: File,
+        speed: Float = 1.0f,
+    ): Long = withContext(Dispatchers.Default) {
+        val tts = engine()
+        val target = normalizeLang(targetLang)
+        val native = normalizeLang(nativeLang)
+        val sampleRate = tts.sampleRate()
+
+        encodeTo(outFile, sampleRate) { encoder ->
+            for ((idx, line) in lines.withIndex()) {
+                ensureActive()
+                if (idx > 0) encoder.write(silence(sampleRate, RADIO_BETWEEN_SEC))
+                // Synthesized once and written twice: the repeat is the same recording, and a track
+                // of thirty sentences is otherwise sixty renders.
+                val spoken = tts.generateWithConfig(line.target, genConfig(sid, target, speed)).samples
+                encoder.write(spoken)
+                encoder.write(silence(sampleRate, RADIO_THINK_SEC))
+                if (line.native != null) {
+                    encoder.write(tts.generateWithConfig(line.native, genConfig(nativeSid, native, speed)).samples)
+                    encoder.write(silence(sampleRate, RADIO_AFTER_MEANING_SEC))
+                }
+                encoder.write(spoken)
             }
             encoder.write(silence(sampleRate, CHIME_GAP_SEC))
             encoder.write(chime(sampleRate))
@@ -207,6 +277,12 @@ class TtsEngine @Inject constructor(
 
         /** Silence between sentences so periods land as full stops; the model under-pauses on some langs (e.g. pt). */
         private const val SENTENCE_GAP_SEC = 0.32
+
+        // Radio pacing. The first pause is the one that matters: long enough to attempt the meaning
+        // before it is given, short enough that thirty sentences are not mostly silence.
+        private const val RADIO_THINK_SEC = 1.6
+        private const val RADIO_AFTER_MEANING_SEC = 0.7
+        private const val RADIO_BETWEEN_SEC = 1.4
 
         // Soft end-of-article chime.
         private const val CHIME_SECONDS = 0.7

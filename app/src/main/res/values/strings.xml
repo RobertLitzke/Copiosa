@@ -54,6 +54,26 @@
     <string name="stats_card_states">Card states</string>
     <string name="stats_reviews_per_day">Reviews per day (30d)</string>
     <string name="stats_answer_distribution">Answer distribution</string>
+    <string name="stats_outlook_section">Reviews ahead</string>
+    <string name="stats_due_today">Due today</string>
+    <string name="stats_overdue">Of those, overdue</string>
+    <string name="stats_due_next_7">Next 7 days</string>
+    <string name="stats_due_daily_avg">Per day after today</string>
+    <string name="stats_forecast_chart">Words due each day, from tomorrow</string>
+    <plurals name="stats_words">
+        <item quantity="one">%d word</item>
+        <item quantity="other">%d words</item>
+    </plurals>
+    <string name="stats_forecast_max">Busiest: %d</string>
+    <string name="stats_retention_section">Retention, last 30 days</string>
+    <string name="stats_retention_young">Young (interval under 21 days)</string>
+    <string name="stats_retention_mature">Mature (21 days or more)</string>
+    <plurals name="stats_retention_value">
+        <item quantity="one">%1$d%% of %2$d review</item>
+        <item quantity="other">%1$d%% of %2$d reviews</item>
+    </plurals>
+    <string name="stats_retention_none">No reviews</string>
+    <string name="stats_retention_target">Target %d%%</string>
     <plurals name="stats_days">
         <item quantity="one">%d day</item>
         <item quantity="other">%d days</item>
@@ -542,6 +562,8 @@
     <string name="review_hide_explanation">Hide explanation</string>
     <string name="review_open_card">Open this word</string>
     <string name="vocab_saved_label">In your vocabulary</string>
+    <string name="vocab_saved_as_label">In your vocabulary as %1$s</string>
+    <string name="vocab_related_saved">Your card for %1$s lists this form</string>
     <string name="action_view_details">Open</string>
     <string name="vocab_seen_in_chat">Seen in your chat “%1$s”</string>
     <string name="vocab_seen_in_text">Saved from the text “%1$s”</string>
@@ -724,6 +746,20 @@
     <string name="card_meta_never">Never</string>
     <string name="card_meta_interval_days">%1$d days</string>
     <string name="card_meta_interval_day">1 day</string>
+    <string name="card_meta_lapses">Forgotten</string>
+    <string name="card_leech_note">This one keeps slipping. A new example, an image or a rewrite may help more than another review.</string>
+    <string name="card_history_show">History (%1$d)</string>
+    <string name="card_history_hide">Hide history (%1$d)</string>
+    <string name="card_history_all">Show all</string>
+    <string name="card_history_interval">%1$s → %2$s</string>
+    <string name="card_schedule_menu">Change schedule</string>
+    <string name="card_set_due_date">Set due date</string>
+    <string name="card_start_over">Start over</string>
+    <string name="card_start_over_message">Study this direction again from the beginning, as a new card due now? Its review history is kept.</string>
+    <string name="filter_leeches">Trouble</string>
+    <string name="filter_leeches_only">Keeps slipping</string>
+    <string name="review_leech_notice">“%1$s” has slipped %2$d times.</string>
+    <string name="review_leech_open">Open</string>
     <!-- Part of speech labels (normalized keys returned by the model) -->
     <string name="pos_noun">Noun</string>
     <string name="pos_verb">Verb</string>
@@ -764,13 +800,11 @@
     <string name="size_large">Large</string>
     <string name="size_xlarge">Extra large</string>
     <string name="action_back">Back</string>
-    <string name="settings_provider">LLM provider</string>
     <string name="settings_gemini_key">Gemini API key</string>
     <string name="settings_openrouter_key">OpenRouter API key</string>
     <string name="settings_model">Model</string>
     <string name="settings_openrouter_model">OpenRouter model ID</string>
     <string name="settings_openrouter_models">OpenRouter models</string>
-    <string name="settings_openrouter_models_desc">All of these use the one API key. The selected model is the default for new chats, texts, and books; each book can be switched to another from its download menu.</string>
     <string name="settings_openrouter_model_name">Name (optional)</string>
     <string name="settings_openrouter_model_add">Add model</string>
     <string name="settings_openrouter_model_remove">Remove model</string>
@@ -873,6 +907,7 @@
     <string name="audio_tts_prompt_title">Download voice for listening?</string>
     <string name="audio_tts_prompt_body">Listening uses an on-device voice (~100 MB, one-time download). It will be queued and start once the voice is ready.</string>
     <string name="audio_not_now">Not now</string>
+    <string name="pronounce_tts_prompt_body">Playing text aloud uses an on-device voice (~100 MB, one-time download). Tap play again once it has downloaded.</string>
 
     <!-- Book audio (a book's chapters, grouped under one tag) -->
     <string name="book_audio_untitled">Book</string>
@@ -914,7 +949,7 @@
     <string name="settings_background_tasks_desc">Suggest new topics and retry failed chats while the app is closed. Uses your API key.</string>
     <string name="settings_background_model">Background model</string>
     <string name="settings_background_model_same">Same as main (%1$s)</string>
-    <string name="settings_background_model_desc">Used for work you aren\'t waiting on: filling in saved words, upkeep of the fill-the-blank bank, topic suggestions and title translations. A cheaper model does these just as well. Chats, texts, books, routines and lessons keep the main model.</string>
+    <string name="settings_background_model_desc">Used for work you aren\'t waiting on: filling in saved words, upkeep of the fill-the-blank bank, topic suggestions and title translations. A cheaper model does these just as well, and it can be on either provider you have a key for. Chats, texts, books, routines and lessons keep the main model.</string>
     <!-- Settings: usage meter -->
     <string name="settings_usage_section">Usage this month</string>
     <string name="usage_empty">No model calls recorded yet this month.</string>
@@ -930,7 +965,6 @@
     <string name="usage_cost_estimated">≈ %1$s</string>
     <string name="usage_cost_floor">%1$s+</string>
     <string name="usage_cost_unknown">no price</string>
-    <string name="usage_scope">All languages together — the API keys are shared.</string>
     <string name="usage_counting_since">Counting began on %1$s; nothing before that was recorded.</string>
     <string name="usage_note_estimated">≈ marks an estimate. Gemini reports tokens but not cost, so its figures use paid-tier list prices — a free-tier key pays none of it. OpenRouter figures are what it charged.</string>
     <string name="usage_note_unpriced">+ means some calls went to a model with no known price: their tokens are counted, their cost is not.</string>
@@ -943,6 +977,7 @@
     <string name="usage_feature_quiz">Rapid-fire pools</string>
     <string name="usage_feature_vocab">Saved-word details</string>
     <string name="usage_feature_bulk_add">Adding words in bulk</string>
+    <string name="usage_feature_explain">Explanations while reading</string>
     <string name="usage_feature_other">Other</string>
     <string name="settings_speech_section">Speech (text-to-speech)</string>
     <string name="settings_tts_title">On-device voice</string>
@@ -1226,6 +1261,59 @@
     <string name="cloze_bank_size">%1$d sentences ready</string>
     <string name="cloze_bank_explainer">Sentences from your own cards and reading, with a word you\'re studying blanked out.</string>
     <string name="cloze_start">Start</string>
+    <string name="cloze_type">Type the word</string>
+    <string name="cloze_type_prompt">Type the missing word</string>
+    <string name="cloze_type_label">Your answer</string>
+    <string name="cloze_type_check">Check</string>
+    <string name="cloze_type_hint">Hint</string>
+    <string name="cloze_type_accents">Right. It\'s written “%1$s”.</string>
+    <string name="cloze_type_wrong">It was “%1$s”.</string>
+    <string name="cloze_type_overrule">I had it right</string>
+    <string name="cloze_more_section">More ways in</string>
+    <string name="cloze_bank_section">The bank</string>
+    <string name="cloze_reading_start">Read a passage</string>
+    <string name="cloze_reading_title">Passage</string>
+    <string name="cloze_reading_prompt">Put each word where it belongs</string>
+    <string name="cloze_reading_none">No page you\'ve read has enough of your words on it yet. Read a little further in a book and try again.</string>
+    <string name="cloze_track_start">Common words, in order</string>
+    <string name="cloze_track_title">Common words</string>
+    <string name="cloze_track_progress">%1$d of the %2$d commonest words passed · %3$d have a sentence</string>
+    <string name="cloze_browse_open">Browse the bank</string>
+    <string name="cloze_browse_title">Sentence bank</string>
+    <string name="cloze_browse_search">Search sentences</string>
+    <string name="cloze_browse_empty">Nothing matches.</string>
+    <string name="cloze_browse_pin">Keep</string>
+    <string name="cloze_browse_unpin">Stop keeping</string>
+    <string name="cloze_browse_set_aside">Set aside</string>
+    <string name="cloze_browse_delete_message">Delete this sentence from the bank? If it came from your reading it may be found again later; set it aside instead to keep it out for good.</string>
+    <string name="cloze_browse_sentence">Sentence</string>
+    <string name="cloze_browse_translation">Translation</string>
+    <string name="cloze_browse_keep_answer">Must still contain “%1$s” exactly once.</string>
+    <string name="cloze_browse_edit_refused">That edit wasn\'t saved: the sentence has to contain the blanked word exactly once, and can\'t duplicate one already in the bank.</string>
+    <string name="cloze_source_card">From a card</string>
+    <string name="cloze_source_book">From a book</string>
+    <string name="cloze_source_text">From a text</string>
+    <string name="cloze_source_chat">From a chat</string>
+    <string name="cloze_source_dict">From the dictionary</string>
+    <string name="cloze_source_llm">Written for this word</string>
+    <string name="cloze_source_legacy">From an Anki card</string>
+    <string name="vocab_practise_in_sentences">Practise in sentences</string>
+    <plurals name="review_practise_misses">
+        <item quantity="one">Practise the %1$d you missed in sentences</item>
+        <item quantity="other">Practise the %1$d you missed in sentences</item>
+    </plurals>
+    <string name="cloze_listen">Listen instead</string>
+    <string name="cloze_listen_prompt">Which word did you hear?</string>
+    <string name="cloze_listen_needs_voice">Listen instead (needs the voice)</string>
+    <string name="cloze_radio_section">Radio</string>
+    <string name="cloze_radio_explainer">A hands-free track of sentences from this bank for the audio playlist: each one spoken, then its meaning, then spoken again.</string>
+    <string name="cloze_radio_with_translation">Include the translation</string>
+    <string name="cloze_radio_make">Make a radio track</string>
+    <string name="cloze_radio_queued">Queued %1$d sentences. The track appears in Audio once it has rendered.</string>
+    <string name="cloze_radio_none">No sentences to make a track from yet.</string>
+    <string name="cloze_radio_open">Open the folder</string>
+    <string name="cloze_radio_tag">Cloze radio</string>
+    <string name="cloze_radio_title">Radio · %1$s</string>
     <string name="cloze_none_usable">None of your banked sentences has enough answer options to choose between yet. Finding more sentences may help.</string>
     <string name="cloze_stock_first">Build from my cards</string>
     <string name="cloze_stock_more">Find more sentences</string>

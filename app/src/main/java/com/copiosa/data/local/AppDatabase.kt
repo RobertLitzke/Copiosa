@@ -34,7 +34,7 @@ import androidx.room.TypeConverters
         LlmUsageEntity::class,
     ],
     views = [FlashcardEntity::class],
-    version = 46,
+    version = 48,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)

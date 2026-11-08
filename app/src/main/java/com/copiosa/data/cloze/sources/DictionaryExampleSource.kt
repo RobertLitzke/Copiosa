@@ -38,7 +38,7 @@ class DictionaryExampleSource @Inject constructor(
         for (card in flashcardDao.allActive(ctx.lang)) {
             if (out.size >= limit || lookups >= LOOKUPS_PER_RUN) break
             val lemma = normalizeWord(card.targetTerm)
-            if (lemma.isEmpty() || !ctx.hasRoomFor(lemma)) continue
+            if (lemma.isEmpty() || !ctx.hasRoomFor(lemma) || !ctx.wantsSentencesFor(card.id)) continue
             // Multi-word phrases have no headword to look up.
             if (card.targetTerm.trim().any(Char::isWhitespace)) continue
 

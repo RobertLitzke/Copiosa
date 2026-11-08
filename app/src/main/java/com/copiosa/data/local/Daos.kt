@@ -1,6 +1,7 @@
 package com.copiosa.data.local
 
 import androidx.room.Dao
+import androidx.room.Embedded
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -135,6 +136,12 @@ data class ConversationPreview(val conversationId: Long, val snippet: String, va
 
 /** How many cards sit in one lifecycle [state], for the stats screen's card breakdown. */
 data class StateCount(val state: FlashcardState, val count: Int)
+
+/** One scheduled card for the review forecast: its note (siblings count once a day) and its due time. */
+data class DueCard(val noteId: Long, val dueAt: Long)
+
+/** Graded and passed review-state reviews in one maturity band, for measured retention. */
+data class RetentionCount(val mature: Boolean, val total: Int, val passed: Int)
 
 /** Due words in two piles: those with a due card studied before, and those due only as new cards. */
 data class DueSplit(val reviewNotes: Int, val newNotes: Int)
@@ -490,8 +497,12 @@ interface FlashcardDao {
     )
     suspend fun cardsWithMarkdownBack(): List<FlashcardEntity>
 
-    /** Notes whose highlight forms haven't been computed yet (one card each) — the backfill backlog. */
-    @Query("SELECT * FROM flashcards WHERE inflectedForms IS NULL GROUP BY noteId")
+    /**
+     * Notes whose highlight forms haven't been computed yet (one card each) — the backfill backlog.
+     * Forms containing "(" were cached from a term with a bracketed hint ("pasa (fruta") before the
+     * hint was stripped, so they are recomputed too.
+     */
+    @Query("SELECT * FROM flashcards WHERE inflectedForms IS NULL OR inflectedForms LIKE '%(%' GROUP BY noteId")
     suspend fun cardsMissingInflectedForms(): List<FlashcardEntity>
 
     /** Sets (or clears, with null) the image filename on the note card [id] belongs to. */
@@ -556,6 +567,16 @@ interface FlashcardDao {
             "WHERE (:lang IS NULL OR targetLanguage = :lang) GROUP BY state",
     )
     fun observeStateCounts(lang: String?): Flow<List<StateCount>>
+
+    /**
+     * Every studied, unfrozen card falling due before [until], overdue ones included, for the review
+     * forecast. New cards are left out: the daily new-card limit decides when those appear.
+     */
+    @Query(
+        "SELECT noteId, dueAt FROM flashcards WHERE suspended = 0 AND state != 'NEW' AND dueAt < :until " +
+            "AND (:lang IS NULL OR targetLanguage = :lang)",
+    )
+    fun observeDueCardsBefore(lang: String?, until: Long): Flow<List<DueCard>>
 
     @Query("SELECT COUNT(*) FROM flashcards WHERE createdAt >= :since AND (:lang IS NULL OR targetLanguage = :lang)")
     fun observeCardsAddedSince(lang: String?, since: Long): Flow<Int>
@@ -710,6 +731,10 @@ interface ReviewLogDao {
     @Query("SELECT * FROM reviews WHERE cardId = :cardId ORDER BY reviewedAt ASC")
     suspend fun forCard(cardId: Long): List<ReviewLogEntity>
 
+    /** A card's history as it changes, newest first — what the detail screen lists. */
+    @Query("SELECT * FROM reviews WHERE cardId = :cardId ORDER BY reviewedAt DESC")
+    fun observeForCard(cardId: Long): Flow<List<ReviewLogEntity>>
+
     @Query("SELECT * FROM reviews ORDER BY reviewedAt ASC")
     suspend fun all(): List<ReviewLogEntity>
 
@@ -771,6 +796,26 @@ interface ReviewLogDao {
             "WHERE (:lang IS NULL OR f.targetLanguage = :lang) GROUP BY r.rating",
     )
     fun observeRatingCounts(lang: String?): Flow<List<RatingCount>>
+
+    /**
+     * Measured retention since [since], split at [matureDays]: of the reviews where the card was in
+     * the review state (Anki's "true retention"), how many were passed. A review counts when the
+     * card's previous review left it in REVIEW, or, for a card's first review here (an Anki import
+     * with no history), when it already had an interval of a day or more. Learning and relearning
+     * steps are left out, as they are in Anki: they say how a fresh lapse went, not how memory held.
+     * The band is the interval the card had going into the review.
+     */
+    @Query(
+        "SELECT (r.lastIntervalDays >= :matureDays) AS mature, COUNT(*) AS total, " +
+            "SUM(CASE WHEN r.rating != 'AGAIN' THEN 1 ELSE 0 END) AS passed " +
+            "FROM reviews r JOIN flashcards f ON r.cardId = f.id " +
+            "WHERE r.reviewedAt >= :since AND (:lang IS NULL OR f.targetLanguage = :lang) " +
+            "AND COALESCE((SELECT p.state FROM reviews p WHERE p.cardId = r.cardId " +
+            "AND p.reviewedAt < r.reviewedAt ORDER BY p.reviewedAt DESC LIMIT 1) = 'REVIEW', " +
+            "r.lastIntervalDays >= 1) " +
+            "GROUP BY mature",
+    )
+    fun observeRetentionCounts(lang: String?, since: Long, matureDays: Double): Flow<List<RetentionCount>>
 }
 
 @Dao
@@ -1030,6 +1075,23 @@ interface ConjugationDrillDao {
 /** How many sentences the bank already holds for one lemma — the per-lemma cap, in one query. */
 data class LemmaCount(val lemma: String, val total: Int)
 
+/** One assistant message and the kind of conversation it belongs to; see [ClozeDao.readReplies]. */
+data class ReadReply(val conversationId: Long, val content: String, val mode: Mode)
+
+/**
+ * A banked sentence with the schedule of the card it practises, all null when it has none — the row
+ * a sitting is chosen from. See [ClozeDao.pool].
+ */
+data class ClozePoolRow(
+    @Embedded val sentence: ClozeSentenceEntity,
+    val noteId: Long?,
+    val cardState: FlashcardState?,
+    val cardDueAt: Long?,
+    val cardIntervalDays: Double?,
+    val cardLapses: Int?,
+    val cardSuspended: Boolean?,
+)
+
 @Dao
 interface ClozeDao {
 
@@ -1056,6 +1118,92 @@ interface ClozeDao {
     suspend fun byId(id: Long): ClozeSentenceEntity?
 
     // --- composing a session ---
+
+    /**
+     * Every sentence in circulation with the state of the card behind it — what
+     * [com.copiosa.domain.cloze.ClozeSelector] chooses a sitting from. A LEFT JOIN, because a
+     * sentence outlives its card and a frequent word may never have had one.
+     *
+     * The whole bank rather than a page of it: it is bounded by the bank's own ceiling, and "which
+     * words need practice" is not an order SQL can be asked for.
+     */
+    @Query(
+        "SELECT s.*, c.noteId AS noteId, c.state AS cardState, c.dueAt AS cardDueAt, " +
+            "c.intervalDays AS cardIntervalDays, c.lapses AS cardLapses, c.suspended AS cardSuspended " +
+            "FROM cloze_sentences s LEFT JOIN cards c ON c.id = s.cardId " +
+            "WHERE s.targetLanguage = :lang AND s.suspended = 0",
+    )
+    suspend fun pool(lang: String): List<ClozePoolRow>
+
+    /** Notes with a card graded Again at or after [since] — today's misses, whichever direction. */
+    @Query(
+        "SELECT DISTINCT c.noteId FROM reviews r JOIN cards c ON c.id = r.cardId " +
+            "WHERE r.reviewedAt >= :since AND r.rating = 'AGAIN'",
+    )
+    suspend fun notesMissedSince(since: Long): List<Long>
+
+    @Query("SELECT DISTINCT noteId FROM cards WHERE id IN (:cardIds)")
+    suspend fun noteIdsOf(cardIds: List<Long>): List<Long>
+
+    /** Words the common-words track counts as passed: a sentence for them answered and holding. */
+    @Query(
+        "SELECT DISTINCT lemma FROM cloze_sentences WHERE targetLanguage = :lang " +
+            "AND repetitions > 0 AND state = 'REVIEW'",
+    )
+    suspend fun passedLemmas(lang: String): List<String>
+
+    // --- reading material outside books ---
+
+    /**
+     * The tutor's replies and imported texts' bodies in [lang], newest first, from conversations the
+     * learner has opened — what [com.copiosa.data.cloze.sources.ConversationSentenceSource] mines.
+     */
+    @Query(
+        "SELECT m.conversationId AS conversationId, m.content AS content, c.mode AS mode " +
+            "FROM messages m JOIN conversations c ON c.id = m.conversationId " +
+            "WHERE c.targetLanguage = :lang AND c.read = 1 AND m.role = 'ASSISTANT' AND c.mode = :mode " +
+            "ORDER BY m.createdAt DESC LIMIT :limit",
+    )
+    suspend fun readReplies(lang: String, mode: Mode, limit: Int): List<ReadReply>
+
+    // --- rotation ---
+
+    /**
+     * Unfrozen cards that have settled — see [com.copiosa.domain.cloze.ClozeSelector.isSettled],
+     * whose two numbers these are.
+     */
+    @Query("SELECT id FROM cards WHERE suspended = 0 AND intervalDays >= :matureDays AND dueAt > :dueAfter")
+    suspend fun settledCardIds(matureDays: Double, dueAfter: Long): List<Long>
+
+    /**
+     * Sentences a full bank may give up, in the order it should: ones for a settled card, never
+     * practised before practised, longest first. Never one the learner pinned, flagged or set aside
+     * (a set-aside row is a tombstone), and never one converted from an Anki card.
+     */
+    @Query(
+        "SELECT s.id FROM cloze_sentences s JOIN cards c ON c.id = s.cardId " +
+            "WHERE s.targetLanguage = :lang AND s.suspended = 0 AND s.flaggedReason IS NULL " +
+            "AND s.pinned = 0 AND s.ankiNoteGuid IS NULL " +
+            "AND c.intervalDays >= :matureDays AND c.dueAt > :dueAfter " +
+            "ORDER BY (s.repetitions > 0) ASC, LENGTH(s.text) DESC LIMIT :limit",
+    )
+    suspend fun evictable(lang: String, matureDays: Double, dueAfter: Long, limit: Int): List<Long>
+
+    @Query("DELETE FROM cloze_sentences WHERE id IN (:ids)")
+    suspend fun deleteAll(ids: List<Long>)
+
+    // --- browsing ---
+
+    /** The bank as a list to look through: pinned first, then newest, narrowed by [query]. */
+    @Query(
+        "SELECT * FROM cloze_sentences WHERE targetLanguage = :lang " +
+            "AND (:query = '' OR text LIKE '%' || :query || '%' OR translation LIKE '%' || :query || '%') " +
+            "ORDER BY pinned DESC, id DESC LIMIT :limit",
+    )
+    fun observeBrowse(lang: String, query: String, limit: Int): Flow<List<ClozeSentenceEntity>>
+
+    @Query("UPDATE cloze_sentences SET pinned = :pinned WHERE id = :id")
+    suspend fun setPinned(id: Long, pinned: Boolean)
 
     /**
      * The pool a sitting is drawn from: everything not set aside, soonest-due first, so overdue
@@ -1121,8 +1269,19 @@ interface ClozeDao {
     )
     suspend fun untranslated(lang: String, limit: Int): List<ClozeSentenceEntity>
 
-    @Query("UPDATE cloze_sentences SET translation = :translation WHERE id = :id")
-    suspend fun setTranslation(id: Long, translation: String)
+    /**
+     * What the model's translation pass should work on: sentences with no translation first, then
+     * ones the on-device translator filled in, which are readable but worth replacing.
+     */
+    @Query(
+        "SELECT * FROM cloze_sentences WHERE targetLanguage = :lang AND suspended = 0 " +
+            "AND (translation IS NULL OR TRIM(translation) = '' OR machineTranslated = 1) " +
+            "ORDER BY machineTranslated ASC, id DESC LIMIT :limit",
+    )
+    suspend fun wantingModelTranslation(lang: String, limit: Int): List<ClozeSentenceEntity>
+
+    @Query("UPDATE cloze_sentences SET translation = :translation, machineTranslated = :machine WHERE id = :id")
+    suspend fun setTranslation(id: Long, translation: String, machine: Boolean)
 
     @Query("SELECT * FROM cloze_sentences WHERE targetLanguage = :lang AND (suspended = 1 OR flaggedReason IS NOT NULL) ORDER BY id DESC")
     fun observeFlagged(lang: String): Flow<List<ClozeSentenceEntity>>

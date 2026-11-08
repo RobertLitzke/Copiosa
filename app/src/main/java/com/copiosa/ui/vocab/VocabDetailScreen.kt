@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,20 +23,28 @@ import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,19 +52,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.copiosa.R
 import com.copiosa.data.local.FlashcardEntity
+import com.copiosa.data.local.ReviewLogEntity
 import com.copiosa.data.local.cardDirection
 import com.copiosa.data.repository.FlashcardRepository
 import com.copiosa.domain.model.Cloze
 import com.copiosa.domain.model.ReviewDirection
+import com.copiosa.domain.srs.ReviewWindows
+import com.copiosa.domain.srs.isLeech
+import com.copiosa.ui.components.ratingColor
+import com.copiosa.ui.components.ratingLabel
 import com.copiosa.ui.components.CefrBadge
 import com.copiosa.ui.components.MarkdownText
 import com.copiosa.ui.components.SectionLabel
@@ -65,6 +81,9 @@ import com.copiosa.ui.components.readingStyle
 import com.copiosa.ui.components.stripInlineMarkdown
 import com.copiosa.ui.theme.SerifBody
 import com.copiosa.ui.theme.SerifTitle
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -78,10 +97,13 @@ fun VocabDetailScreen(
     onOpenConversation: (Long) -> Unit,
     onOpenText: (Long) -> Unit,
     onOpenBook: (Long) -> Unit,
+    /** Opens a cloze sitting on this word. */
+    onPractiseInSentences: (Long) -> Unit,
     viewModel: VocabDetailViewModel = hiltViewModel(),
 ) {
     val card by viewModel.card.collectAsStateWithLifecycle()
     val cards by viewModel.cards.collectAsStateWithLifecycle()
+    val history by viewModel.history.collectAsStateWithLifecycle()
     val rank by viewModel.rank.collectAsStateWithLifecycle()
     val origin by viewModel.origin.collectAsStateWithLifecycle()
     val ui by viewModel.ui.collectAsStateWithLifecycle()
@@ -134,13 +156,17 @@ fun VocabDetailScreen(
                 card = c,
                 // Until the note's cards arrive, the card the screen was opened on stands alone.
                 directions = cards.ifEmpty { listOf(c) },
+                history = history,
                 onToggleFreeze = viewModel::toggleSuspended,
+                onStartOver = viewModel::startOver,
+                onSetDueDate = viewModel::setDueDate,
                 onStudyBothDirections = viewModel::studyBothDirections,
                 rank = rank,
                 origin = origin,
                 explaining = ui.explaining,
                 errorText = ui.error?.let { llmErrorText(it) },
                 onExplain = viewModel::explain,
+                onPractise = { onPractiseInSentences(c.id) },
                 onOpenOrigin = {
                     when (val o = origin) {
                         is WordOrigin.Chat -> onOpenConversation(o.id)
@@ -189,13 +215,17 @@ fun VocabDetailScreen(
 private fun DetailContent(
     card: FlashcardEntity,
     directions: List<FlashcardEntity>,
+    history: Map<Long, List<ReviewLogEntity>>,
     onToggleFreeze: (FlashcardEntity) -> Unit,
+    onStartOver: (FlashcardEntity) -> Unit,
+    onSetDueDate: (FlashcardEntity, Long) -> Unit,
     onStudyBothDirections: () -> Unit,
     rank: Int?,
     origin: WordOrigin?,
     explaining: Boolean,
     errorText: String?,
     onExplain: () -> Unit,
+    onPractise: () -> Unit,
     onOpenOrigin: () -> Unit,
 ) {
     Column(
@@ -298,6 +328,12 @@ private fun DetailContent(
             )
         }
 
+        // Words and phrases only: the bank blanks a word in a sentence, which is not what a
+        // conjugation or grammar card is.
+        if (card.cardKind in FlashcardRepository.LEARNED_BOTH_WAYS) {
+            OutlinedButton(onClick = onPractise) { Text(stringResource(R.string.vocab_practise_in_sentences)) }
+        }
+
         if (origin != null) {
             OriginCard(origin = origin, onClick = onOpenOrigin)
         }
@@ -305,7 +341,13 @@ private fun DetailContent(
         // Secondary spaced-repetition metadata, de-emphasised at the bottom in faint inset boxes —
         // one per direction, since each direction of a word is scheduled on its own.
         directions.forEach { direction ->
-            CardMetaSection(direction, onToggleFreeze = { onToggleFreeze(direction) })
+            CardMetaSection(
+                card = direction,
+                history = history[direction.id].orEmpty(),
+                onToggleFreeze = { onToggleFreeze(direction) },
+                onStartOver = { onStartOver(direction) },
+                onSetDueDate = { onSetDueDate(direction, it) },
+            )
         }
         // A word, phrase or sentence is learned both ways; one that has a single card (an import
         // that only brought one, say) can be given the other.
@@ -331,11 +373,24 @@ private fun DetailContent(
  * One direction's spaced-repetition state, derived entirely from its card's schedule fields (no new
  * tracking): status, review count, next due, current interval, and last-reviewed time. Rendered as a
  * faint, muted inset box at the bottom — it's secondary to the word's actual content. The snowflake
- * freezes this direction alone.
+ * freezes this direction alone, and the menu beside it holds the two ways of moving its schedule by
+ * hand. [history] is this direction's graded reviews, newest first, folded away until asked for.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CardMetaSection(card: FlashcardEntity, onToggleFreeze: () -> Unit) {
+private fun CardMetaSection(
+    card: FlashcardEntity,
+    history: List<ReviewLogEntity>,
+    onToggleFreeze: () -> Unit,
+    onStartOver: () -> Unit,
+    onSetDueDate: (Long) -> Unit,
+) {
     val now = System.currentTimeMillis()
+    var menuOpen by remember { mutableStateOf(false) }
+    var confirmStartOver by remember { mutableStateOf(false) }
+    var pickingDate by remember { mutableStateOf(false) }
+    var historyOpen by remember { mutableStateOf(false) }
+    var historyAll by remember { mutableStateOf(false) }
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
         shape = MaterialTheme.shapes.medium,
@@ -358,9 +413,32 @@ private fun CardMetaSection(card: FlashcardEntity, onToggleFreeze: () -> Unit) {
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = stringResource(R.string.card_schedule_menu),
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.card_set_due_date)) },
+                            onClick = { menuOpen = false; pickingDate = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.card_start_over)) },
+                            onClick = { menuOpen = false; confirmStartOver = true },
+                        )
+                    }
+                }
             }
             MetaRow(stringResource(R.string.card_meta_status), statusOf(card).label())
             MetaRow(stringResource(R.string.card_meta_reviews), card.repetitions.toString())
+            if (card.lapses > 0) {
+                MetaRow(stringResource(R.string.card_meta_lapses), card.lapses.toString())
+            }
             MetaRow(
                 stringResource(R.string.card_meta_due),
                 if (card.dueAt <= now) stringResource(R.string.card_meta_due_now) else relativeTime(card.dueAt),
@@ -377,9 +455,137 @@ private fun CardMetaSection(card: FlashcardEntity, onToggleFreeze: () -> Unit) {
                 stringResource(R.string.card_meta_last_reviewed),
                 card.lastReviewedAt?.let { relativeTime(it) } ?: stringResource(R.string.card_meta_never),
             )
+            if (card.isLeech) {
+                Text(
+                    stringResource(R.string.card_leech_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontStyle = FontStyle.Italic,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 12.dp, top = 4.dp),
+                )
+            }
+            if (history.isNotEmpty()) {
+                TextButton(
+                    onClick = { historyOpen = !historyOpen },
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        stringResource(
+                            if (historyOpen) R.string.card_history_hide else R.string.card_history_show,
+                            history.size,
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+                if (historyOpen) {
+                    val shown = if (historyAll) history else history.take(HISTORY_PREVIEW)
+                    shown.forEach { HistoryRow(it) }
+                    if (!historyAll && history.size > HISTORY_PREVIEW) {
+                        TextButton(
+                            onClick = { historyAll = true },
+                            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.card_history_all),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (confirmStartOver) {
+        AlertDialog(
+            onDismissRequest = { confirmStartOver = false },
+            title = { Text(stringResource(R.string.card_start_over)) },
+            text = { Text(stringResource(R.string.card_start_over_message)) },
+            confirmButton = {
+                TextButton(onClick = { confirmStartOver = false; onStartOver() }) {
+                    Text(stringResource(R.string.card_start_over))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmStartOver = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
+    if (pickingDate) {
+        val zone = ZoneId.systemDefault()
+        // The picker speaks UTC midnights; the card's due date is a local moment. Open on the day the
+        // card is due as the learner would name it, and no earlier than today.
+        val opensOn = Instant.ofEpochMilli(maxOf(card.dueAt, now)).atZone(zone).toLocalDate()
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = opensOn.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+        )
+        DatePickerDialog(
+            onDismissRequest = { pickingDate = false },
+            confirmButton = {
+                TextButton(
+                    enabled = pickerState.selectedDateMillis != null,
+                    onClick = {
+                        pickingDate = false
+                        pickerState.selectedDateMillis?.let { utcMidnight ->
+                            val day = Instant.ofEpochMilli(utcMidnight).atZone(ZoneOffset.UTC).toLocalDate()
+                            onSetDueDate(day.atStartOfDay(zone).toInstant().toEpochMilli())
+                        }
+                    },
+                ) { Text(stringResource(R.string.card_set_due_date)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickingDate = false }) { Text(stringResource(R.string.action_cancel)) }
+            },
+        ) {
+            DatePicker(state = pickerState)
         }
     }
 }
+
+/** How many reviews the history shows before "show all" — enough to see a pattern, not a wall. */
+private const val HISTORY_PREVIEW = 10
+
+/** One graded review: when, what was pressed, and where the interval went. */
+@Composable
+private fun HistoryRow(log: ReviewLogEntity) {
+    Row(modifier = Modifier.fillMaxWidth().padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            DateUtils.formatDateTime(
+                LocalContext.current,
+                log.reviewedAt,
+                DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_YEAR or DateUtils.FORMAT_ABBREV_MONTH,
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            ratingLabel(log.rating),
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
+            color = ratingColor(log.rating),
+        )
+        Text(
+            stringResource(
+                R.string.card_history_interval,
+                intervalShort(log.lastIntervalDays),
+                intervalShort(log.intervalDays),
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.End,
+            modifier = Modifier.width(96.dp),
+        )
+    }
+}
+
+/** An interval in the list's own terse units; a card with none yet reads as a dash, not as "due". */
+@Composable
+private fun intervalShort(days: Double): String =
+    if (days <= 0.0) "–" else formatDueShort((days * ReviewWindows.DAY_MS).toLong())
 
 @Composable
 private fun MetaRow(label: String, value: String) {

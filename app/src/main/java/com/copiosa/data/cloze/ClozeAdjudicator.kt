@@ -39,6 +39,7 @@ class ClozeAdjudicator @Inject constructor(
         if (items.isEmpty()) return 0
 
         val settings = settingsRepo.settings.first()
+        val target = settingsRepo.backgroundTarget(settings)
         val payload = items.map {
             ClozeVerdictRequestItem(
                 id = it.sentenceId,
@@ -48,11 +49,11 @@ class ClozeAdjudicator @Inject constructor(
             )
         }
         val response = tryLlm {
-            providers.active().chat(
+            providers.forId(target.provider).chat(
                 LlmRequest(
                     systemPrompt = ClozePrompts.verdict(settings.targetLanguage),
                     messages = listOf(LlmMessage(Role.USER, ClozeGenerationParser.encodeVerdictRequest(payload))),
-                    model = settings.backgroundModel,
+                    model = target.model,
                     feature = LlmFeature.CLOZE_BANK,
                     maxTokens = (items.size * TOKENS_PER_ITEM).coerceIn(512, 4096),
                     json = JsonShape.ARRAY,

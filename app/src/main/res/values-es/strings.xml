@@ -53,6 +53,26 @@
     <string name="stats_card_states">Estados de tarjetas</string>
     <string name="stats_reviews_per_day">Repasos por día (30d)</string>
     <string name="stats_answer_distribution">Distribución de respuestas</string>
+    <string name="stats_outlook_section">Repasos por venir</string>
+    <string name="stats_due_today">Para hoy</string>
+    <string name="stats_overdue">De ellos, atrasados</string>
+    <string name="stats_due_next_7">Próximos 7 días</string>
+    <string name="stats_due_daily_avg">Por día desde mañana</string>
+    <string name="stats_forecast_chart">Palabras pendientes por día, desde mañana</string>
+    <plurals name="stats_words">
+        <item quantity="one">%d palabra</item>
+        <item quantity="other">%d palabras</item>
+    </plurals>
+    <string name="stats_forecast_max">Máximo: %d</string>
+    <string name="stats_retention_section">Retención, últimos 30 días</string>
+    <string name="stats_retention_young">Jóvenes (intervalo de menos de 21 días)</string>
+    <string name="stats_retention_mature">Maduras (21 días o más)</string>
+    <plurals name="stats_retention_value">
+        <item quantity="one">%1$d%% de %2$d repaso</item>
+        <item quantity="other">%1$d%% de %2$d repasos</item>
+    </plurals>
+    <string name="stats_retention_none">Sin repasos</string>
+    <string name="stats_retention_target">Objetivo %d%%</string>
     <plurals name="stats_days">
         <item quantity="one">%d día</item>
         <item quantity="other">%d días</item>
@@ -362,6 +382,8 @@
     <string name="review_hide_explanation">Ocultar explicación</string>
     <string name="review_open_card">Abrir esta palabra</string>
     <string name="vocab_saved_label">En tu léxico</string>
+    <string name="vocab_saved_as_label">En tu léxico como %1$s</string>
+    <string name="vocab_related_saved">Tu tarjeta de %1$s incluye esta forma</string>
     <string name="action_view_details">Abrir</string>
     <string name="vocab_seen_in_chat">Visto en tu charla «%1$s»</string>
     <string name="vocab_seen_in_text">Guardado del texto «%1$s»</string>
@@ -457,6 +479,20 @@
     <string name="card_meta_never">Nunca</string>
     <string name="card_meta_interval_days">%1$d días</string>
     <string name="card_meta_interval_day">1 día</string>
+    <string name="card_meta_lapses">Olvidada</string>
+    <string name="card_leech_note">Esta se te sigue escapando. Un ejemplo nuevo, una imagen o reescribirla puede ayudar más que otro repaso.</string>
+    <string name="card_history_show">Historial (%1$d)</string>
+    <string name="card_history_hide">Ocultar historial (%1$d)</string>
+    <string name="card_history_all">Ver todo</string>
+    <string name="card_history_interval">%1$s → %2$s</string>
+    <string name="card_schedule_menu">Cambiar la programación</string>
+    <string name="card_set_due_date">Fijar fecha</string>
+    <string name="card_start_over">Empezar de nuevo</string>
+    <string name="card_start_over_message">¿Estudiar esta dirección desde el principio, como una tarjeta nueva pendiente ahora? Se conserva su historial de repasos.</string>
+    <string name="filter_leeches">Dificultad</string>
+    <string name="filter_leeches_only">Se me escapan</string>
+    <string name="review_leech_notice">«%1$s» se te ha escapado %2$d veces.</string>
+    <string name="review_leech_open">Abrir</string>
 
     <!-- Categorías gramaticales (claves normalizadas que devuelve el modelo) -->
     <string name="pos_noun">Sustantivo</string>
@@ -503,13 +539,11 @@
     <string name="size_large">Grande</string>
     <string name="size_xlarge">Muy grande</string>
     <string name="action_back">Atrás</string>
-    <string name="settings_provider">Proveedor LLM</string>
     <string name="settings_gemini_key">Clave API de Gemini</string>
     <string name="settings_openrouter_key">Clave API de OpenRouter</string>
     <string name="settings_model">Modelo</string>
     <string name="settings_openrouter_model">ID de modelo de OpenRouter</string>
     <string name="settings_openrouter_models">Modelos de OpenRouter</string>
-    <string name="settings_openrouter_models_desc">Todos usan la misma clave API. El modelo seleccionado es el predeterminado para chats, textos y libros nuevos; cada libro puede cambiarse a otro desde su menú de descarga.</string>
     <string name="settings_openrouter_model_name">Nombre (opcional)</string>
     <string name="settings_openrouter_model_add">Añadir modelo</string>
     <string name="settings_openrouter_model_remove">Quitar modelo</string>
@@ -582,6 +616,7 @@
     <string name="audio_tts_prompt_title">¿Descargar la voz para escuchar?</string>
     <string name="audio_tts_prompt_body">La escucha usa una voz en el dispositivo (~100 MB, descarga única). Se pondrá en cola y comenzará cuando la voz esté lista.</string>
     <string name="audio_not_now">Ahora no</string>
+    <string name="pronounce_tts_prompt_body">Reproducir texto en voz alta usa una voz en el dispositivo (~100 MB, descarga única). Vuelve a tocar el botón cuando se haya descargado.</string>
     <!-- Ajustes: voz en el dispositivo -->
     <string name="settings_background_section">Segundo plano</string>
     <string name="settings_background_tasks">Tareas en segundo plano</string>
@@ -601,7 +636,6 @@
     <string name="usage_cost_estimated">≈ %1$s</string>
     <string name="usage_cost_floor">%1$s+</string>
     <string name="usage_cost_unknown">sin precio</string>
-    <string name="usage_scope">Todos los idiomas juntos: las claves de API se comparten.</string>
     <string name="usage_counting_since">El recuento empezó el %1$s; lo anterior no quedó registrado.</string>
     <string name="usage_note_estimated">≈ indica una estimación. Gemini informa de los tokens pero no del coste, así que sus cifras usan los precios de lista del nivel de pago — una clave del nivel gratuito no paga nada de eso. Las cifras de OpenRouter son lo que cobró.</string>
     <string name="usage_note_unpriced">+ significa que algunas llamadas fueron a un modelo sin precio conocido: sus tokens se cuentan, su coste no.</string>
@@ -614,6 +648,7 @@
     <string name="usage_feature_quiz">Bancos de ráfaga</string>
     <string name="usage_feature_vocab">Detalles de palabras guardadas</string>
     <string name="usage_feature_bulk_add">Añadir palabras en bloque</string>
+    <string name="usage_feature_explain">Explicaciones al leer</string>
     <string name="usage_feature_other">Otros</string>
     <string name="settings_speech_section">Voz (texto a voz)</string>
     <string name="settings_tts_title">Voz en el dispositivo</string>
@@ -1098,7 +1133,7 @@
     <string name="prompt_warning_message">A tu prompt le falta: %1$s. El modelo no recibirá esa información. ¿Guardar de todos modos?</string>
     <string name="settings_background_model">Modelo en segundo plano</string>
     <string name="settings_background_model_same">El mismo que el principal (%1$s)</string>
-    <string name="settings_background_model_desc">Se usa para el trabajo que no estás esperando: completar las palabras guardadas, mantener el banco de «Rellena el hueco», las sugerencias de temas y la traducción de títulos. Un modelo más barato lo hace igual de bien. Los chats, textos, libros, rutinas y lecciones siguen con el modelo principal.</string>
+    <string name="settings_background_model_desc">Se usa para el trabajo que no estás esperando: completar las palabras guardadas, mantener el banco de «Rellena el hueco», las sugerencias de temas y la traducción de títulos. Un modelo más barato lo hace igual de bien, y puede ser de cualquiera de los proveedores con clave. Los chats, textos, libros, rutinas y lecciones siguen con el modelo principal.</string>
 
     <!-- Libros: audio -->
     <string name="book_audio_untitled">Libro</string>
@@ -1191,6 +1226,59 @@
     <string name="cloze_bank_size">%1$d oraciones listas</string>
     <string name="cloze_bank_explainer">Oraciones de tus propias tarjetas y lecturas, con el hueco en una palabra que estás estudiando.</string>
     <string name="cloze_start">Empezar</string>
+    <string name="cloze_type">Escribir la palabra</string>
+    <string name="cloze_type_prompt">Escribe la palabra que falta</string>
+    <string name="cloze_type_label">Tu respuesta</string>
+    <string name="cloze_type_check">Comprobar</string>
+    <string name="cloze_type_hint">Pista</string>
+    <string name="cloze_type_accents">Correcto. Se escribe «%1$s».</string>
+    <string name="cloze_type_wrong">Era «%1$s».</string>
+    <string name="cloze_type_overrule">La tenía bien</string>
+    <string name="cloze_more_section">Otras formas</string>
+    <string name="cloze_bank_section">El banco</string>
+    <string name="cloze_reading_start">Leer un pasaje</string>
+    <string name="cloze_reading_title">Pasaje</string>
+    <string name="cloze_reading_prompt">Pon cada palabra en su sitio</string>
+    <string name="cloze_reading_none">Ninguna página que hayas leído tiene aún suficientes palabras tuyas. Lee un poco más de un libro y vuelve a intentarlo.</string>
+    <string name="cloze_track_start">Palabras frecuentes, en orden</string>
+    <string name="cloze_track_title">Palabras frecuentes</string>
+    <string name="cloze_track_progress">%1$d de las %2$d palabras más frecuentes superadas · %3$d tienen oración</string>
+    <string name="cloze_browse_open">Ver el banco</string>
+    <string name="cloze_browse_title">Banco de oraciones</string>
+    <string name="cloze_browse_search">Buscar oraciones</string>
+    <string name="cloze_browse_empty">No hay coincidencias.</string>
+    <string name="cloze_browse_pin">Conservar</string>
+    <string name="cloze_browse_unpin">Dejar de conservar</string>
+    <string name="cloze_browse_set_aside">Apartar</string>
+    <string name="cloze_browse_delete_message">¿Eliminar esta oración del banco? Si salió de tus lecturas puede volver a encontrarse; apártala si quieres que no vuelva.</string>
+    <string name="cloze_browse_sentence">Oración</string>
+    <string name="cloze_browse_translation">Traducción</string>
+    <string name="cloze_browse_keep_answer">Debe seguir conteniendo «%1$s» exactamente una vez.</string>
+    <string name="cloze_browse_edit_refused">No se guardó el cambio: la oración debe contener la palabra del hueco exactamente una vez y no puede duplicar otra del banco.</string>
+    <string name="cloze_source_card">De una tarjeta</string>
+    <string name="cloze_source_book">De un libro</string>
+    <string name="cloze_source_text">De un texto</string>
+    <string name="cloze_source_chat">De un chat</string>
+    <string name="cloze_source_dict">Del diccionario</string>
+    <string name="cloze_source_llm">Escrita para esta palabra</string>
+    <string name="cloze_source_legacy">De una tarjeta de Anki</string>
+    <string name="vocab_practise_in_sentences">Practicar en oraciones</string>
+    <plurals name="review_practise_misses">
+        <item quantity="one">Practicar en oraciones la que fallaste</item>
+        <item quantity="other">Practicar en oraciones las %1$d que fallaste</item>
+    </plurals>
+    <string name="cloze_listen">Mejor escuchar</string>
+    <string name="cloze_listen_prompt">¿Qué palabra has oído?</string>
+    <string name="cloze_listen_needs_voice">Mejor escuchar (requiere la voz)</string>
+    <string name="cloze_radio_section">Radio</string>
+    <string name="cloze_radio_explainer">Una pista manos libres con oraciones de este banco para la lista de audio: cada una hablada, luego su significado y luego hablada otra vez.</string>
+    <string name="cloze_radio_with_translation">Incluir la traducción</string>
+    <string name="cloze_radio_make">Crear una pista de radio</string>
+    <string name="cloze_radio_queued">%1$d oraciones en cola. La pista aparece en Audio cuando termine de generarse.</string>
+    <string name="cloze_radio_none">Aún no hay oraciones con las que crear una pista.</string>
+    <string name="cloze_radio_open">Abrir la carpeta</string>
+    <string name="cloze_radio_tag">Radio de huecos</string>
+    <string name="cloze_radio_title">Radio · %1$s</string>
     <string name="cloze_none_usable">Ninguna de tus oraciones tiene todavía suficientes opciones de respuesta entre las que elegir. Buscar más oraciones puede ayudar.</string>
     <string name="cloze_stock_first">Crear a partir de mis tarjetas</string>
     <string name="cloze_stock_more">Buscar más oraciones</string>

@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.copiosa.data.local.FlashcardEntity
+import com.copiosa.data.local.ReviewLogEntity
 import com.copiosa.data.remote.LlmError
 import com.copiosa.data.remote.LlmException
 import com.copiosa.data.repository.BookRepository
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -62,6 +64,16 @@ class VocabDetailViewModel @Inject constructor(
     /** Every card of the word — one per direction studied — term-first leading, each with its own schedule. */
     val cards: StateFlow<List<FlashcardEntity>> =
         repo.observeNoteCards(cardId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Each direction's graded reviews, newest first, keyed by card id. */
+    val history: StateFlow<Map<Long, List<ReviewLogEntity>>> =
+        cards.flatMapLatest { directions ->
+            if (directions.isEmpty()) {
+                flowOf(emptyMap())
+            } else {
+                combine(directions.map { d -> repo.observeReviews(d.id).map { d.id to it } }) { it.toMap() }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** Where this word sits in the bundled frequency list, or null if it isn't in it. */
     val rank: StateFlow<Int?> =
@@ -150,6 +162,16 @@ class VocabDetailViewModel @Inject constructor(
      */
     fun toggleSuspended(direction: FlashcardEntity) {
         viewModelScope.launch { repo.setSuspended(direction.id, !direction.suspended) }
+    }
+
+    /** Starts one direction over as a new card; its history stays. */
+    fun startOver(direction: FlashcardEntity) {
+        viewModelScope.launch { repo.resetSchedule(direction.id) }
+    }
+
+    /** Moves one direction's next review to [dueAt]. */
+    fun setDueDate(direction: FlashcardEntity, dueAt: Long) {
+        viewModelScope.launch { repo.setDueDate(direction.id, dueAt) }
     }
 
     /** Starts studying the word in the direction it has no card for yet, as a new card due now. */
