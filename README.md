@@ -6,19 +6,37 @@
   </picture>
 </p>
 <h1 align="center">Copiosa</h1>
-<p align="center"><em>Spanish for "abundant." Bring one API key; everything else is included.</em></p>
+<p align="center"><em>Spanish for "abundant." Read any long-form text, translated at your level of understnaidng, standard LLM API keys.</em></p>
 
-Copiosa is an Android app for learning a language as an adult.
+Copiosa is an Android app for learning a language as an adult. The main premise is that effective, idiomatic translation is easily accessible via LLMs, and that reading text is a great way to learn languages.
 
-You chat with an AI tutor in the language you're learning. You paste in an article, or import an
-EPUB, and read it with a translation beside it. Tap any word you don't know and it tells you what it
-means — tap again and it becomes a flashcard. Those flashcards come back on a proper
-spaced-repetition schedule. When you'd rather be taught than immersed, short grammar courses start
-from zero. At night, the app builds you a short wind-down routine out of whatever you've been
-studying.
+The main loop is to paste in an article from a website, import an EPUB, or simply state a topic in your native or target language, and get a translation. It uses either Google's free AI Studio API keys, or OpenRouter. Translating an entire epub is about $1 on OpenRouter with good-quality but cheap models, and you can export your translation for your own ereader. You can also slowly trickle in the translation with Google's API key, which has a free quota. A conversation about any topic of your choosing is a fraction of a cent.
+
+Since the main focus is on long-form text, the app is build around that, with features like quickly flipping back and forth between languages or viewing the languages interspered with one another.
+
+The app also includes a spaced-repetition flashcard system that integrates with the text (highlighting vocabulary from your deck in the text, requesting specific terms in the translation, and allowing easy export of any term from your text to a new card).
+
+Likewise, there are two local LLMs that have been integrated, which run free. The first is an offline dictionary plus an on-device translator, which handles small-scale tasks, but which isn't as effective as a larger model for full idiomatic translation. This works better than a static dictionary.
+
+The other local LLM is a text-to-speech system that sounds very natural. You can use this to get an audio version of any text. So, you can listen to the translated article, book, or conversation read to you.
 
 You bring one API key. There's no account, no subscription, and no server: your vocabulary, your
-reading, and your progress live on your phone.
+reading, and your progress live on your phone, and you can export from this app into a standard file for use elsewhere.
+
+I've tested this with Spanish and Portuguese, but it's designed for any language and most common languages understood by Gemini, DeepSeek, and TTS models should work fine.
+
+Under development, and need some work: courses and clozes.
+
+## Screenshots
+
+<table>
+  <tr><th>Home</th><th>Reading a book</th><th>Tap-to-define</th></tr>
+  <tr><td><img src="screenshots/home.png" alt="Home" width="260"></td><td><img src="screenshots/reading.png" alt="Reading a book" width="260"></td><td><img src="screenshots/tap_to_define.png" alt="Tap-to-define" width="260"></td></tr>
+  <tr><th>Library</th><th>Vocab list</th><th>Word detail</th></tr>
+  <tr><td><img src="screenshots/library.png" alt="Library" width="260"></td><td><img src="screenshots/vocab_list.png" alt="Vocab list" width="260"></td><td><img src="screenshots/word_detail.png" alt="Word detail" width="260"></td></tr>
+  <tr><th>Parallel texts</th><th>Grammar courses</th><th>Routines</th></tr>
+  <tr><td><img src="screenshots/parallel_texts.png" alt="Parallel texts" width="260"></td><td><img src="screenshots/courses.png" alt="Grammar courses" width="260"></td><td><img src="screenshots/routines.png" alt="Routines" width="260"></td></tr>
+</table>
 
 ## What it does
 
@@ -35,8 +53,9 @@ reading, and your progress live on your phone.
   as an EPUB, either a clean copy in the language you're learning or a bilingual one with each
   paragraph followed by its translation.
 - **Tap to define.** Tap a word or drag across a phrase for an instant definition and translation,
-  from a fully offline dictionary and on-device translation. One more tap saves it as a flashcard —
-  and words you've saved stay highlighted everywhere you read.
+  from a fully offline dictionary and on-device translation. A speaker button says it aloud on the
+  spot, and the same button sits on review cards and chat replies. One more tap saves it as a
+  flashcard, and words you've saved stay highlighted everywhere you read.
 - **Vocabulary.** A real FSRS scheduler with cloze cards, images, audio, and one-tap undo. Every
   word is learned in both directions, recognising it and producing it, each on its own schedule.
   Anki `.apkg` decks move in and out losslessly, review history included, and a plain JSON export
@@ -71,18 +90,8 @@ reading, and your progress live on your phone.
   arc and tuned to what you're weakest at. A daytime routine runs the arc the other way, warming up
   gently and finishing sharp.
 - **Home and progress.** What's due, a daily goal, time spent, accuracy, and streaks.
-- **A look you'll want to open.** Country palettes, persona skins, dark mode, adjustable reading
+- **Beautiful style.** Country palettes, persona skins, dark mode, adjustable reading
   fonts — and per-language profiles that keep settings, decks, playlists and progress separate.
-
-## Screenshots
-
-| Conversations                             | Tap-to-define                                    | Vocabulary                                |
-| ----------------------------------------- | ------------------------------------------------ | ----------------------------------------- |
-| ![Conversations](screenshots/library.png) | ![Tap-to-define](screenshots/tap_to_define.png)  | ![Vocabulary](screenshots/vocabulary.png) |
-
-| Reading                             | Audio playlist                                | Routines                            |
-| ----------------------------------- | --------------------------------------------- | ----------------------------------- |
-| ![Reading](screenshots/reading.png) | ![Audio playlist](screenshots/audio_playlist.png) | ![Routines](screenshots/routines.png) |
 
 ## Getting started
 
